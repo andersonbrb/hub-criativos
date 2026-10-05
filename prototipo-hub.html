@@ -1,0 +1,553 @@
+<title>Claquete Hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: app shell — sidebar de agentes à esquerda, área de trabalho à direita; cada agente é uma estação da linha de produção */
+:root{
+  --bg:#F2F3F6; --surface:#FFFFFF; --surface-2:#E9EBF0; --line:#D8DBE3;
+  --fg:#161922; --muted:#5D6374;
+  --accent:#E0442F; --accent-soft:#FBE3DF; --cobalt:#3552D4; --cobalt-soft:#E2E7FB;
+  --ok:#1C8F62; --ok-soft:#DDF3EA; --warn:#B57A00; --warn-soft:#FBF0D6;
+  --t-avatar:#3552D4; --t-broll:#0E8C8C; --t-voz:#7A4FD0; --t-leg:#B57A00; --t-mus:#6B7285;
+  --preview-a:#2B3350; --preview-b:#6C3B4F;
+  --f-display:"Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono:"IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0F1117; --surface:#171A22; --surface-2:#1F232D; --line:#2B303C;
+  --fg:#E7E9EF; --muted:#959CAD;
+  --accent:#FF6A55; --accent-soft:#3A1F1C; --cobalt:#8297FF; --cobalt-soft:#1F2647;
+  --ok:#3CC48D; --ok-soft:#14302A; --warn:#E3AE3A; --warn-soft:#352A12;
+  --t-avatar:#6F86FF; --t-broll:#2BB5B5; --t-voz:#A07CF0; --t-leg:#E3AE3A; --t-mus:#7D8497;
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0F1117; --surface:#171A22; --surface-2:#1F232D; --line:#2B303C;
+  --fg:#E7E9EF; --muted:#959CAD;
+  --accent:#FF6A55; --accent-soft:#3A1F1C; --cobalt:#8297FF; --cobalt-soft:#1F2647;
+  --ok:#3CC48D; --ok-soft:#14302A; --warn:#E3AE3A; --warn-soft:#352A12;
+  --t-avatar:#6F86FF; --t-broll:#2BB5B5; --t-voz:#A07CF0; --t-leg:#E3AE3A; --t-mus:#7D8497;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14px;line-height:1.5}
+*{box-sizing:border-box}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--cobalt);outline-offset:2px}
+h1,h2,h3{font-family:var(--f-display);font-weight:700;margin:0;text-wrap:balance;letter-spacing:-.01em}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+
+.app{display:grid;grid-template-columns:248px minmax(0,1fr);height:100%}
+/* Sidebar */
+.side{background:var(--surface);border-right:1px solid var(--line);display:flex;flex-direction:column;gap:20px;padding:18px 14px;overflow-y:auto}
+.brand{display:flex;align-items:center;gap:10px;padding:0 6px}
+.brand-mark{width:30px;height:30px;border-radius:7px;background:var(--fg);position:relative;overflow:hidden;flex:none}
+.brand-mark::before{content:"";position:absolute;inset:0 0 auto 0;height:9px;background:repeating-linear-gradient(135deg,var(--fg) 0 5px,var(--surface) 5px 10px)}
+.brand-mark::after{content:"";position:absolute;width:7px;height:7px;border-radius:50%;background:var(--accent);right:6px;bottom:6px}
+.brand h1{font-size:19px}
+.brand small{display:block;font-size:11px;color:var(--muted);font-family:var(--f-body);font-weight:400;letter-spacing:0}
+.nav{display:flex;flex-direction:column;gap:2px}
+.nav .label{padding:0 8px 6px}
+.nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;border-radius:7px;padding:7px 8px;color:var(--fg)}
+.nav button:hover{background:var(--surface-2)}
+.nav button[aria-current="true"]{background:var(--cobalt-soft);color:var(--cobalt);font-weight:600}
+.nav .glyph{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;font-size:11px;font-weight:700;font-family:var(--f-mono);background:var(--surface-2);color:var(--muted);flex:none}
+.nav button[aria-current="true"] .glyph{background:var(--cobalt);color:var(--surface)}
+.nav .meta{margin-left:auto;font-size:11px;color:var(--muted)}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}
+.dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.run{background:var(--accent);animation:pulse 1.4s infinite}
+@keyframes pulse{50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.dot.run{animation:none}}
+.side-foot{margin-top:auto;border-top:1px solid var(--line);padding:12px 8px 0;display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)}
+.side-foot .row{display:flex;justify-content:space-between}
+
+/* Main */
+.main{overflow-y:auto;min-width:0}
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 28px}
+.crumbs{font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center;flex-wrap:wrap;min-width:0}
+.crumbs b{color:var(--fg);font-weight:600}
+.topbar .spacer{flex:1}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 13px;font-weight:500;display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.btn.rec{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.small{padding:4px 10px;font-size:12px}
+.view{padding:24px 28px 48px;display:flex;flex-direction:column;gap:24px;max-width:1280px}
+.view-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap}
+.view-head h2{font-size:28px;line-height:1.15}
+.view-head p{margin:4px 0 0;color:var(--muted);max-width:62ch}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.chip.ok{background:var(--ok-soft);color:var(--ok)}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}
+.chip.run{background:var(--accent-soft);color:var(--accent)}
+.chip.idle{background:var(--surface-2);color:var(--muted)}
+.tool-tag{font-family:var(--f-mono);font-size:11px;border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:var(--muted);white-space:nowrap}
+
+/* Slate (project header) */
+.slate{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));overflow:hidden}
+.slate > div{padding:14px 16px;border-right:1px solid var(--line);min-width:0}
+.slate > div:last-child{border-right:0}
+.slate .v{font-family:var(--f-display);font-size:18px;font-weight:600;margin-top:2px;overflow-wrap:anywhere}
+.slate-bar{height:10px;background:repeating-linear-gradient(135deg,var(--fg) 0 14px,var(--surface) 14px 28px);border-radius:12px 12px 0 0}
+
+/* Pipeline */
+.pipeline{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.stage{padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.stage-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.stage-num{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.stage h3{font-size:17px}
+.stage p{margin:0;color:var(--muted);font-size:13px}
+.stage .out{background:var(--surface-2);border-radius:8px;padding:9px 11px;font-size:13px}
+.stage .foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:auto;flex-wrap:wrap}
+.stage.is-run{border-color:var(--accent)}
+.progress{height:4px;background:var(--surface-2);border-radius:4px;overflow:hidden}
+.progress i{display:block;height:100%;background:var(--accent)}
+
+/* Matrix */
+.matrix-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:640px}
+th,td{text-align:left;padding:11px 16px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+tr:last-child td{border-bottom:0}
+.section-title{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.section-title h3{font-size:16px}
+
+/* Agent workspace */
+.agent-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:16px;align-items:start}
+.chat{display:flex;flex-direction:column;min-height:520px}
+.msgs{flex:1;padding:16px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;max-height:560px}
+.msg{max-width:92%;padding:10px 13px;border-radius:10px;font-size:13.5px;white-space:pre-line}
+.msg.ai{background:var(--surface-2);align-self:flex-start;border-top-left-radius:3px}
+.msg.me{background:var(--cobalt);color:var(--surface);align-self:flex-end;border-top-right-radius:3px}
+.msg .who{display:block;font-size:11px;font-weight:600;opacity:.75;margin-bottom:3px}
+.msg.tool{background:none;border:1px dashed var(--line);font-family:var(--f-mono);font-size:12px;color:var(--muted);align-self:stretch;max-width:100%}
+.composer{border-top:1px solid var(--line);padding:12px;display:flex;gap:8px}
+.composer textarea{flex:1;min-width:0;resize:none;border:1px solid var(--line);border-radius:8px;background:var(--bg);padding:8px 10px;height:42px}
+.deliv{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;padding:16px}
+.card{border:1px solid var(--line);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;background:var(--surface)}
+.thumb{aspect-ratio:9/16;max-height:220px;width:100%;position:relative;display:flex;align-items:flex-end;padding:10px;color:#fff;font-size:12px;font-weight:600}
+.thumb.wide{aspect-ratio:16/10}
+.thumb .badge{position:absolute;top:8px;left:8px;font-family:var(--f-mono);font-size:10px;background:rgba(0,0,0,.45);padding:1px 6px;border-radius:4px}
+.card .body{padding:10px 12px;display:flex;flex-direction:column;gap:6px;font-size:13px}
+.card .body .row{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.textcard{padding:14px;font-size:13.5px;display:flex;flex-direction:column;gap:8px}
+.textcard q{quotes:none;font-family:var(--f-display);font-size:16px;font-weight:600;line-height:1.3}
+.textcard .row{display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap}
+.runbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+.runbar .spacer{flex:1}
+.agent-tools{display:flex;gap:6px;flex-wrap:wrap}
+
+/* Editor */
+.editor{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
+.stagebox{display:flex;flex-direction:column;align-items:center;gap:12px;padding:20px}
+.preview{width:min(270px,100%);aspect-ratio:9/16;border-radius:14px;position:relative;overflow:hidden;background:linear-gradient(160deg,var(--preview-a),var(--preview-b));transition:background .4s}
+.preview .src{position:absolute;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;font-family:var(--f-mono);font-size:10px;color:rgba(255,255,255,.8)}
+.preview .who{position:absolute;inset:0;display:grid;place-items:center;color:rgba(255,255,255,.55);font-family:var(--f-display);font-size:15px;text-align:center;padding:24px}
+.preview .cap{position:absolute;left:14px;right:14px;bottom:18%;text-align:center;font-family:var(--f-display);font-weight:700;font-size:17px;line-height:1.2;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.6)}
+.preview .cap span{background:#FFD23F;color:#161922;padding:0 4px;border-radius:3px;text-shadow:none}
+.transport{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center}
+.tc{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:15px;background:var(--fg);color:var(--bg);padding:3px 10px;border-radius:6px}
+.timeline-wrap{overflow-x:auto;border-top:1px solid var(--line)}
+.timeline{min-width:680px;position:relative;padding:8px 0 12px}
+.ruler,.track{display:grid;grid-template-columns:120px 1fr}
+.ruler .ticks{position:relative;height:22px;border-bottom:1px solid var(--line)}
+.ruler .ticks span{position:absolute;top:3px;font-family:var(--f-mono);font-size:10px;color:var(--muted);transform:translateX(-50%)}
+.track{height:42px;align-items:center}
+.track .tname{font-size:12px;font-weight:600;padding:0 12px;display:flex;align-items:center;gap:7px;color:var(--muted)}
+.track .lane{position:relative;height:32px;background:var(--surface-2);border-radius:5px;margin-right:12px}
+.clip{position:absolute;top:2px;bottom:2px;border-radius:5px;padding:0 8px;font-size:11px;font-weight:600;color:#fff;display:flex;align-items:center;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;border:2px solid transparent;cursor:pointer;text-align:left}
+.clip[aria-pressed="true"]{border-color:var(--fg);box-shadow:0 0 0 2px var(--surface)}
+.playhead{position:absolute;top:0;bottom:0;width:2px;background:var(--accent);pointer-events:none}
+.playhead::before{content:"";position:absolute;top:0;left:-5px;border:6px solid transparent;border-top-color:var(--accent)}
+.lanes-area{position:absolute;top:0;bottom:0;left:120px;right:12px;cursor:col-resize}
+.inspector{padding:16px;display:flex;flex-direction:column;gap:14px}
+.inspector h3{font-size:16px}
+.field{display:flex;flex-direction:column;gap:4px}
+.field input,.field select,.field textarea{border:1px solid var(--line);background:var(--bg);border-radius:7px;padding:6px 9px;width:100%}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.inspector .actions{display:flex;gap:8px;flex-wrap:wrap}
+.hint{font-size:12px;color:var(--muted);margin:0}
+
+/* Integrations */
+.int-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.int{padding:16px;display:flex;flex-direction:column;gap:10px}
+.int-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.int-head h3{font-size:17px}
+.int ul{margin:0;padding-left:18px;color:var(--muted);font-size:13px}
+.int .foot{display:flex;justify-content:space-between;align-items:center;margin-top:auto;font-size:12px;color:var(--muted);gap:8px;flex-wrap:wrap}
+
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:9px;font-size:13px;z-index:20;max-width:calc(100% - 32px)}
+.example-note{font-size:12px;color:var(--muted);border:1px dashed var(--line);border-radius:8px;padding:6px 10px;align-self:flex-start}
+
+@media (max-width:1100px){
+  .pipeline{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .editor{grid-template-columns:minmax(0,1fr)}
+  .agent-grid{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:820px){
+  .app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+  .side{flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:0;border-bottom:1px solid var(--line);padding:10px 16px;gap:16px;align-items:center}
+  .brand small,.side-foot,.nav .label,.nav .meta{display:none}
+  .nav{flex-direction:row;gap:2px}
+  .nav button{white-space:nowrap;width:auto}
+  .topbar{padding:10px 16px}
+  .view{padding:18px 16px 40px}
+  .slate{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .slate > div{border-bottom:1px solid var(--line)}
+  .pipeline{grid-template-columns:minmax(0,1fr)}
+  .view-head h2{font-size:23px}
+}
+</style>
+
+<div class="app">
+  <aside class="side" aria-label="Navegação">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <h1>Claquete<small>Hub de criativos</small></h1>
+    </div>
+    <nav class="nav" id="nav-main">
+      <div class="label">Produção</div>
+      <button data-view="pipeline"><span class="glyph">◫</span>Pipeline</button>
+      <button data-view="editor"><span class="glyph">▶</span>Editor<span class="meta">v3</span></button>
+      <button data-view="integracoes"><span class="glyph">⇄</span>Integrações</button>
+    </nav>
+    <nav class="nav" id="nav-agents">
+      <div class="label">Agentes</div>
+    </nav>
+    <div class="side-foot">
+      <div class="row"><span>Custo do criativo</span><span class="mono">US$ 4,82</span></div>
+      <div class="row"><span>Saldo FLORA</span><span class="mono">US$ 61,30</span></div>
+      <div class="row"><span>Créditos HeyGen</span><span class="mono">118 min</span></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="crumbs">SonoLeve <span>/</span> Campanha Out/26 <span>/</span> <b>CR-014 · Gancho “café”</b></div>
+      <div class="spacer"></div>
+      <span class="chip run"><span class="dot run"></span>2 agentes rodando</span>
+      <button class="btn" data-toast="Link de revisão copiado para a área de transferência">Compartilhar revisão</button>
+      <button class="btn rec" data-toast="Exportação enfileirada: 6 variações, 9:16, 1080×1920">Exportar</button>
+    </div>
+    <div id="view"></div>
+  </main>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const AGENTS = [
+  {id:"estrategia", g:"ES", name:"Estrategista", status:"ok", meta:"feito",
+   role:"Lê a página de vendas e os anúncios de referência, define avatar, dores e ângulos.",
+   tools:["Claude","Copy Miner","Ad Library"],
+   chat:[
+    ["me","Analisa a página do SonoLeve e os 3 anúncios mais escalados do nicho de sono."],
+    ["tool","copy_miner.list_pains(produto: \"SonoLeve\") → 14 dores"],
+    ["ai","Avatar principal: mulher 30–45, trabalha em casa, toma 3+ cafés por dia e acorda cansada.\n\nÂngulos com mais tração:\n1. Café como vilão escondido do sono\n2. \"Dormi 8h e acordei destruída\"\n3. Rotina noturna em 2 minutos"],
+    ["me","Segue com o ângulo 1 pro CR-014."]],
+   out:"text", items:[
+    ["Avatar","Mulher 30–45, home office, dependente de café, sono leve e fragmentado.","Copy Miner"],
+    ["Ângulo escolhido","Café como vilão escondido do sono","Claude"],
+    ["Objeção-chave","“Já tentei melatonina e me deixa grogue”","Copy Miner"]]},
+  {id:"copy", g:"CP", name:"Copy", status:"ok", meta:"3 ganchos",
+   role:"Escreve ganchos, body e CTA a partir do ângulo. Gera variações para teste A/B.",
+   tools:["Claude","Copy Miner"],
+   chat:[
+    ["me","3 ganchos de até 3s pro ângulo do café. Tom de conversa, UGC."],
+    ["tool","copy_miner.list_validated_ugcs(produto: \"SonoLeve\") → 9 narrações validadas"],
+    ["ai","Usei a estrutura das 2 UGCs que mais escalaram como base. Ganchos prontos ao lado. O body tem 22s e fecha com CTA de frete grátis."],
+    ["me","Gancho B ficou ótimo. Deixa o A mais agressivo."]],
+   out:"text", items:[
+    ["Gancho A","“Seu café das 16h está roubando 2 horas do seu sono.”","3,1s"],
+    ["Gancho B","“Eu parei de tomar café por 7 dias… e olha o que aconteceu.”","2,8s"],
+    ["Gancho C","“Ninguém te conta isso sobre cafeína e insônia.”","2,6s"],
+    ["Body","Na primeira noite eu já senti diferença. Comecei a usar o SonoLeve 30 minutos antes de deitar…","22s"]]},
+  {id:"vsl", g:"VS", name:"VSL", status:"idle", meta:"",
+   role:"Monta roteiros longos de VSL: lead, história, mecanismo, prova, oferta e fechamento.",
+   tools:["Claude","Copy Miner"],
+   chat:[["ai","Pronto para montar a VSL do SonoLeve. Uso o ângulo do café do CR-014 ou começo de um novo?"]],
+   out:"text", items:[
+    ["Estrutura sugerida","Lead (0:00–0:45) · História (0:45–3:10) · Mecanismo (3:10–5:00) · Prova · Oferta · Garantia","~9 min"]]},
+  {id:"voz", g:"VZ", name:"Voz", status:"ok", meta:"3 takes",
+   role:"Gera a narração com voz clonada ou de biblioteca, ajusta ritmo e entonação.",
+   tools:["ElevenLabs"],
+   chat:[
+    ["me","Narração do gancho B + body com a voz da Camila, ritmo de conversa."],
+    ["tool","elevenlabs.creative_generate_speech(voice: \"Camila – UGC\", 412 caracteres)"],
+    ["ai","3 takes gerados. O take 2 tem pausa natural depois de \"7 dias\". Recomendo ele."]],
+   out:"audio", items:[["Take 1","00:24.6"],["Take 2 ★","00:25.1"],["Take 3","00:24.2"]]},
+  {id:"avatar", g:"AV", name:"Avatar UGC", status:"run", meta:"68%",
+   role:"Cria o avatar falando o roteiro com lipsync sobre a narração aprovada.",
+   tools:["HeyGen"],
+   chat:[
+    ["me","Avatar da Júlia, look cozinha de manhã, lipsync no take 2."],
+    ["tool","heygen.create_video_from_avatar(look: \"Júlia – cozinha\", audio: take_2.mp3, 9:16)"],
+    ["ai","Renderizando. Previsão: ~3 min. Aviso quando terminar e já mando pro editor."]],
+   out:"video", items:[["Gancho B · Júlia","render 68%","run"],["Body · Júlia","na fila","idle"],["CTA · Júlia","pronto","ok"]]},
+  {id:"broll", g:"BR", name:"B-rolls", status:"run", meta:"4/6",
+   role:"Gera cenas de apoio: produto, rotina, antes/depois. Imagem para vídeo.",
+   tools:["FLORA","Higgsfield"],
+   chat:[
+    ["me","6 b-rolls pro body: close do frasco, xícara de café à tarde, mulher acordando descansada."],
+    ["tool","flora.create_generations(6 prompts, modelo: Kling 2.5, 9:16) · custo estimado US$ 1,62"],
+    ["ai","4 prontos, 2 renderizando. O \"antes/depois\" saiu melhor no Higgsfield, gerei lá."]],
+   out:"video", items:[["Frasco close-up","FLORA · 4s","ok"],["Xícara 16h","FLORA · 3s","ok"],["Acordando","Higgsfield · 4s","ok"],["Antes/depois","Higgsfield · 5s","ok"],["Rotina noturna","renderizando","run"],["Mesa home office","renderizando","run"]]},
+  {id:"estaticos", g:"ES", name:"Estáticos", status:"idle", meta:"",
+   role:"Criativos de imagem: feed, stories e carrossel a partir do mesmo ângulo.",
+   tools:["FLORA"],
+   chat:[["ai","Posso gerar 4 estáticos 4:5 com o gancho C como headline. Quer que eu use o frasco do b-roll como base?"]],
+   out:"text", items:[["Formatos","1080×1350 feed · 1080×1920 stories · carrossel 5 cards","FLORA"]]},
+  {id:"editor-ag", g:"ED", name:"Editor", status:"ok", meta:"v3",
+   role:"Monta gancho + body, sincroniza b-rolls, legendas e trilha. Exporta as variações.",
+   tools:["Higgsfield","Hub"], link:"editor"}
+];
+
+const STAGES = [
+  ["01","Estratégia","estrategia","ok","Ângulo: café como vilão do sono","Claude · Copy Miner"],
+  ["02","Copy","copy","ok","3 ganchos + body 22s + CTA","Claude"],
+  ["03","Voz","voz","ok","Take 2 aprovado · 25,1s","ElevenLabs"],
+  ["04","Avatar UGC","avatar","run","Gancho B renderizando","HeyGen",68],
+  ["05","B-rolls","broll","run","4 de 6 cenas prontas","FLORA · Higgsfield",66],
+  ["06","Edição","editor","ok","v3 montada · aguardando avatar","Hub"],
+  ["07","Revisão","pipeline","idle","Link para o gestor de tráfego","Hub"],
+  ["08","Export","pipeline","idle","6 variações 9:16","Hub"]
+];
+
+const STATUS = {ok:["ok","Pronto"],run:["run","Rodando"],idle:["idle","Na fila"],warn:["warn","Atenção"]};
+const chip = s => `<span class="chip ${STATUS[s][0]}">${s==="run"?'<span class="dot run"></span>':""}${STATUS[s][1]}</span>`;
+const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const THUMBS = ["#2B3350,#6C3B4F","#1F4E4E,#2E7D6B","#4A3520,#9A6A3A","#2C2F48,#5C4E8A","#3B2234,#8A4A5E","#203040,#3E6A8A"];
+
+/* Navegação */
+const navAgents = document.getElementById("nav-agents");
+AGENTS.forEach(a=>{
+  const b=document.createElement("button");
+  b.dataset.view = a.link || "agent:"+a.id;
+  b.innerHTML=`<span class="glyph">${a.g}</span>${a.name}<span class="meta">${a.status==="run"?'<span class="dot run"></span> ':""}${a.meta}</span>`;
+  navAgents.appendChild(b);
+});
+document.querySelector(".side").addEventListener("click",e=>{
+  const b=e.target.closest("button[data-view]"); if(b) go(b.dataset.view);
+});
+
+const viewEl=document.getElementById("view");
+let current="pipeline";
+function go(v){
+  current=v; stopPlay();
+  document.querySelectorAll(".nav button").forEach(b=>b.setAttribute("aria-current", b.dataset.view===v ? "true":"false"));
+  if(v==="pipeline") renderPipeline();
+  else if(v==="editor") renderEditor();
+  else if(v==="integracoes") renderIntegrations();
+  else if(v.startsWith("agent:")) renderAgent(v.slice(6));
+  document.querySelector(".main").scrollTop=0;
+  try{localStorage.setItem("claquete-view",v)}catch(_){}
+}
+
+/* Pipeline */
+function renderPipeline(){
+  const rows=[["A","Seu café das 16h…","ok","ok","run"],["B","Eu parei de tomar café…","ok","run","run"],["C","Ninguém te conta isso…","ok","idle","idle"]];
+  viewEl.innerHTML=`<section class="view">
+    <div class="view-head"><div><h2>CR-014 · Gancho “café”</h2><p>Um criativo, da página de vendas ao vídeo exportado. Cada etapa é um agente; clique para abrir a estação.</p></div>
+    <span class="example-note">Dados de exemplo</span></div>
+    <div class="panel"><div class="slate-bar"></div><div class="slate">
+      <div><div class="label">Produto</div><div class="v">SonoLeve</div></div>
+      <div><div class="label">Formato</div><div class="v">UGC 9:16</div></div>
+      <div><div class="label">Duração</div><div class="v mono">00:30</div></div>
+      <div><div class="label">Variações</div><div class="v">3 ganchos × 2 CTAs</div></div>
+      <div><div class="label">Plataforma</div><div class="v">Meta · TikTok</div></div>
+    </div></div>
+    <div class="pipeline">${STAGES.map(s=>`
+      <button class="panel stage ${s[3]==="run"?"is-run":""}" data-go="${s[2]==="pipeline"?"":(s[2]==="editor"?"editor":"agent:"+s[2])}" style="text-align:left">
+        <div class="stage-top"><span class="stage-num">${s[0]}</span>${chip(s[3])}</div>
+        <h3>${s[1]}</h3>
+        <div class="out">${s[4]}</div>
+        ${s[6]?`<div class="progress"><i style="width:${s[6]}%"></i></div>`:""}
+        <div class="foot"><span class="tool-tag">${s[5]}</span>${s[2]!=="pipeline"?'<span class="label">Abrir →</span>':""}</div>
+      </button>`).join("")}
+    </div>
+    <div class="panel">
+      <div class="section-title"><h3>Matriz de variações</h3><button class="btn small" data-toast="Agente de Copy gerando gancho D">+ Novo gancho</button></div>
+      <div class="matrix-wrap"><table>
+        <thead><tr><th>Gancho</th><th>Texto</th><th>Copy</th><th>Avatar</th><th>Montagem</th><th>Saída</th></tr></thead>
+        <tbody>${rows.map(r=>`<tr><td class="mono"><b>${r[0]}</b></td><td>${r[1]}</td><td>${chip(r[2])}</td><td>${chip(r[3])}</td><td>${chip(r[4])}</td><td class="mono">CR014-${r[0]}-cta1.mp4<br>CR014-${r[0]}-cta2.mp4</td></tr>`).join("")}</tbody>
+      </table></div>
+    </div>
+  </section>`;
+  viewEl.querySelectorAll("[data-go]").forEach(b=>b.addEventListener("click",()=>{ if(b.dataset.go) go(b.dataset.go); }));
+}
+
+/* Agente */
+function renderAgent(id){
+  const a=AGENTS.find(x=>x.id===id);
+  let deliv="";
+  if(a.out==="text") deliv=`<div class="deliv" style="grid-template-columns:minmax(0,1fr)">${a.items.map(i=>`
+    <div class="card textcard"><div class="row"><span class="label">${i[0]}</span><span class="tool-tag">${i[2]}</span></div><q>${esc(i[1])}</q>
+    <div class="row"><span></span><span style="display:flex;gap:6px"><button class="btn small" data-toast="Nova versão pedida ao agente">Refazer</button><button class="btn small primary" data-toast="Aprovado e enviado para a próxima etapa">Aprovar</button></span></div></div>`).join("")}</div>`;
+  else if(a.out==="audio") deliv=`<div class="deliv" style="grid-template-columns:minmax(0,1fr)">${a.items.map((i,n)=>`
+    <div class="card textcard"><div class="row"><b>${i[0]}</b><span class="mono">${i[1]}</span></div>
+    <svg viewBox="0 0 300 36" width="100%" height="36" aria-hidden="true">${Array.from({length:75},(_,k)=>{const h=6+Math.abs(Math.sin(k*0.7+n)*Math.cos(k*0.23))*28;return `<rect x="${k*4}" y="${18-h/2}" width="2.4" height="${h}" rx="1" fill="var(--t-voz)"/>`}).join("")}</svg>
+    <div class="row"><button class="btn small" data-toast="Tocando ${i[0]}">▶ Ouvir</button><button class="btn small primary" data-toast="Take enviado ao Avatar UGC e ao Editor">Usar este take</button></div></div>`).join("")}</div>`;
+  else deliv=`<div class="deliv">${a.items.map((i,n)=>`
+    <div class="card"><div class="thumb" style="background:linear-gradient(160deg,${THUMBS[n%THUMBS.length]})"><span class="badge">9:16</span>${i[0]}</div>
+    <div class="body"><div class="row"><span>${i[1]}</span>${chip(i[2])}</div>
+    <button class="btn small" ${i[2]!=="ok"?"disabled":""} data-toast="Clipe adicionado à timeline do editor">Mandar pro editor</button></div></div>`).join("")}</div>`;
+
+  viewEl.innerHTML=`<section class="view">
+    <div class="view-head"><div><h2>Agente de ${a.name}</h2><p>${a.role}</p></div>
+      <div class="agent-tools">${a.tools.map(t=>`<span class="tool-tag">${t}</span>`).join("")}${chip(a.status)}</div></div>
+    <div class="agent-grid">
+      <div class="panel chat">
+        <div class="section-title"><h3>Conversa</h3><span class="label">CR-014</span></div>
+        <div class="msgs" id="msgs">${a.chat.map(m=>`<div class="msg ${m[0]}">${m[0]==="ai"?`<span class="who">${a.name}</span>`:""}${esc(m[1])}</div>`).join("")}</div>
+        <form class="composer" id="composer"><label class="label" for="prompt" hidden>Mensagem</label>
+          <textarea id="prompt" placeholder="Peça algo ao agente de ${a.name}…"></textarea>
+          <button class="btn primary" type="submit">Enviar</button></form>
+      </div>
+      <div class="panel">
+        <div class="section-title"><h3>Entregas</h3><span class="label">${a.items?a.items.length:0} itens</span></div>
+        ${deliv}
+        <div class="runbar"><span>Contexto: briefing, ângulo e copy aprovados do CR-014</span><span class="spacer"></span>
+          <span class="mono">custo est. US$ ${(0.12+a.tools.length*0.31).toFixed(2).replace(".",",")}</span>
+          <button class="btn small rec" data-toast="Agente de ${a.name} rodando">Rodar agente</button></div>
+      </div>
+    </div></section>`;
+  const msgs=document.getElementById("msgs"); msgs.scrollTop=msgs.scrollHeight;
+  document.getElementById("composer").addEventListener("submit",e=>{
+    e.preventDefault(); const t=document.getElementById("prompt"); const v=t.value.trim(); if(!v) return;
+    msgs.insertAdjacentHTML("beforeend",`<div class="msg me">${esc(v)}</div><div class="msg tool">chamando ${a.tools[0]} via MCP…</div>`);
+    t.value=""; msgs.scrollTop=msgs.scrollHeight;
+    setTimeout(()=>{msgs.insertAdjacentHTML("beforeend",`<div class="msg ai"><span class="who">${a.name}</span>Entendido. No produto real, aqui entra a resposta do agente e as novas entregas aparecem ao lado.</div>`);msgs.scrollTop=msgs.scrollHeight;},900);
+  });
+}
+
+/* Editor */
+const DUR=30;
+const TRACKS=[
+  {k:"avatar",name:"Avatar",color:"var(--t-avatar)",clips:[[0,3,"Gancho B · Júlia","HeyGen"],[3,9,"Body · Júlia","HeyGen"],[22,30,"CTA · Júlia","HeyGen"]]},
+  {k:"broll",name:"B-roll",color:"var(--t-broll)",clips:[[9,13,"Xícara 16h","FLORA"],[13,17,"Frasco close-up","FLORA"],[17,22,"Antes/depois","Higgsfield"]]},
+  {k:"voz",name:"Narração",color:"var(--t-voz)",clips:[[0,25.1,"Take 2 · voz Camila","ElevenLabs"]]},
+  {k:"leg",name:"Legendas",color:"var(--t-leg)",clips:[[0,3,"Eu parei de tomar *café* por 7 dias","Hub"],[3,9,"e olha o que aconteceu com meu *sono*","Hub"],[9,13,"o café das 4 da tarde era o *vilão*","Hub"],[13,17,"aí comecei o *SonoLeve*","Hub"],[17,22,"na 1ª noite já *apaguei*","Hub"],[22,30,"*frete grátis* no link","Hub"]]},
+  {k:"mus",name:"Trilha",color:"var(--t-mus)",clips:[[0,30,"Lo-fi manhã · −18 dB","Biblioteca"]]}
+];
+const VIS_COLORS={"Gancho B · Júlia":"#2B3350,#6C3B4F","Body · Júlia":"#2C2F48,#5C4E8A","CTA · Júlia":"#3B2234,#8A4A5E","Xícara 16h":"#4A3520,#9A6A3A","Frasco close-up":"#1F4E4E,#2E7D6B","Antes/depois":"#203040,#3E6A8A"};
+let t=0, playing=false, raf=0, last=0, sel={tr:0,i:0};
+
+function renderEditor(){
+  const ticks=Array.from({length:DUR/2+1},(_,i)=>`<span style="left:${(i*2/DUR)*100}%">${String(i*2).padStart(2,"0")}s</span>`).join("");
+  viewEl.innerHTML=`<section class="view">
+    <div class="view-head"><div><h2>Editor · CR-014 v3</h2><p>Gancho + body montados a partir das entregas dos agentes. Clique num clipe para editar, ou arraste na timeline.</p></div>
+      <div class="agent-tools"><button class="btn" data-toast="Agente Editor sugerindo cortes no ritmo da narração">Auto-montar</button><button class="btn" data-toast="Gancho trocado: gerando versões A e C">Trocar gancho</button></div></div>
+    <div class="editor">
+      <div class="panel">
+        <div class="stagebox">
+          <div class="preview" id="preview"><div class="src"><span id="pv-src">AVATAR</span><span>1080×1920</span></div><div class="who" id="pv-who"></div><div class="cap" id="pv-cap"></div></div>
+          <div class="transport">
+            <button class="btn small" id="tb-back" aria-label="Voltar ao início">⏮</button>
+            <button class="btn primary" id="tb-play">▶ Play</button>
+            <span class="tc" id="tc">00:00:00:00</span>
+            <span class="label">30 fps</span>
+          </div>
+        </div>
+        <div class="timeline-wrap"><div class="timeline" id="timeline">
+          <div class="ruler"><div></div><div class="ticks" style="margin-right:12px">${ticks}</div></div>
+          ${TRACKS.map((tr,ti)=>`<div class="track"><div class="tname"><span class="dot" style="background:${tr.color}"></span>${tr.name}</div><div class="lane">
+            ${tr.clips.map((c,ci)=>`<button class="clip" data-tr="${ti}" data-i="${ci}" style="left:${c[0]/DUR*100}%;width:calc(${(c[1]-c[0])/DUR*100}% - 2px);background:${tr.color}" title="${esc(c[2].replace(/\*/g,""))}">${esc(c[2].replace(/\*/g,""))}</button>`).join("")}
+          </div></div>`).join("")}
+          <div class="lanes-area" id="scrub" style="top:30px"></div>
+          <div class="playhead" id="ph"></div>
+        </div></div>
+      </div>
+      <div class="panel inspector" id="inspector"></div>
+    </div></section>`;
+  document.getElementById("tb-play").onclick=()=>playing?stopPlay():startPlay();
+  document.getElementById("tb-back").onclick=()=>{t=0;update()};
+  const scrub=document.getElementById("scrub");
+  const seek=e=>{const r=scrub.getBoundingClientRect();t=Math.max(0,Math.min(DUR,(e.clientX-r.left)/r.width*DUR));update()};
+  scrub.addEventListener("pointerdown",e=>{seek(e);scrub.setPointerCapture(e.pointerId);scrub.onpointermove=seek});
+  scrub.addEventListener("pointerup",()=>{scrub.onpointermove=null});
+  scrub.style.pointerEvents="none";
+  document.querySelector(".ruler .ticks").addEventListener("pointerdown",e=>{const r=e.currentTarget.getBoundingClientRect();t=Math.max(0,Math.min(DUR,(e.clientX-r.left)/r.width*DUR));update()});
+  document.querySelectorAll(".clip").forEach(c=>c.addEventListener("click",()=>{sel={tr:+c.dataset.tr,i:+c.dataset.i};t=TRACKS[sel.tr].clips[sel.i][0];update();renderInspector()}));
+  renderInspector(); update();
+}
+function at(tr){return TRACKS[tr].clips.find(c=>t>=c[0]&&t<c[1])}
+function update(){
+  const ph=document.getElementById("ph"); if(!ph) return;
+  const lane=document.querySelector(".lane"); const tl=document.getElementById("timeline");
+  const lr=lane.getBoundingClientRect(), tr=tl.getBoundingClientRect();
+  ph.style.left=(lr.left-tr.left + t/DUR*lr.width)+"px";
+  const fr=Math.floor((t%1)*30), s=Math.floor(t);
+  document.getElementById("tc").textContent=`00:00:${String(s).padStart(2,"0")}:${String(fr).padStart(2,"0")}`;
+  const vis=at(1)||at(0); const leg=at(3);
+  const pv=document.getElementById("preview");
+  if(vis){pv.style.background=`linear-gradient(160deg,${VIS_COLORS[vis[2]]})`;document.getElementById("pv-who").textContent=vis[2];document.getElementById("pv-src").textContent=(at(1)?"B-ROLL · ":"AVATAR · ")+vis[3].toUpperCase();}
+  document.getElementById("pv-cap").innerHTML=leg?esc(leg[2]).replace(/\*(.+?)\*/g,"<span>$1</span>"):"";
+  document.querySelectorAll(".clip").forEach(c=>c.setAttribute("aria-pressed", (+c.dataset.tr===sel.tr&&+c.dataset.i===sel.i)?"true":"false"));
+}
+function renderInspector(){
+  const tr=TRACKS[sel.tr], c=tr.clips[sel.i]; const el=document.getElementById("inspector");
+  const isLeg=tr.k==="leg";
+  el.innerHTML=`<div><div class="label">Clipe selecionado · ${tr.name}</div><h3>${esc(c[2].replace(/\*/g,""))}</h3></div>
+    <div class="field-row"><div class="field"><label class="label" for="in-a">Entrada</label><input id="in-a" class="mono" value="${c[0].toFixed(2)}s"></div>
+    <div class="field"><label class="label" for="in-b">Saída</label><input id="in-b" class="mono" value="${c[1].toFixed(2)}s"></div></div>
+    ${isLeg?`<div class="field"><label class="label" for="in-txt">Texto (*destaque*)</label><textarea id="in-txt" rows="2">${esc(c[2])}</textarea></div>
+      <div class="field"><label class="label" for="in-sty">Estilo</label><select id="in-sty"><option>Bold amarelo (UGC)</option><option>Palavra por palavra</option><option>Caixa preta</option></select></div>`
+    :`<div class="field"><label class="label" for="in-src">Origem</label><input id="in-src" value="${c[3]} · via MCP" readonly></div>
+      <div class="field"><label class="label" for="in-vol">${tr.k==="voz"||tr.k==="mus"?"Volume":"Enquadramento"}</label><select id="in-vol">${tr.k==="voz"||tr.k==="mus"?"<option>0 dB</option><option>−6 dB</option><option>−18 dB</option>":"<option>Preencher 9:16</option><option>Zoom lento 110%</option><option>Corte em J</option>"}</select></div>`}
+    <div class="actions">
+      ${isLeg?"":`<button class="btn small" data-toast="Pedido enviado ao agente de ${tr.name==="B-roll"?"B-rolls":tr.name}">Regerar com agente</button>`}
+      <button class="btn small" data-toast="Clipe dividido no playhead">Dividir</button>
+      <button class="btn small" data-toast="Clipe removido">Remover</button>
+    </div>
+    <p class="hint">Regerar manda o clipe de volta ao agente da etapa com o mesmo contexto. A nova versão entra no lugar, no mesmo tempo da timeline.</p>
+    <div style="border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:8px">
+      <div class="label">Saída</div>
+      <div style="display:flex;justify-content:space-between;font-size:13px"><span>Resolução</span><span class="mono">1080×1920</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px"><span>Duração</span><span class="mono">00:30</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px"><span>Safe zone Reels/TikTok</span><span class="chip ok">OK</span></div>
+    </div>`;
+  const txt=document.getElementById("in-txt");
+  if(txt) txt.addEventListener("input",()=>{c[2]=txt.value;const b=document.querySelector(`.clip[data-tr="${sel.tr}"][data-i="${sel.i}"]`);b.textContent=txt.value.replace(/\*/g,"");update()});
+}
+function startPlay(){playing=true;document.getElementById("tb-play").textContent="❚❚ Pausar";last=performance.now();if(t>=DUR)t=0;raf=requestAnimationFrame(loop)}
+function stopPlay(){playing=false;cancelAnimationFrame(raf);const b=document.getElementById("tb-play");if(b)b.textContent="▶ Play"}
+function loop(now){t+=(now-last)/1000;last=now;if(t>=DUR){t=DUR;update();stopPlay();return}update();raf=requestAnimationFrame(loop)}
+window.addEventListener("resize",()=>{if(current==="editor")update()});
+
+/* Integrações */
+function renderIntegrations(){
+  const I=[
+    ["FLORA","ok","Imagens e vídeo (b-rolls, estáticos)",["Gerar imagem e vídeo em lote","Canvas por criativo","Upscale, relight, fundo"],"Saldo US$ 61,30","B-rolls · Estáticos"],
+    ["Higgsfield","warn","Vídeo cinematográfico e edição",["Cenas com movimento de câmera","Sandbox de montagem","Efeitos e transições"],"Requer reautorização","B-rolls · Editor"],
+    ["HeyGen","ok","Avatares falando e lipsync",["Avatar a partir de look","Lipsync em áudio externo","Tradução de vídeo"],"118 min restantes","Avatar UGC"],
+    ["ElevenLabs","ok","Voz, narração e transcrição",["Text-to-speech com voz clonada","Design de voz","Transcrição para legendas"],"Plano Creator","Voz · Editor"],
+    ["Copy Miner","ok","Dores, insights e UGCs validadas",["Dores por produto","Insights de comentários","Narrações que já escalaram"],"4 produtos","Estrategista · Copy"],
+    ["Claude","ok","Cérebro dos agentes",["Orquestra as chamadas MCP","Mantém o contexto do criativo","Escreve copy e roteiros"],"Opus 5.5","Todos"]
+  ];
+  viewEl.innerHTML=`<section class="view">
+    <div class="view-head"><div><h2>Integrações</h2><p>Cada agente usa as ferramentas por MCP. O hub guarda o contexto do criativo e passa os arquivos de uma etapa para a outra.</p></div></div>
+    <div class="int-grid">${I.map(i=>`<div class="panel int">
+      <div class="int-head"><h3>${i[0]}</h3>${i[1]==="ok"?'<span class="chip ok"><span class="dot ok"></span>Conectado</span>':'<span class="chip warn"><span class="dot warn"></span>Autorizar</span>'}</div>
+      <p class="hint" style="font-size:13px;color:var(--fg)">${i[2]}</p>
+      <ul>${i[3].map(x=>`<li>${x}</li>`).join("")}</ul>
+      <div class="foot"><span>Usado por: ${i[5]}</span><span class="mono">${i[4]}</span></div>
+      ${i[1]==="warn"?`<button class="btn small primary" data-toast="Abrindo autorização do ${i[0]}">Conectar ${i[0]}</button>`:""}
+    </div>`).join("")}</div>
+  </section>`;
+}
+
+/* Toasts */
+let toastT;
+document.addEventListener("click",e=>{
+  const b=e.target.closest("[data-toast]"); if(!b) return;
+  const el=document.getElementById("toast"); el.textContent=b.dataset.toast; el.hidden=false;
+  clearTimeout(toastT); toastT=setTimeout(()=>el.hidden=true,2200);
+});
+
+let start="pipeline";
+try{const s=localStorage.getItem("claquete-view"); if(s && (!s.startsWith("agent:") || AGENTS.some(a=>"agent:"+a.id===s))) start=s;}catch(_){}
+go(start);
+</script>

@@ -1,0 +1,20 @@
+# Chaves e configurações locais: nunca vão para o GitHub
+.env*
+!.env.example
+.claude/settings.local.json
+
+# Dependências e builds
+node_modules/
+.next/
+out/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# Dados locais do hub (banco e mídias geradas)
+hub/.data/
+
+# Sistema
+.DS_Store
+Thumbs.db
+*.log

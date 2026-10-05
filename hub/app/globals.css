@@ -1,0 +1,178 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Altura útil abaixo da barra do topo (h-12), para telas com abas redimensionáveis. */
+@utility h-workspace {
+  height: calc(100svh - 3rem);
+}
+
+/* Botão do Modo Black ativo: brilho vermelho pulsando. */
+@keyframes black-mode-glow {
+  0%, 100% { box-shadow: 0 0 6px 0 var(--rec); }
+  50% { box-shadow: 0 0 18px 3px var(--rec); }
+}
+@utility black-mode-glow {
+  animation: black-mode-glow 1.8s ease-in-out infinite;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    box-shadow: 0 0 12px 1px var(--rec);
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-display);
+  --color-rec: var(--rec);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-track-avatar: var(--track-avatar);
+  --color-track-broll: var(--track-broll);
+  --color-track-voz: var(--track-voz);
+  --color-track-leg: var(--track-leg);
+  --color-track-mus: var(--track-mus);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Paleta do hub: neutros grafite levemente azulados + coral (--rec) como única cor de destaque.
+   Bordas e campos com contraste maior que o padrão do shadcn para os formulários ficarem legíveis. */
+:root {
+  --background: oklch(0.975 0.004 265);
+  --foreground: oklch(0.18 0.015 265);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.015 265);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.015 265);
+  --primary: oklch(0.24 0.02 265);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.935 0.008 265);
+  --secondary-foreground: oklch(0.22 0.015 265);
+  --muted: oklch(0.94 0.007 265);
+  --muted-foreground: oklch(0.45 0.015 265);
+  --accent: oklch(0.93 0.012 265);
+  --accent-foreground: oklch(0.22 0.015 265);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.87 0.009 265);
+  --input: oklch(0.78 0.012 265);
+  --ring: oklch(0.6 0.2 30);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.955 0.007 265);
+  --sidebar-foreground: oklch(0.2 0.015 265);
+  --sidebar-primary: oklch(0.6 0.2 30);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.92 0.03 30);
+  --sidebar-accent-foreground: oklch(0.3 0.08 30);
+  --sidebar-border: oklch(0.87 0.009 265);
+  --sidebar-ring: oklch(0.6 0.2 30);
+  /* Hub: cor de "gravando" e cores de trilha do editor */
+  --rec: oklch(0.6 0.2 30);
+  --ok: oklch(0.58 0.13 160);
+  --warn: oklch(0.68 0.14 75);
+  --track-avatar: oklch(0.55 0.19 265);
+  --track-broll: oklch(0.58 0.1 195);
+  --track-voz: oklch(0.55 0.18 300);
+  --track-leg: oklch(0.68 0.14 75);
+  --track-mus: oklch(0.55 0.02 260);
+}
+
+.dark {
+  --rec: oklch(0.68 0.19 30);
+  --ok: oklch(0.72 0.14 160);
+  --warn: oklch(0.8 0.14 80);
+  --track-avatar: oklch(0.62 0.17 265);
+  --track-broll: oklch(0.64 0.1 195);
+  --track-voz: oklch(0.62 0.16 300);
+  --track-leg: oklch(0.72 0.13 75);
+  --track-mus: oklch(0.5 0.02 260);
+  --background: oklch(0.17 0.012 265);
+  --foreground: oklch(0.97 0.004 265);
+  --card: oklch(0.215 0.014 265);
+  --card-foreground: oklch(0.97 0.004 265);
+  --popover: oklch(0.23 0.015 265);
+  --popover-foreground: oklch(0.97 0.004 265);
+  --primary: oklch(0.93 0.01 265);
+  --primary-foreground: oklch(0.2 0.015 265);
+  --secondary: oklch(0.28 0.016 265);
+  --secondary-foreground: oklch(0.97 0.004 265);
+  --muted: oklch(0.265 0.015 265);
+  --muted-foreground: oklch(0.77 0.015 265);
+  --accent: oklch(0.3 0.02 265);
+  --accent-foreground: oklch(0.97 0.004 265);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 13%);
+  --input: oklch(1 0 0 / 26%);
+  --ring: oklch(0.68 0.19 30);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.195 0.013 265);
+  --sidebar-foreground: oklch(0.95 0.005 265);
+  --sidebar-primary: oklch(0.68 0.19 30);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.3 0.045 30);
+  --sidebar-accent-foreground: oklch(0.97 0.02 30);
+  --sidebar-border: oklch(1 0 0 / 11%);
+  --sidebar-ring: oklch(0.68 0.19 30);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  button:not(:disabled), [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  html {
+    @apply font-sans;
+  }
+}
