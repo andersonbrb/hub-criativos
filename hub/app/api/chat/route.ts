@@ -91,6 +91,10 @@ async function prepare(file: File): Promise<Prepared> {
 // Modo normal: Claude Code local com a assinatura (lib/server/chat/claude-code.ts), sem custo por token.
 // HUB_BRAIN=api volta para a API da Anthropic com chave (lib/server/chat/run.ts).
 export const POST = route(async (request: Request) => {
+  // HUB_CHAT=off: chat e agentes desligados (ex.: no Railway, onde não há Claude Code logado).
+  if (process.env.HUB_CHAT?.trim() === "off") {
+    return Response.json({ error: "O chat está desligado neste servidor. Use o chat no hub do seu computador." }, { status: 403 });
+  }
   const form = await request.formData();
   const black = form.get("mode") === "black";
   const useApi = process.env.HUB_BRAIN?.trim() === "api";

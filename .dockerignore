@@ -1,0 +1,8 @@
+.git
+.claude
+**/node_modules
+**/.next
+hub/.data
+**/.env*
+!hub/.env.example
+*.log
