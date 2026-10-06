@@ -11,6 +11,7 @@ const PAGES: Record<string, string> = {
   "/editor": "Editor",
   "/biblioteca": "Biblioteca",
   "/integracoes": "Integrações",
+  "/design": "Aparência",
   "/estudios/geracao": "Estúdio · Geração",
   "/estudios/voz": "Estúdio · Voz",
   "/estudios/avatar": "Estúdio · Avatar",

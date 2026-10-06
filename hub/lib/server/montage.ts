@@ -23,7 +23,12 @@ export const logPath = (id: string) => path.join(LOG_DIR, `${id}.log`);
 // Montagens rodando neste processo do servidor (sobrevive ao hot reload do dev).
 const running: Set<string> = ((globalThis as { __montagens?: Set<string> }).__montagens ??= new Set());
 
-export type MontageRequest = { avatarId: string; brollIds?: string[]; lang?: string; name?: string };
+// avatarIds: vários vídeos do avatar, juntados na ordem antes dos cortes (gancho + body, várias tomadas).
+// avatarId continua valendo (um só), para o chat e chamadas antigas.
+export type MontageRequest = { avatarId?: string; avatarIds?: string[]; brollIds?: string[]; lang?: string; name?: string };
+
+const MAX_AVATARS = 20;
+const MAX_BROLLS = 40;
 
 async function videoFile(id: string, label: string) {
   const g = await getGeneration(id);
@@ -32,8 +37,11 @@ async function videoFile(id: string, label: string) {
 }
 
 export async function runMontage(req: MontageRequest): Promise<Generation> {
-  const avatar = await videoFile(String(req.avatarId ?? ""), "O avatar");
-  const brollIds = (req.brollIds ?? []).map(String).filter(Boolean).slice(0, 12);
+  const avatarIds = [...new Set((req.avatarIds?.length ? req.avatarIds : [req.avatarId ?? ""]).map(String).filter(Boolean))].slice(0, MAX_AVATARS);
+  if (!avatarIds.length) throw new InputError("Escolha pelo menos um vídeo do avatar.");
+  const avatars = await Promise.all(avatarIds.map((id, i) => videoFile(id, avatarIds.length > 1 ? `O avatar ${i + 1}` : "O avatar")));
+  const avatar = avatars[0];
+  const brollIds = (req.brollIds ?? []).map(String).filter(Boolean).slice(0, MAX_BROLLS);
   const brolls = await Promise.all(brollIds.map((id, i) => videoFile(id, `O b-roll ${i + 1}`)));
   const lang = LANGS.includes(req.lang as (typeof LANGS)[number]) ? (req.lang as string) : "es";
   const name = (String(req.name ?? "").trim() || "AD").replace(/[^\w-]+/g, "_").slice(0, 40);
@@ -42,8 +50,8 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
     tool: "montagem",
     kind: "video",
     status: "running",
-    prompt: `Montagem ${name}: ${avatar.g.prompt}`,
-    params: { name, lang, avatarId: avatar.g.id, brolls: brolls.length, brollIds: brollIds.join(",") },
+    prompt: `Montagem ${name}: ${avatar.g.prompt}${avatars.length > 1 ? ` (+${avatars.length - 1})` : ""}`,
+    params: { name, lang, avatarId: avatar.g.id, avatarIds: avatarIds.join(","), avatars: avatars.length, brolls: brolls.length, brollIds: brollIds.join(",") },
   });
 
   await mkdir(LOG_DIR, { recursive: true });
@@ -55,6 +63,7 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
     JSON.stringify({
       name,
       avatar: avatar.file,
+      avatars: avatars.map((a) => a.file),
       brolls: brolls.map((b) => b.file),
       lang,
       out: path.join(MEDIA_DIR, outName),

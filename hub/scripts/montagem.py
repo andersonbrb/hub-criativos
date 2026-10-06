@@ -107,13 +107,34 @@ ASS_HEADER = (
 NORMALIZE = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30"
 
 
+def join_avatars(paths, w):
+    """Vários vídeos do avatar (ex.: gancho + body, várias tomadas): junta na ordem, no mesmo tamanho e fps,
+    antes dos cortes. Daí em diante a montagem trata como um vídeo só."""
+    for i, p in enumerate(paths):
+        if not has_audio(p):
+            raise RuntimeError(f"o vídeo do avatar {i + 1} não tem áudio")
+    inputs, filters, pairs = [], [], ""
+    for i, p in enumerate(paths):
+        inputs += ["-i", p]
+        filters.append(f"[{i}:v]{NORMALIZE},format=yuv420p,setpts=PTS-STARTPTS[v{i}]")
+        filters.append(f"[{i}:a]aresample=48000,aformat=channel_layouts=stereo,asetpts=PTS-STARTPTS[a{i}]")
+        pairs += f"[v{i}][a{i}]"
+    filters.append(f"{pairs}concat=n={len(paths)}:v=1:a=1[v][a]")
+    out = os.path.join(w, "avatar_junto.mp4")
+    run(["ffmpeg", "-y", "-v", "error", *inputs, "-filter_complex", ";".join(filters), "-map", "[v]", "-map", "[a]",
+         *ENC, "-c:a", "aac", "-b:a", "192k", out], "juntar avatares")
+    log(f"{len(paths)} vídeos do avatar juntados ({duration(out):.1f}s)")
+    return out
+
+
 def process(job):
     w = job["workdir"]
     os.makedirs(w, exist_ok=True)
     lang = job.get("lang") or "es"
     log(f"START {job['name']}")
 
-    av = job["avatar"]
+    avatars = job.get("avatars") or [job["avatar"]]
+    av = join_avatars(avatars, w) if len(avatars) > 1 else avatars[0]
     if not has_audio(av):
         raise RuntimeError("o vídeo do avatar não tem áudio")
     du = duration(av)

@@ -12,8 +12,14 @@ import { runTool, SERVER_TOOLS, toolDetail, toolsFor } from "@/lib/server/chat/t
 const MODEL = process.env.HUB_API_MODEL?.trim() || "claude-opus-5-5";
 // Máximo de idas e voltas com ferramentas num único pedido do usuário.
 const MAX_STEPS = 40;
-// Preço por milhão de tokens do Claude Opus 5.5 (estimativa de custo da conversa; só conta quando o modelo é o Opus).
-const PRICE = { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.2, webSearch: 0.01 };
+// Preço por milhão de tokens (estimativa de custo mostrada na interface). Escrita no cache = 1,25x a entrada.
+const PRICES: Record<string, { input: number; output: number }> = {
+  "claude-opus-5-5": { input: 4, output: 20 },
+  "claude-sonnet-5-5": { input: 2, output: 10 },
+  "claude-haiku-4-5": { input: 1, output: 5 },
+};
+const base = PRICES[MODEL] ?? PRICES["claude-opus-5-5"];
+const PRICE = { input: base.input, output: base.output, cacheWrite: base.input * 1.25, cacheRead: base.input / 10, webSearch: 0.01 };
 
 type Emit = (event: ChatEvent) => void;
 
@@ -84,7 +90,7 @@ export async function runChatTurn(chat: Chat, emit: Emit, signal: AbortSignal) {
       });
 
       const message = await stream.finalMessage();
-      if (MODEL.startsWith("claude-opus-5-5")) chat.costUsd = (chat.costUsd ?? 0) + costOf(message.usage);
+      chat.costUsd = (chat.costUsd ?? 0) + costOf(message.usage);
 
       if (message.stop_reason === "refusal") {
         await saveChat(chat);

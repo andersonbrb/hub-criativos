@@ -284,12 +284,18 @@ const definitions: Anthropic.Beta.BetaTool[] = [
       "Montagem automática do infoproduto (playbook infoproduto-edicao-video): corta os silêncios do vídeo do avatar, transcreve com Whisper, queima legenda Montserrat MAIÚSCULA e coloca os b-rolls (1º aos 6s, a cada 7s, 2,8s com dissolve). Roda local, sem custo. Assíncrono (1 a 3 min): acompanhe com hub_check_generations.",
     input_schema: objectSchema(
       {
-        avatar_generation_id: { type: "string", description: "Vídeo pronto do avatar falando (HeyGen)." },
-        broll_generation_ids: { type: "array", items: { type: "string" }, maxItems: 12, description: "Vídeos prontos de b-roll, na ordem em que entram." },
+        avatar_generation_id: { type: "string", description: "Vídeo pronto do avatar falando (HeyGen). Para vários, use avatar_generation_ids." },
+        avatar_generation_ids: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: 20,
+          description: "Vários vídeos do avatar (ex.: gancho + body, várias tomadas), juntados nessa ordem antes dos cortes.",
+        },
+        broll_generation_ids: { type: "array", items: { type: "string" }, maxItems: 40, description: "Vídeos prontos de b-roll, na ordem em que entram." },
         lang: { type: "string", enum: ["es", "pt", "fr", "en"], description: "Idioma da fala. Padrão es." },
         name: { type: "string", description: "Nome do projeto, ex.: AD01." },
       },
-      ["avatar_generation_id"],
+      [],
     ),
   },
   {
@@ -714,6 +720,7 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
   async hub_montage(input) {
     const g = await runMontage({
       avatarId: str(input.avatar_generation_id),
+      avatarIds: (Array.isArray(input.avatar_generation_ids) ? input.avatar_generation_ids : []).map(str),
       brollIds: (Array.isArray(input.broll_generation_ids) ? input.broll_generation_ids : []).map(str),
       lang: str(input.lang),
       name: str(input.name),

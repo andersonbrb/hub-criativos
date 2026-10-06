@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clapperboard, Film, Languages, LayoutGrid, Library, MessageSquare, Mic, Plug, Scissors, Sparkles, UserRound } from "lucide-react";
+import { Clapperboard, Film, Languages, LayoutGrid, Library, MessageSquare, Mic, Palette, Plug, Scissors, Sparkles, UserRound } from "lucide-react";
 
 import {
   Sidebar,
@@ -24,6 +24,7 @@ const production = [
   { href: "/editor", label: "Editor", icon: Film },
   { href: "/biblioteca", label: "Biblioteca", icon: Library },
   { href: "/integracoes", label: "Integrações", icon: Plug },
+  { href: "/design", label: "Aparência", icon: Palette },
 ];
 
 const studios = [

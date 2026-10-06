@@ -38,7 +38,8 @@ async function pollMontage(g: Generation): Promise<Generation | null> {
 
 export function MontageStudio() {
   const [videos, setVideos] = useState<Generation[] | null>(null);
-  const [avatarId, setAvatarId] = useState("");
+  // Vários vídeos do avatar: juntados na ordem do clique antes dos cortes (gancho + body, várias tomadas).
+  const [avatarIds, setAvatarIds] = useState<string[]>([]);
   const [brollIds, setBrollIds] = useState<string[]>([]);
   const [lang, setLang] = useState("es");
   const [name, setName] = useState("AD01");
@@ -56,8 +57,12 @@ export function MontageStudio() {
       });
   }, []);
 
-  const avatars = useMemo(() => (videos ?? []).filter((v) => v.tool === "heygen" || v.tool === "upload" || v.tool === "editor"), [videos]);
-  const brollOptions = useMemo(() => (videos ?? []).filter((v) => v.id !== avatarId), [videos, avatarId]);
+  // Vídeos com fala: avatar do HeyGen, traduções, enviados, editados e exportados do editor.
+  const avatars = useMemo(
+    () => (videos ?? []).filter((v) => ["heygen", "heygen-traducao", "upload", "editor", "higgsfield"].includes(v.tool)),
+    [videos],
+  );
+  const brollOptions = useMemo(() => (videos ?? []).filter((v) => !avatarIds.includes(v.id)), [videos, avatarIds]);
 
   // Log ao vivo da montagem em andamento (ou da escolhida no histórico).
   const running = items.find((g) => g.status === "running");
@@ -81,13 +86,18 @@ export function MontageStudio() {
     setBrollIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
   }
 
+  function toggleAvatar(id: string) {
+    setAvatarIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+    setBrollIds((cur) => cur.filter((x) => x !== id)); // o mesmo vídeo não entra como avatar e b-roll
+  }
+
   async function run() {
     setBusy(true);
     try {
       const { generation } = await apiFetch<{ generation: Generation }>("/api/montagem", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ avatarId, brollIds, lang, name }),
+        body: JSON.stringify({ avatarIds, brollIds, lang, name }),
       });
       add(generation);
       setLogId(generation.id);
@@ -132,14 +142,17 @@ export function MontageStudio() {
         ) : (
           <>
             <section className="flex flex-col gap-2">
-              <h2 className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">1. Avatar falando</h2>
+              <h2 className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+                1. Avatar falando (um ou vários, na ordem em que entram)
+              </h2>
               {avatars.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nenhum vídeo do HeyGen ainda. Gere no estúdio Avatar.</p>
+                <p className="text-sm text-muted-foreground">Nenhum vídeo com fala ainda. Gere no estúdio Avatar ou envie um vídeo.</p>
               ) : (
                 <div className="grid grid-cols-3 gap-2 @xl:grid-cols-4 @3xl:grid-cols-6">
-                  {avatars.map((v) => (
-                    <VideoTile key={v.id} g={v} active={v.id === avatarId} onClick={() => setAvatarId(v.id)} />
-                  ))}
+                  {avatars.map((v) => {
+                    const order = avatarIds.indexOf(v.id);
+                    return <VideoTile key={v.id} g={v} active={order >= 0} badge={order >= 0 ? String(order + 1) : undefined} onClick={() => toggleAvatar(v.id)} />;
+                  })}
                 </div>
               )}
             </section>
@@ -180,6 +193,23 @@ export function MontageStudio() {
         </div>
 
         <div className="flex flex-wrap gap-1.5 text-xs">
+          <span className="text-muted-foreground">Avatar:</span>
+          {avatarIds.length === 0 ? (
+            <span className="text-muted-foreground">nenhum</span>
+          ) : (
+            avatarIds.map((id, i) => (
+              <span key={id} className="flex items-center gap-1 rounded border bg-muted px-1.5 py-0.5">
+                {i + 1}
+                <button type="button" aria-label="Tirar vídeo do avatar" onClick={() => toggleAvatar(id)}>
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))
+          )}
+          {avatarIds.length > 1 && <span className="text-muted-foreground">juntados nessa ordem</span>}
+        </div>
+
+        <div className="flex flex-wrap gap-1.5 text-xs">
           <span className="text-muted-foreground">B-rolls:</span>
           {brollIds.length === 0 ? (
             <span className="text-muted-foreground">nenhum (só cortes e legenda)</span>
@@ -204,11 +234,11 @@ export function MontageStudio() {
           ))}
         </dl>
 
-        <Button className="bg-rec text-white hover:bg-rec/85" disabled={!avatarId || busy} onClick={run}>
+        <Button className="bg-rec text-white hover:bg-rec/85" disabled={!avatarIds.length || busy} onClick={run}>
           {busy ? <Loader2 className="animate-spin" /> : <Scissors />}
           {busy ? "Iniciando…" : "Montar vídeo"}
         </Button>
-        {!avatarId && <p className="text-xs text-muted-foreground">Escolha o vídeo do avatar para começar.</p>}
+        {!avatarIds.length && <p className="text-xs text-muted-foreground">Escolha um ou mais vídeos do avatar para começar.</p>}
       </WorkspacePanel>
 
       <WorkspacePanel
