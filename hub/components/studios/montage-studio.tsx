@@ -117,7 +117,7 @@ export function MontageStudio() {
           fx: fxCount(fx) ? { ...fx, musicId: fx.musicId || undefined } : undefined,
           graphics: graficos
             .filter((g) => g.texto.trim() || g.tipo === "cta" || g.tipo === "contador")
-            .map((g) => ({ tipo: g.tipo, texto: g.texto, sub: g.sub || undefined, deixa: g.deixa || undefined })),
+            .map((g) => ({ tipo: g.tipo, texto: g.texto, sub: g.sub || undefined, deixa: g.deixa || undefined, posicao: g.posicao || undefined })),
         }),
       });
       add(generation);

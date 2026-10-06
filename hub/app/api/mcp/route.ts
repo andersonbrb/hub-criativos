@@ -48,7 +48,7 @@ async function handle(req: RpcRequest, chatId: string, signal: AbortSignal): Pro
       const flora = JSON.stringify(chat?.floraProject ?? null);
       // Para junto com o turno (botão Parar), não só quando a conexão da MCP cai.
       const turn = chatId ? turnSignal(chatId) : undefined;
-      const outcome = await runTool(name, args, { signal: turn ? AbortSignal.any([signal, turn]) : signal, chat: chat ?? undefined });
+      const outcome = await runTool(name, args, { signal: turn ? AbortSignal.any([signal, turn]) : signal, chat: chat ?? undefined, viaMcp: true });
 
       // A ferramenta pode ter escolhido o projeto do FLORA da conversa: grava na hora.
       if (chat && JSON.stringify(chat.floraProject ?? null) !== flora) {

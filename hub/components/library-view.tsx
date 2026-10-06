@@ -58,7 +58,7 @@ export function LibraryView() {
     <main className="flex max-w-7xl flex-col gap-6 px-4 py-6 md:px-6">
       <PageHeader
         title="Biblioteca"
-        description="Os criativos que você salvou. Para salvar, use o marcador no card de qualquer geração pronta nos estúdios."
+        description="Os criativos finais (edição, editor e tradução) entram aqui sozinhos quando ficam prontos. Para salvar qualquer outra geração, use o marcador no card."
       >
         <Tabs value={filter} onValueChange={(v) => setFilter(v as MediaKind | "all")}>
           <TabsList>
@@ -77,7 +77,7 @@ export function LibraryView() {
       ) : shown.length === 0 ? (
         <p className="rounded-lg border border-dashed py-16 text-center text-sm text-muted-foreground">
           {items.length === 0
-            ? "Nada salvo ainda. Nos estúdios, clique no marcador de uma geração pronta para trazê-la para cá."
+            ? "Nada aqui ainda. Os criativos finais entram sozinhos; nos estúdios, o marcador de um card traz qualquer geração para cá."
             : "Nada salvo neste filtro."}
         </p>
       ) : (

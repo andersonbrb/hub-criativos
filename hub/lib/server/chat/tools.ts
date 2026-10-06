@@ -1,5 +1,10 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+
 import type Anthropic from "@anthropic-ai/sdk";
 
 import { getAgentProfile } from "@/lib/agent-profiles";
@@ -13,6 +18,7 @@ import { listFullChats, type Chat } from "@/lib/server/chat/store";
 import { createCard, getBoard, moveCard, updateCard } from "@/lib/server/board";
 import { autoCaptions, joinProject, openProject, renderProject, saveProject } from "@/lib/server/editor";
 import { InputError } from "@/lib/server/http";
+import { MEDIA_DIR } from "@/lib/server/media";
 import { runMontage, type MontageFx } from "@/lib/server/montage";
 import type { GraphicRequest } from "@/lib/server/motion";
 import { timeline, type Engine } from "@/lib/server/transcription";
@@ -49,7 +55,8 @@ export type ToolOutcome = {
 
 type Input = Record<string, unknown>;
 // chat: a conversa que chamou a ferramenta (projeto do FLORA dela, leitura das outras conversas).
-type Ctx = { signal: AbortSignal; chat?: Chat };
+// viaMcp: chamada pela MCP do hub (Claude Code), que corta ferramentas demoradas: esperas ficam curtas.
+type Ctx = { signal: AbortSignal; chat?: Chat; viaMcp?: boolean };
 
 const str = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : String(v));
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
@@ -104,6 +111,18 @@ const sleep = (ms: number, signal: AbortSignal) =>
     signal.addEventListener("abort", () => (clearTimeout(t), resolve()), { once: true });
   });
 
+// Foto de prévia de um avatar do HeyGen, baixada uma vez só (cache em .data/media pelo hash da URL).
+async function lookThumb(url: string): Promise<string> {
+  const file = `heygen-look-${createHash("sha1").update(url.split("?")[0]).digest("hex").slice(0, 16)}.jpg`;
+  const out = path.join(MEDIA_DIR, file);
+  if (existsSync(out)) return file;
+  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) throw new Error(`foto ${res.status}`);
+  await mkdir(MEDIA_DIR, { recursive: true });
+  await writeFile(out, Buffer.from(await res.arrayBuffer()));
+  return file;
+}
+
 const objectSchema = (properties: Record<string, unknown>, required: string[] = []) => ({
   type: "object" as const,
   properties,
@@ -153,32 +172,38 @@ const definitions: Anthropic.Beta.BetaTool[] = [
   {
     name: "elevenlabs_tts",
     description:
-      "Gera uma narração (texto para fala) no ElevenLabs. Síncrono: devolve a geração pronta, que pode ir para o lipsync do HeyGen. Até 5.000 caracteres. Cobra créditos do ElevenLabs por caractere.",
+      "Gera uma narração (texto para fala) no ElevenLabs. Síncrono: devolve a geração pronta, que pode ir para o lipsync do HeyGen. Até 5.000 caracteres. Cobra 1 crédito por caractere (Flash: meio).\n" +
+      "VOZ REAL E COM EMOÇÃO (obrigatório em narração de anúncio): use eleven_v4 (padrão, mesmo custo do multilingual_v2) e ANOTE o texto com audio tags em inglês entre colchetes, antes do trecho que cada uma colore, de acordo com o sentido da fala. Ex.: dor → [frustrated] ou [sighs]; curiosidade/gancho → [curious] ou [mischievously]; revelação → [surprised] ou [gasps]; benefício/oferta → [excited] ou [happy]; prova/garantia → [confident] ou [sincere]; segredo → [whispers]; humor → [laughs] ou [chuckles]; CTA → [excited] ou [warmly]. Também vale descrever: [said warmly, smiling].\n" +
+      "Dose: uma tag a cada 1 ou 2 frases, no máximo 2 juntas; tags NÃO são faladas nem entram na legenda. O texto deve soar falado: frases que fluem, vírgulas naturais, contrações do idioma ('tá', 'pra'), números e preços por extenso. Evite reticências e pontos demais (criam pausas robóticas); use '...' só para uma pausa dramática intencional e MAIÚSCULA só para ênfase de uma palavra.\n" +
+      "Não use eleven_flash_v2_5 em narração final (soa robótico); só se o usuário pedir rascunho. Não acelere: speed não existe no v4; nos modelos que aceitam, fique entre 0.95 e 1.05.",
     input_schema: objectSchema(
       {
-        text: { type: "string" },
+        text: { type: "string", description: "Roteiro já anotado com audio tags ([excited], [curious]…) quando o modelo é v4/v3." },
         voice_id: { type: "string", description: "Id vindo de elevenlabs_list_voices." },
         voice_name: { type: "string" },
         model_id: {
           type: "string",
           enum: ["eleven_v4", "eleven_v4_turbo", "eleven_v3", "eleven_multilingual_v2", "eleven_flash_v2_5"],
           description:
-            "eleven_v4: melhor qualidade. eleven_v4_turbo: quase igual e mais rápido. eleven_v3: expressivo, aceita tags como [risos]. eleven_multilingual_v2 (padrão): mais estável em textos longos. eleven_flash_v2_5: mais barato.",
+            "eleven_v4 (padrão): o mais natural e emotivo, aceita audio tags. eleven_v4_turbo: quase igual e mais rápido, aceita tags. eleven_v3: expressivo, aceita tags. eleven_multilingual_v2: estável, pouca emoção, ignora tags. eleven_flash_v2_5: mais barato e robótico, só rascunho.",
         },
-        stability: { type: "number", minimum: 0, maximum: 1, description: "Padrão 0.5." },
+        stability: { type: "number", minimum: 0, maximum: 1, description: "Padrão 0.4 (mais baixo = mais emoção e variação; 0.3 em ganchos enérgicos)." },
         similarity: { type: "number", minimum: 0, maximum: 1, description: "Padrão 0.75." },
-        style: { type: "number", minimum: 0, maximum: 1, description: "Padrão 0." },
-        speed: { type: "number", minimum: 0.7, maximum: 1.2, description: "Padrão 1." },
+        style: { type: "number", minimum: 0, maximum: 1, description: "Só multilingual_v2. Padrão 0.3." },
+        speed: { type: "number", minimum: 0.7, maximum: 1.1, description: "Não existe no v4/v3. Padrão 1." },
       },
       ["text", "voice_id"],
     ),
   },
   {
     name: "heygen_list_avatars",
-    description: "Lista avatares (looks) do HeyGen. private = avatares da conta do usuário; public = biblioteca do HeyGen.",
+    description:
+      "Lista avatares (looks) do HeyGen. private = avatares da conta do usuário; public = biblioteca do HeyGen. Com preview (padrão), devolve também uma folha de contato com a foto de cada avatar (#n = posição na lista, até 16 por página): escolha pela APARÊNCIA (gênero, idade, cenário, estilo UGC), não só pelo nome. Use search e page para ver outros.",
     input_schema: objectSchema({
       ownership: { type: "string", enum: ["private", "public"], description: "Padrão private." },
       search: { type: "string" },
+      preview: { type: "boolean", description: "Padrão true: folha com as fotos. false = só a lista (mais barato)." },
+      page: { type: "integer", minimum: 1, description: "Página de 16 avatares da folha. Padrão 1." },
     }),
   },
   {
@@ -335,6 +360,12 @@ const definitions: Anthropic.Beta.BetaTool[] = [
               inicio: { type: "number", minimum: 0, description: "Ou o segundo exato (no vídeo já editado)." },
               duracao: { type: "number", minimum: 0.8, maximum: 15 },
               cor: { type: "string", description: "#RRGGBB" },
+              posicao: {
+                type: "string",
+                enum: ["topo", "meio", "baixo"],
+                description:
+                  "Onde fica na tela. Padrão: titulo/contador topo, lista meio, destaque e cta baixo (logo acima da legenda). Nunca cubra o rosto do avatar: confira os quadros (hub_view_video) e, se o rosto estiver no topo ou no meio, mantenha o gráfico em baixo.",
+              },
             },
             required: ["tipo"],
           },
@@ -583,9 +614,10 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
     return { content: json({ total: matches.length, items }), summary: `${items.length} gerações` };
   },
 
-  async hub_check_generations(input, { signal }) {
+  async hub_check_generations(input, { signal, viaMcp }) {
     const ids = (Array.isArray(input.ids) ? input.ids : []).map(str).slice(0, 20);
-    const deadline = Date.now() + Math.min(240, Math.max(0, Number(input.wait_seconds) || 0)) * 1000;
+    // Pela MCP, no máximo 50s por chamada (acima disso o Claude Code dá "The operation timed out"); o agente chama de novo.
+    const deadline = Date.now() + Math.min(viaMcp ? 50 : 240, Math.max(0, Number(input.wait_seconds) || 0)) * 1000;
     let gens: Generation[] = [];
     for (;;) {
       gens = [];
@@ -599,8 +631,13 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
     }
     const missing = ids.filter((id) => !gens.some((g) => g.id === id));
     const done = gens.filter((g) => g.status === "done").length;
+    const still = gens.some((g) => g.status === "pending" || g.status === "running");
     return {
-      content: json({ items: gens.map(brief), ...(missing.length ? { not_found: missing } : {}) }),
+      content: json({
+        items: gens.map(brief),
+        ...(missing.length ? { not_found: missing } : {}),
+        ...(still && Number(input.wait_seconds) > 0 ? { note: "Ainda gerando. Se o próximo passo depende disso, chame hub_check_generations de novo com wait_seconds." } : {}),
+      }),
       summary: `${done}/${ids.length} prontas`,
       generations: gens,
     };
@@ -658,8 +695,20 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
     const ownership = input.ownership === "public" ? "public" : "private";
     const q = str(input.search).toLowerCase();
     const looks = (await listLooks(ownership)).filter((l) => !q || l.name.toLowerCase().includes(q));
-    const items = looks.map(({ id, name, type, orientation }) => ({ id, name, type, orientation }));
-    return { content: json({ ownership, items }), summary: `${looks.length} avatares` };
+    if (input.preview === false) {
+      const items = looks.map(({ id, name, type, orientation }) => ({ id, name, type, orientation }));
+      return { content: json({ ownership, items }), summary: `${looks.length} avatares` };
+    }
+    // Folha de contato com as fotos (16 por página), para escolher pela aparência.
+    const pages = Math.max(1, Math.ceil(looks.length / 16));
+    const page = num(input.page, 1, pages, 1);
+    const slice = looks.slice((page - 1) * 16, page * 16);
+    const thumbs = await Promise.all(slice.map((l) => (l.image ? lookThumb(l.image).catch(() => null) : null)));
+    const tiles = slice.flatMap((l, i) => (thumbs[i] ? [{ file: thumbs[i], label: `#${i + 1} ${l.name}`.slice(0, 28) }] : []));
+    const items = slice.map(({ id, name, type, orientation }, i) => ({ n: i + 1, id, name, type, orientation, ...(thumbs[i] ? {} : { sem_foto: true }) }));
+    const content: ToolResultContent[] = [{ type: "text", text: json({ ownership, total: looks.length, page, pages, items }) }];
+    if (tiles.length) content.push(imageRef(await contactSheet(tiles)));
+    return { content, summary: `${looks.length} avatares${pages > 1 ? ` (página ${page}/${pages})` : ""}` };
   },
 
   async heygen_list_voices(input) {

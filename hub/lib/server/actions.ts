@@ -3,6 +3,7 @@ import "server-only";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { DEFAULT_ELEVEN_MODEL, getElevenModel, NARRATION_DEFAULTS, stripAudioTags } from "@/lib/elevenlabs-models";
 import { applyRules, FLORA_FAMILIES, type FloraFamily, getFamily, MAX_REFERENCES, type Operation, paramsFor } from "@/lib/flora-models";
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
@@ -43,14 +44,18 @@ export async function runTts(req: TtsRequest): Promise<Generation> {
   if (!req.voiceId) throw new InputError("Escolha uma voz.");
 
   // language_code só é aceito por alguns modelos; deixamos o ElevenLabs detectar o idioma.
+  // Padrão: Eleven v4 (o mais natural e emotivo, aceita tags como [excited]) ao mesmo custo do Multilingual v2.
+  const modelId = String(req.modelId || DEFAULT_ELEVEN_MODEL);
   const input = {
-    text,
+    // Modelos sem suporte a tags leriam "[excited]" em voz alta: tiramos.
+    text: getElevenModel(modelId)?.audioTags === false ? stripAudioTags(text) : text,
     voiceId: String(req.voiceId),
-    modelId: String(req.modelId || "eleven_multilingual_v2"),
-    stability: clamp(req.stability, 0, 1, 0.5),
-    similarity: clamp(req.similarity, 0, 1, 0.75),
-    style: clamp(req.style, 0, 1, 0),
-    speed: clamp(req.speed, 0.7, 1.2, 1),
+    modelId,
+    stability: clamp(req.stability, 0, 1, NARRATION_DEFAULTS.stability),
+    similarity: clamp(req.similarity, 0, 1, NARRATION_DEFAULTS.similarity),
+    style: clamp(req.style, 0, 1, NARRATION_DEFAULTS.style),
+    // Acima de 1,1× a fala fica atropelada e robótica.
+    speed: clamp(req.speed, 0.7, 1.1, NARRATION_DEFAULTS.speed),
   };
 
   const file = await saveMedia(await textToSpeech(input), "mp3");

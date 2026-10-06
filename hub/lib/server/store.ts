@@ -54,9 +54,17 @@ export async function getGeneration(id: string): Promise<Generation | undefined>
   return (await load()).generations.find((g) => g.id === id);
 }
 
+// Criativos finais (edição final, exportação do editor, tradução) entram sozinhos na Biblioteca ao ficarem prontos.
+// Só na primeira vez: se você tirar da Biblioteca, `saved` fica false e não volta.
+const FINAL_TOOLS: GenerationTool[] = ["montagem", "editor", "heygen-traducao"];
+function autoSave(gen: Generation) {
+  if (gen.status === "done" && gen.saved === undefined && FINAL_TOOLS.includes(gen.tool)) gen.saved = true;
+}
+
 export function createGeneration(data: Omit<Generation, "id" | "createdAt">): Promise<Generation> {
   return withDb((db) => {
     const gen: Generation = { ...data, id: randomUUID(), createdAt: new Date().toISOString() };
+    autoSave(gen);
     db.generations.push(gen);
     return gen;
   });
@@ -65,7 +73,10 @@ export function createGeneration(data: Omit<Generation, "id" | "createdAt">): Pr
 export function updateGeneration(id: string, patch: Partial<Generation>): Promise<Generation | undefined> {
   return withDb((db) => {
     const gen = db.generations.find((g) => g.id === id);
-    if (gen) Object.assign(gen, patch);
+    if (gen) {
+      Object.assign(gen, patch);
+      autoSave(gen);
+    }
     return gen;
   });
 }

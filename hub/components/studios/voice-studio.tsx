@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, RotateCcw, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Workspace, WorkspacePanel } from "@/components/workspace";
-import { DEFAULT_ELEVEN_MODEL, ELEVEN_MODELS, V3_STABILITY } from "@/lib/elevenlabs-models";
+import { AUDIO_TAGS, DEFAULT_ELEVEN_MODEL, ELEVEN_MODELS, NARRATION_DEFAULTS, V3_STABILITY } from "@/lib/elevenlabs-models";
 import { apiFetch, type Generation } from "@/lib/generations";
 import { cn } from "@/lib/utils";
 
@@ -24,7 +24,7 @@ type Voice = PickerVoice;
 // Modelos e ajustes de cada um vêm de lib/elevenlabs-models.ts (o mesmo que o servidor usa).
 const MODELS = ELEVEN_MODELS;
 
-const DEFAULTS = { stability: 0.5, similarity: 0.75, style: 0, speed: 1 };
+const DEFAULTS = NARRATION_DEFAULTS;
 
 export function VoiceStudio({ configured }: { configured: boolean }) {
   const [text, setText] = useState("");
@@ -51,6 +51,20 @@ export function VoiceStudio({ configured }: { configured: boolean }) {
   const voice = voices.find((v) => v.id === voiceId);
   const model = MODELS.find((m) => m.id === modelId)!;
   const credits = modelId === "eleven_flash_v2_5" ? Math.ceil(text.length / 2) : text.length;
+  const textRef = useRef<HTMLTextAreaElement>(null);
+
+  // Insere a tag de emoção onde está o cursor (antes da frase que ela deve colorir).
+  function insertTag(tag: string) {
+    const el = textRef.current;
+    const at = el ? el.selectionStart : text.length;
+    const before = text.slice(0, at);
+    const piece = `${before && !/\s$/.test(before) ? " " : ""}${tag} `;
+    setText(before + piece + text.slice(at));
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(at + piece.length, at + piece.length);
+    });
+  }
 
   async function generate() {
     setBusy(true);
@@ -100,7 +114,26 @@ export function VoiceStudio({ configured }: { configured: boolean }) {
           </div>
         )}
         <label htmlFor="tts-text" className="sr-only">Texto da narração</label>
+        {model.audioTags && (
+          <div className="flex flex-wrap items-center gap-1 border-b px-4 py-2">
+            <span className="mr-1 text-[0.6875rem] text-muted-foreground" title="Coloque a tag antes da frase. Use poucas: uma a cada uma ou duas frases.">
+              Emoção:
+            </span>
+            {AUDIO_TAGS.map((t) => (
+              <button
+                key={t.tag}
+                type="button"
+                title={`Insere ${t.tag} no cursor`}
+                onClick={() => insertTag(t.tag)}
+                className="border px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground transition-colors hover:border-rec hover:text-foreground"
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
         <Textarea
+          ref={textRef}
           id="tts-text"
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -153,7 +186,7 @@ export function VoiceStudio({ configured }: { configured: boolean }) {
           <SliderField
             label="Velocidade"
             min={0.7}
-            max={1.2}
+            max={1.1}
             value={settings.speed}
             onChange={(speed) => setSettings((s) => ({ ...s, speed }))}
             format={(v) => `${v.toFixed(2)}×`}

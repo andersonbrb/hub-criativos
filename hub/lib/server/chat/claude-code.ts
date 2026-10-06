@@ -150,7 +150,13 @@ export async function runClaudeCodeTurn(chat: Chat, emit: Emit, signal: AbortSig
     ...(resuming ? ["--resume", sessionId] : ["--session-id", sessionId]),
   ];
 
-  const child = spawn(bin, args, { cwd: WORKDIR, windowsHide: true, env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: "hub" } });
+  const child = spawn(bin, args, { cwd: WORKDIR, windowsHide: true, env: {
+      ...process.env,
+      CLAUDE_CODE_ENTRYPOINT: "hub",
+      // Edição final, transcrição e render podem levar alguns minutos numa chamada só.
+      MCP_TOOL_TIMEOUT: process.env.MCP_TOOL_TIMEOUT || "600000",
+    },
+  });
   // Parar: no Windows mata a árvore inteira (o Claude Code pode ter subprocessos); child.kill() sozinho às vezes não basta.
   const kill = () => {
     if (child.exitCode !== null) return;

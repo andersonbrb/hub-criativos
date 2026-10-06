@@ -38,7 +38,8 @@ export const FX_OFF: Fx = {
 export const fxCount = (f: Fx) =>
   [f.legenda !== "padrao", f.zoom_cortes, f.transicao !== "dissolve", f.sons, Boolean(f.musicId), f.cor !== "nenhuma", f.barra_progresso].filter(Boolean).length;
 
-export type Grafico = { tipo: "titulo" | "destaque" | "lista" | "contador" | "cta"; texto: string; sub: string; deixa: string };
+// posicao "" = automática (título/contador no topo, lista no meio, destaque e CTA embaixo, longe do rosto).
+export type Grafico = { tipo: "titulo" | "destaque" | "lista" | "contador" | "cta"; texto: string; sub: string; deixa: string; posicao: "" | "topo" | "meio" | "baixo" };
 
 const TIPOS: { value: Grafico["tipo"]; label: string; hint: string }[] = [
   { value: "titulo", label: "Título", hint: "Frase de impacto no topo" },
@@ -163,11 +164,22 @@ export function GraphicsPanel({ items, onChange }: { items: Grafico[]; onChange:
                   <Input value={g.sub} onChange={(e) => update(i, { sub: e.target.value })} placeholder={g.tipo === "contador" ? "09:59" : "Texto menor"} className="h-7 text-xs md:text-xs" aria-label="Texto menor" />
                 )}
                 <Input value={g.deixa} onChange={(e) => update(i, { deixa: e.target.value })} placeholder="entra quando falar…" className="h-7 text-xs md:text-xs" aria-label="Deixa do gráfico" />
+                <Select value={g.posicao || "auto"} onValueChange={(v) => update(i, { posicao: v === "auto" ? "" : (v as Grafico["posicao"]) })}>
+                  <SelectTrigger size="sm" className="h-7 w-full text-xs" aria-label="Posição do gráfico">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Posição automática</SelectItem>
+                    <SelectItem value="topo">No topo</SelectItem>
+                    <SelectItem value="meio">No meio</SelectItem>
+                    <SelectItem value="baixo">Embaixo (acima da legenda)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           );
         })}
-        <Button variant="outline" size="xs" className="self-start" onClick={() => onChange([...items, { tipo: "titulo", texto: "", sub: "", deixa: "" }])}>
+        <Button variant="outline" size="xs" className="self-start" onClick={() => onChange([...items, { tipo: "titulo", texto: "", sub: "", deixa: "", posicao: "" }])}>
           <Plus />
           Adicionar gráfico
         </Button>

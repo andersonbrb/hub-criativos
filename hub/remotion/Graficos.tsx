@@ -1,7 +1,8 @@
+import type { CSSProperties } from "react";
 import { AbsoluteFill, Easing, interpolate, Sequence, spring, useCurrentFrame, useVideoConfig } from "remotion";
 
 // Gráficos animados da edição final (renderizados com fundo transparente e sobrepostos ao vídeo pelo ffmpeg).
-// Áreas: topo (título, contador), meio (destaque, lista) e acima da legenda (CTA); a legenda fica no rodapé.
+// Posição: topo, meio ou baixo (logo acima da legenda, que fica no rodapé). Padrão por tipo em POSICAO_PADRAO.
 
 export type Grafico = {
   tipo: "titulo" | "destaque" | "lista" | "contador" | "cta";
@@ -11,12 +12,29 @@ export type Grafico = {
   inicio: number; // s
   duracao: number; // s
   cor?: string; // destaque (#RRGGBB)
+  posicao?: Posicao;
 };
+
+export type Posicao = "topo" | "meio" | "baixo";
+
+// Destaque e CTA embaixo para não tapar o rosto do avatar (que fica no terço de cima/meio).
+const POSICAO_PADRAO: Record<Grafico["tipo"], Posicao> = { titulo: "topo", contador: "topo", destaque: "baixo", lista: "meio", cta: "baixo" };
+
+// Área do gráfico na tela 1080×1920. "baixo" para acima da legenda (legenda: rodapé, até ~1640px).
+function area(g: Grafico, extra: CSSProperties = {}): CSSProperties {
+  const p = g.posicao ?? POSICAO_PADRAO[g.tipo];
+  const v: CSSProperties =
+    p === "topo" ? { justifyContent: "flex-start", paddingTop: 230 } : p === "baixo" ? { justifyContent: "flex-end", paddingBottom: 500 } : { justifyContent: "center" };
+  return { alignItems: "center", ...v, ...extra };
+}
 
 export type GraficosProps = { elementos: Grafico[]; duracao: number };
 
 const FONT = "'Arial Black', 'Segoe UI Black', Impact, sans-serif";
 const sombra = "0 6px 24px rgba(0,0,0,0.35)";
+
+// Moeda grudada no valor ("R$ 49,90" nunca quebra entre "R$" e "49,90").
+const semQuebra = (t: string) => t.replace(/(R\$|US\$|S\/|\$|€|£)\s+(?=\d)/g, "$1 ");
 
 // Saída suave nos últimos 0,25s de cada gráfico.
 function useSaida(duracao: number) {
@@ -32,7 +50,7 @@ function Titulo({ g }: { g: Grafico }) {
   const saida = useSaida(g.duracao);
   const palavras = g.texto.toUpperCase().split(/\s+/).filter(Boolean);
   return (
-    <AbsoluteFill style={{ justifyContent: "flex-start", alignItems: "center", paddingTop: 230, opacity: saida }}>
+    <AbsoluteFill style={area(g, { opacity: saida })}>
       <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "8px 18px", maxWidth: 900, padding: "0 40px" }}>
         {palavras.map((p, i) => {
           const s = spring({ frame: frame - i * 3, fps, config: { damping: 14, stiffness: 180 } });
@@ -67,7 +85,7 @@ function Destaque({ g }: { g: Grafico }) {
   const saida = useSaida(g.duracao);
   const s = spring({ frame, fps, config: { damping: 9, stiffness: 160 } });
   return (
-    <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", opacity: saida, top: -260 }}>
+    <AbsoluteFill style={area(g, { opacity: saida })}>
       <div
         style={{
           transform: `scale(${0.3 + s * 0.7}) rotate(${-4 + (1 - s) * -10}deg)`,
@@ -75,12 +93,13 @@ function Destaque({ g }: { g: Grafico }) {
           color: "#0A0A0A",
           fontFamily: FONT,
           padding: "26px 54px",
+          maxWidth: 900,
           textAlign: "center",
           boxShadow: sombra,
           border: "6px solid #0A0A0A",
         }}
       >
-        <div style={{ fontSize: 130, lineHeight: 1 }}>{g.texto.toUpperCase()}</div>
+        <div style={{ fontSize: g.texto.length > 12 ? 92 : g.texto.length > 8 ? 112 : 130, lineHeight: 1 }}>{semQuebra(g.texto).toUpperCase()}</div>
         {g.sub && <div style={{ fontSize: 44, marginTop: 10, letterSpacing: 1 }}>{g.sub.toUpperCase()}</div>}
       </div>
     </AbsoluteFill>
@@ -94,7 +113,7 @@ function Lista({ g }: { g: Grafico }) {
   const itens = g.itens?.length ? g.itens : g.texto.split(/\s*[;|]\s*/).filter(Boolean);
   const passo = Math.max(6, Math.floor((g.duracao * fps * 0.6) / Math.max(1, itens.length)));
   return (
-    <AbsoluteFill style={{ justifyContent: "center", alignItems: "flex-start", paddingLeft: 80, top: -200, opacity: saida }}>
+    <AbsoluteFill style={area(g, { alignItems: "flex-start", paddingLeft: 80, opacity: saida })}>
       <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
         {itens.map((t, i) => {
           const s = spring({ frame: frame - i * passo, fps, config: { damping: 15, stiffness: 170 } });
@@ -140,7 +159,7 @@ function Contador({ g }: { g: Grafico }) {
   const mm = String(Math.floor(restante / 60)).padStart(2, "0");
   const ss = String(restante % 60).padStart(2, "0");
   return (
-    <AbsoluteFill style={{ justifyContent: "flex-start", alignItems: "center", paddingTop: 220, opacity: saida }}>
+    <AbsoluteFill style={area(g, { opacity: saida })}>
       <div style={{ transform: `scale(${0.6 + 0.4 * s})`, textAlign: "center", background: "rgba(10,10,10,0.88)", padding: "18px 40px", boxShadow: sombra }}>
         <div style={{ fontFamily: FONT, fontSize: 46, color: "white" }}>{(g.texto || "Oferta acaba em").toUpperCase()}</div>
         <div style={{ fontFamily: FONT, fontSize: 120, color: g.cor ?? "#22FF66", lineHeight: 1.05, fontVariantNumeric: "tabular-nums" }}>
@@ -159,7 +178,7 @@ function Cta({ g }: { g: Grafico }) {
   const pulso = 1 + 0.04 * Math.sin((frame / fps) * Math.PI * 2.4);
   const seta = interpolate(Math.sin((frame / fps) * Math.PI * 2.4), [-1, 1], [0, 26], { easing: Easing.inOut(Easing.ease) });
   return (
-    <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center", paddingBottom: 520, opacity: saida }}>
+    <AbsoluteFill style={area(g, { opacity: saida })}>
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14, transform: `translateY(${(1 - s) * 140}px)`, opacity: s }}>
         <div
           style={{

@@ -17,6 +17,7 @@ Diferenças em relação ao código do playbook (correções):
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -134,6 +135,35 @@ def ass_color(hex_color, default="22FF66"):
     return f"&H00{h[4:6]}{h[2:4]}{h[0:2]}".upper()
 
 
+CURRENCY = {"r$", "$", "us$", "u$", "€", "£", "s/", "s/.", "mx$", "cop", "clp", "ars"}
+
+
+def caption_words(ws):
+    """Junta o que não pode quebrar na legenda: preço e número com decimais ("49" + ",90" -> "49,90"),
+    moeda + valor ("R$" + "49,90" -> "R$ 49,90") e porcentagem ("30" + "%" -> "30%")."""
+    out = []
+    for w, s, e in ws:
+        w = w.strip()
+        if not w:
+            continue
+        if out:
+            pw, ps, _pe = out[-1]
+            glue = None
+            if re.match(r"^[.,]\d", w) and re.search(r"\d$", pw):
+                glue = ""                                  # 49 + ,90
+            elif re.match(r"^\d", w) and re.search(r"\d[.,]$", pw):
+                glue = ""                                  # 49, + 90
+            elif w in ("%", "%.", "%,") or (w.startswith("%") and len(w) <= 2):
+                glue = ""                                  # 30 + %
+            elif pw.lower() in CURRENCY and re.match(r"^\d", w):
+                glue = " "                                 # R$ + 49,90
+            if glue is not None:
+                out[-1] = (pw + glue + w, ps, e)
+                continue
+        out.append((w, s, e))
+    return out
+
+
 def caption_events(groups, fx):
     """Eventos ASS. Padrão: um bloco por vez (playbook). Destaque: a palavra falada em cor, com 'pop' na entrada do bloco."""
     if fx["legenda"] != "destaque":
@@ -162,21 +192,60 @@ def make_whoosh(w):
 
 def norm(s):
     """minúsculas, sem acento e sem pontuação (para achar a deixa na fala)."""
-    s = unicodedata.normalize("NFD", (s or "").lower())
-    return "".join(c for c in s if c.isalnum() or c == " ").strip()
+    s = unicodedata.normalize("NFD", (s or "").lower().replace("-", " "))
+    return "".join(c for c in s if (c.isalnum() and c.isascii()) or c == " ").strip()
+
+
+# Número por extenso -> dígitos (pt, es, en, fr), dos dois lados: o Whisper escreve "4" quando a deixa diz "quatro".
+# O mesmo mapa existe em lib/server/motion.ts (NUM_WORDS).
+NUM_WORDS = {}
+for _n, _l in {
+    0: "zero cero", 1: "um uma uno una un une one", 2: "dois duas dos two deux", 3: "tres three trois",
+    4: "quatro cuatro four quatre", 5: "cinco five cinq", 6: "seis six", 7: "sete siete seven sept",
+    8: "oito ocho eight huit", 9: "nove nueve nine neuf", 10: "dez diez ten dix", 11: "onze once eleven",
+    12: "doze doce twelve douze", 13: "treze trece thirteen treize", 14: "quatorze catorze fourteen",
+    15: "quinze quince fifteen", 16: "dezesseis dieciseis sixteen seize", 17: "dezessete diecisiete seventeen",
+    18: "dezoito dieciocho eighteen", 19: "dezenove diecinueve nineteen", 20: "vinte veinte twenty vingt",
+    30: "trinta treinta thirty trente", 40: "quarenta cuarenta forty quarante", 50: "cinquenta cincuenta fifty cinquante",
+    60: "sessenta sesenta sixty soixante", 70: "setenta seventy", 80: "oitenta ochenta eighty", 90: "noventa ninety",
+    100: "cem cien hundred cent",
+}.items():
+    for _w in _l.split():
+        NUM_WORDS[_w] = _n
+
+
+def num_tokens(raw):
+    """[(token, t)] normalizados, com número por extenso em dígitos e dezena + unidade juntas ("quarenta e nove" -> "49")."""
+    toks = [(str(NUM_WORDS[t]) if t in NUM_WORDS else t, s) for t, s in raw]
+    out, i = [], 0
+    while i < len(toks):
+        t, s = toks[i]
+        j = i + 2 if i + 1 < len(toks) and toks[i + 1][0] in ("e", "y", "et", "and") else i + 1
+        if t.isdigit() and 20 <= int(t) <= 90 and int(t) % 10 == 0 and j < len(toks) and toks[j][0] in "123456789" and len(toks[j][0]) == 1:
+            out.append((str(int(t) + int(toks[j][0])), s))
+            i = j + 1
+        else:
+            out.append((t, s))
+            i += 1
+    return out
+
+
+def tok_hit(word, tok):
+    """Número tem que ser igual; palavra, começar igual."""
+    return word == tok if tok.isdigit() else word.startswith(tok)
 
 
 def find_cue(cue, ws, after):
     """Primeiro momento (s), a partir de `after`, em que a fala diz a deixa (uma ou mais palavras, começo de palavra)."""
-    toks = norm(cue).split()
+    toks = [t for t, _ in num_tokens([(t, 0) for t in norm(cue).split()])]
     if not toks:
         return None
-    words = [norm(x[0]) for x in ws]
-    for i in range(len(ws)):
-        if ws[i][1] < after:
+    words = num_tokens([(t, x[1]) for x in ws for t in norm(x[0]).split()])
+    for i in range(len(words)):
+        if words[i][1] < after:
             continue
-        if all(i + k < len(ws) and words[i + k].startswith(toks[k]) for k in range(len(toks))):
-            return ws[i][1]
+        if all(i + k < len(words) and tok_hit(words[i + k][0], toks[k]) for k in range(len(toks))):
+            return words[i][1]
     return None
 
 
@@ -297,7 +366,7 @@ def process(job):
 
     # Blocos de legenda (cada um guarda as palavras com tempo, para o estilo "destaque")
     groups = []; cur = []; cs = ce = None
-    for wd in ws2:
+    for wd in caption_words(ws2):
         txt = " ".join(x[0] for x in cur) + (" " if cur else "") + wd[0]
         if len(txt) > MAX_CHARS and cur:
             groups.append((cs, ce, cur)); cur = [wd]; cs, ce = wd[1], wd[2]

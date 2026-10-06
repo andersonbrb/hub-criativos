@@ -22,7 +22,12 @@ export type GraphicRequest = {
   inicio?: number;
   duracao?: number;
   cor?: string;
+  // topo | meio | baixo (acima da legenda). Padrão: título/contador topo, lista meio, destaque e CTA baixo.
+  posicao?: GraphicPosition;
 };
+
+export const GRAPHIC_POSITIONS = ["topo", "meio", "baixo"] as const;
+export type GraphicPosition = (typeof GRAPHIC_POSITIONS)[number];
 
 type Timeline = { duration: number; words: { w: string; s: number; e: number }[] };
 
@@ -34,15 +39,54 @@ const norm = (s: string) =>
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
+    .replace(/-/g, " ")
     .replace(/[^a-z0-9 ]/g, "")
     .trim();
 
+// Número por extenso → dígitos (pt, es, en, fr), dos dois lados: o Whisper escreve "4" quando a deixa diz "quatro".
+// O mesmo mapa existe em scripts/montagem.py (NUM_WORDS).
+const NUM_WORDS: Record<string, number> = {};
+for (const [n, list] of Object.entries({
+  0: "zero cero", 1: "um uma uno una un une one", 2: "dois duas dos two deux", 3: "tres three trois", 4: "quatro cuatro four quatre",
+  5: "cinco five cinq", 6: "seis six", 7: "sete siete seven sept", 8: "oito ocho eight huit", 9: "nove nueve nine neuf",
+  10: "dez diez ten dix", 11: "onze once eleven", 12: "doze doce twelve douze", 13: "treze trece thirteen treize",
+  14: "quatorze catorze fourteen", 15: "quinze quince fifteen", 16: "dezesseis dieciseis sixteen seize",
+  17: "dezessete diecisiete seventeen", 18: "dezoito dieciocho eighteen", 19: "dezenove diecinueve nineteen",
+  20: "vinte veinte twenty vingt", 30: "trinta treinta thirty trente", 40: "quarenta cuarenta forty quarante",
+  50: "cinquenta cincuenta fifty cinquante", 60: "sessenta sesenta sixty soixante", 70: "setenta seventy",
+  80: "oitenta ochenta eighty", 90: "noventa ninety", 100: "cem cien hundred cent",
+}))
+  for (const w of list.split(" ")) NUM_WORDS[w] = Number(n);
+
+type Tok = { t: string; s: number };
+
+// Tokens normalizados com números por extenso em dígitos, juntando dezena + unidade ("quarenta e nove" → "49").
+function numTokens(raw: Tok[]): Tok[] {
+  const toks = raw.map((x) => (x.t in NUM_WORDS ? { ...x, t: String(NUM_WORDS[x.t]) } : x));
+  const out: Tok[] = [];
+  for (let i = 0; i < toks.length; i++) {
+    const tens = Number(toks[i].t);
+    const isTens = /^\d+$/.test(toks[i].t) && tens >= 20 && tens <= 90 && tens % 10 === 0;
+    const j = ["e", "y", "et", "and"].includes(toks[i + 1]?.t ?? "") ? i + 2 : i + 1;
+    if (isTens && /^[1-9]$/.test(toks[j]?.t ?? "")) {
+      out.push({ t: String(tens + Number(toks[j].t)), s: toks[i].s });
+      i = j;
+    } else out.push(toks[i]);
+  }
+  return out;
+}
+
+const split = (text: string, s = 0): Tok[] => norm(text).split(/\s+/).filter(Boolean).map((t) => ({ t, s }));
+
+// Palavra da fala bate com o token da deixa: número tem que ser igual; palavra, começar igual.
+const tokenHit = (word: string | undefined, tok: string) => word !== undefined && (/^\d+$/.test(tok) ? word === tok : word.startsWith(tok));
+
 function findCue(cue: string, words: Timeline["words"]): number | null {
-  const toks = norm(cue).split(/\s+/).filter(Boolean);
+  const toks = numTokens(split(cue)).map((x) => x.t);
   if (!toks.length) return null;
-  const ws = words.map((w) => norm(w.w));
+  const ws = numTokens(words.flatMap((w) => split(w.w, w.s)));
   for (let i = 0; i < ws.length; i++) {
-    if (toks.every((t, k) => ws[i + k]?.startsWith(t))) return words[i].s;
+    if (toks.every((t, k) => tokenHit(ws[i + k]?.t, t))) return ws[i].s;
   }
   return null;
 }
@@ -62,6 +106,7 @@ export function sanitizeGraphics(raw: unknown): GraphicRequest[] {
       inicio: g.inicio === undefined || g.inicio === null || g.inicio === "" ? undefined : Number(g.inicio),
       duracao: g.duracao === undefined || g.duracao === null || g.duracao === "" ? undefined : Number(g.duracao),
       cor: typeof g.cor === "string" && /^#[0-9a-f]{6}$/i.test(g.cor) ? g.cor : undefined,
+      posicao: GRAPHIC_POSITIONS.includes(g.posicao as GraphicPosition) ? (g.posicao as GraphicPosition) : undefined,
     }));
 }
 
@@ -81,7 +126,7 @@ function place(graphics: GraphicRequest[], tl: Timeline, log: (m: string) => voi
       }
       if (start === null) start = g.tipo === "cta" ? D - dur : g.tipo === "titulo" || g.tipo === "contador" ? 0.3 : D / 3;
       start = Math.min(Math.max(0, start), Math.max(0, D - 0.5));
-      return { tipo: g.tipo, texto: g.texto, sub: g.sub, itens: g.itens, cor: g.cor, inicio: Number(start.toFixed(2)), duracao: Number(Math.min(dur, D - start).toFixed(2)) };
+      return { tipo: g.tipo, texto: g.texto, sub: g.sub, itens: g.itens, cor: g.cor, posicao: g.posicao, inicio: Number(start.toFixed(2)), duracao: Number(Math.min(dur, D - start).toFixed(2)) };
     })
     .filter((g) => g.duracao >= 0.5);
 }
