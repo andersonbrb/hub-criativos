@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { connection } from "next/server";
 
+import { ConnectChatButton } from "@/components/connect-chat";
 import { OpenAppButton } from "@/components/open-app-button";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -110,6 +111,18 @@ export default async function IntegrationsPage() {
         title="Integrações"
         description="Status real das conexões deste hub. As chaves ficam só no seu computador, no arquivo hub/.env.local."
       />
+      <Card className="gap-2 border-rec/30 py-4">
+        <CardHeader className="px-4">
+          <CardTitle className="font-heading text-base">Seu Claude Code ou Codex</CardTitle>
+          <CardDescription>
+            Use as ferramentas e os agentes do hub de qualquer computador, com a sua própria assinatura: gere um prompt, cole no seu Claude Code ou Codex e peça os
+            criativos por lá. Serve para quem acessa o hub pela nuvem.
+          </CardDescription>
+          <CardAction>
+            <ConnectChatButton />
+          </CardAction>
+        </CardHeader>
+      </Card>
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {integrations.map((i) => (
           <Card key={i.name} className="gap-3 py-4">

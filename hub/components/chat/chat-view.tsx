@@ -22,6 +22,7 @@ import {
 import { toast } from "sonner";
 
 import { AgentEditorButton } from "@/components/agent-editor";
+import { ConnectChatButton } from "@/components/connect-chat";
 import { BlackModeBanner, BlackModeButton, blackComposerClass, useBlackMode } from "@/components/black-mode";
 import { LanguagePicker, useCreativeLanguage } from "@/components/chat/language-picker";
 import { Markdown } from "@/components/chat/markdown";
@@ -462,9 +463,14 @@ export function ChatView({
           >
             <div className="mx-auto max-w-3xl">
               {!configured && !black && (
-                <p className="mb-2 text-xs text-warn">
-                  O chat roda no Claude Code desta máquina (sua assinatura): instale a extensão do Claude Code no VS Code e entre com a conta do claude.ai.
-                </p>
+                // Na nuvem (ou sem Claude Code aqui): cada pessoa conecta o PRÓPRIO Claude Code/Codex às ferramentas do hub.
+                <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs">
+                  <span className="min-w-0 flex-1">
+                    Este chat só roda no computador onde o hub está instalado. Daqui, conecte o <b>seu</b> Claude Code ou Codex ao hub e peça os criativos por lá, com a sua
+                    assinatura.
+                  </span>
+                  <ConnectChatButton />
+                </div>
               )}
               {black && <BlackModeBanner />}
               <div

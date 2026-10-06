@@ -2,7 +2,6 @@
 
 import { useSyncExternalStore } from "react";
 import { VenetianMask } from "lucide-react";
-import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 
@@ -37,7 +36,7 @@ export function useBlackMode(): [boolean, () => void] {
       localStorage.setItem(KEY, next ? "1" : "0");
     } catch {}
     window.dispatchEvent(new Event(EVENT));
-    toast(next ? "Modo Black ligado: respondendo com venice-uncensored (só texto, sem ferramentas)" : "Modo Black desligado: voltando ao modo normal");
+    // Sem aviso: o próprio botão (e a faixa do Modo Black) mostra o estado.
   };
   return [on, toggle];
 }
