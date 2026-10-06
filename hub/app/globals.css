@@ -35,8 +35,8 @@ html[data-mobile-frame] [data-slot="sidebar-inset"] {
 
 /* Contador da aba recolhida (ex.: Gerações): pisca devagar para chamar a atenção. */
 @keyframes badge-blink {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 2px var(--background), 0 0 8px 1px var(--ok); }
-  50% { opacity: 0.35; box-shadow: 0 0 0 2px var(--background), 0 0 0 0 var(--ok); }
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 2px var(--background), 0 0 8px 1px var(--destructive); }
+  50% { opacity: 0.35; box-shadow: 0 0 0 2px var(--background), 0 0 0 0 var(--destructive); }
 }
 @utility badge-blink {
   animation: badge-blink 2.4s ease-in-out infinite;
