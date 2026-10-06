@@ -34,7 +34,6 @@ export type MontageFx = {
   cor_destaque?: string;
   zoom_cortes?: boolean;
   transicao?: "dissolve" | "zoom" | "slide";
-  sons?: boolean;
   musicId?: string;
   musica_volume?: number;
   cor?: "nenhuma" | "quente" | "fria" | "vivo";
@@ -64,7 +63,6 @@ async function cleanFx(fx: MontageFx | undefined) {
   if (typeof fx.cor_destaque === "string" && /^#[0-9a-f]{6}$/i.test(fx.cor_destaque)) out.cor_destaque = fx.cor_destaque;
   if (fx.zoom_cortes === true) set("zoom_cortes", true, "zoom nos cortes");
   if (fx.transicao === "zoom" || fx.transicao === "slide") set("transicao", fx.transicao, `transição ${fx.transicao}`);
-  if (fx.sons === true) set("sons", true, "whoosh");
   if (fx.cor === "quente" || fx.cor === "fria" || fx.cor === "vivo") set("cor", fx.cor, `cor ${fx.cor}`);
   if (fx.barra_progresso === true) set("barra_progresso", true, "barra de progresso");
   if (fx.musicId) {

@@ -331,13 +331,12 @@ const definitions: Anthropic.Beta.BetaTool[] = [
           type: "object",
           additionalProperties: false,
           description:
-            "Efeitos OPCIONAIS (todos desligados por padrão; a edição padrão do infoproduto é sem efeitos). Use só quando o usuário pedir ou quando o criativo claramente ganhar com eles: UGC/gancho rápido → legenda destaque + zoom_cortes; troca de cena → transicao + sons; vídeo longo → barra_progresso. Não empilhe tudo num vídeo só.",
+            "Efeitos OPCIONAIS (todos desligados por padrão; a edição padrão do infoproduto é sem efeitos). Use só quando o usuário pedir ou quando o criativo claramente ganhar com eles: UGC/gancho rápido → legenda destaque + zoom_cortes; troca de cena → transicao (nunca há efeito sonoro nas transições); vídeo longo → barra_progresso. Não empilhe tudo num vídeo só.",
           properties: {
             legenda: { type: "string", enum: ["padrao", "destaque"], description: "destaque = palavra falada em cor, com pop (estilo CapCut)." },
             cor_destaque: { type: "string", description: "#RRGGBB da palavra destacada e da barra. Padrão #22FF66." },
             zoom_cortes: { type: "boolean", description: "Alterna o enquadramento 100%/110% a cada corte." },
             transicao: { type: "string", enum: ["dissolve", "zoom", "slide"], description: "Entrada do b-roll. Padrão dissolve." },
-            sons: { type: "boolean", description: "Whoosh na entrada de cada b-roll." },
             music_generation_id: { type: "string", description: "Áudio do hub para música de fundo (abaixa sozinho quando há fala)." },
             musica_volume: { type: "number", minimum: 0.02, maximum: 1, description: "Padrão 0.18." },
             cor: { type: "string", enum: ["nenhuma", "quente", "fria", "vivo"] },

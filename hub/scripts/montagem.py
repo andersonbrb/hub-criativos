@@ -114,7 +114,6 @@ FX_DEFAULTS = {
     "cor_destaque": "#22FF66",  # cor da palavra destacada
     "zoom_cortes": False,       # alterna 100%/110% a cada corte (esconde o pulo do jump cut)
     "transicao": "dissolve",    # entrada do b-roll: "dissolve" | "zoom" | "slide"
-    "sons": False,              # whoosh na entrada de cada b-roll
     "musica": None,             # caminho de um áudio do hub para fundo (abaixa sozinho quando há fala)
     "musica_volume": 0.18,
     "cor": "nenhuma",           # correção de cor: "nenhuma" | "quente" | "fria" | "vivo"
@@ -180,14 +179,6 @@ def caption_events(groups, fx):
             text = " ".join(f"{{\\c{hl}}}{w.upper()}{{\\c&H00FFFFFF&}}" if k == j else w.upper() for k, (w, _s, _e2) in enumerate(ws))
             out.append(f"Dialogue: 0,{ts(start)},{ts(end)},Default,,0,0,0,,{pop}{text}\n")
     return "".join(out)
-
-
-def make_whoosh(w):
-    """Whoosh gerado aqui mesmo (ruído filtrado com envelope): sem arquivo de terceiros nem licença."""
-    path = os.path.join(w, "whoosh.wav")
-    run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "anoisesrc=d=0.5:c=pink:a=0.7",
-         "-af", "highpass=f=250,lowpass=f=3500,afade=t=in:d=0.18,afade=t=out:st=0.2:d=0.3,volume=0.55", path], "whoosh")
-    return path
 
 
 def norm(s):
@@ -412,7 +403,8 @@ def process(job):
     # Queima a legenda (roda dentro da pasta de trabalho para o caminho do .ass não precisar de escape)
     fonts = os.path.join(w, "fonts")
     shutil.copytree(job["fontsdir"], fonts, dirs_exist_ok=True)
-    # Finalização: legenda + (opcionais) barra de progresso, whoosh nos b-rolls e música que abaixa quando há fala.
+    # Finalização: legenda + (opcionais) barra de progresso e música que abaixa quando há fala.
+    # Sem efeito sonoro nas transições, nunca (pedido do usuário em 2026-10-06).
     inputs = ["-i", "vs.mp4"]
     vf = "[0:v]ass=s.ass:fontsdir=fonts[vsub]"
     vlast = "[vsub]"
@@ -421,14 +413,6 @@ def process(job):
         vf += f";{vlast}[1:v]overlay=x='-W+W*t/{jd:.3f}':y=H-14:eof_action=pass[vbar]"
         vlast = "[vbar]"
     audio_parts, af = ["[0:a]"], []
-    if fx["sons"] and plan:
-        wpath = make_whoosh(w)
-        for k, (_i, t) in enumerate(plan):
-            inputs += ["-i", wpath]
-            n = sum(1 for x in inputs if x == "-i") - 1
-            delay = max(0, int((t - 0.15) * 1000))
-            af.append(f"[{n}:a]adelay={delay}|{delay}[wh{k}]")
-            audio_parts.append(f"[wh{k}]")
     if fx["musica"] and os.path.exists(fx["musica"]):
         inputs += ["-stream_loop", "-1", "-i", fx["musica"]]
         n = sum(1 for x in inputs if x == "-i") - 1

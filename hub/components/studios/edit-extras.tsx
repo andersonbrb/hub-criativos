@@ -16,7 +16,6 @@ export type Fx = {
   cor_destaque: string;
   zoom_cortes: boolean;
   transicao: "dissolve" | "zoom" | "slide";
-  sons: boolean;
   musicId: string;
   musica_volume: number;
   cor: "nenhuma" | "quente" | "fria" | "vivo";
@@ -28,7 +27,6 @@ export const FX_OFF: Fx = {
   cor_destaque: "#22FF66",
   zoom_cortes: false,
   transicao: "dissolve",
-  sons: false,
   musicId: "",
   musica_volume: 0.18,
   cor: "nenhuma",
@@ -36,7 +34,7 @@ export const FX_OFF: Fx = {
 };
 
 export const fxCount = (f: Fx) =>
-  [f.legenda !== "padrao", f.zoom_cortes, f.transicao !== "dissolve", f.sons, Boolean(f.musicId), f.cor !== "nenhuma", f.barra_progresso].filter(Boolean).length;
+  [f.legenda !== "padrao", f.zoom_cortes, f.transicao !== "dissolve", Boolean(f.musicId), f.cor !== "nenhuma", f.barra_progresso].filter(Boolean).length;
 
 // posicao "" = automática (título/contador no topo, lista no meio, destaque e CTA embaixo, longe do rosto).
 export type Grafico = { tipo: "titulo" | "destaque" | "lista" | "contador" | "cta"; texto: string; sub: string; deixa: string; posicao: "" | "topo" | "meio" | "baixo" };
@@ -99,7 +97,6 @@ export function EffectsPanel({ fx, onChange, audios }: { fx: Fx; onChange: (f: F
         )}
         <Toggle label="Zoom nos cortes" checked={fx.zoom_cortes} onChange={(v) => set("zoom_cortes", v)} />
         <Mini label="Transição do b-roll" value={fx.transicao} onChange={(v) => set("transicao", v as Fx["transicao"])} options={[{ value: "dissolve", label: "Dissolve (padrão)" }, { value: "zoom", label: "Zoom" }, { value: "slide", label: "Slide" }]} />
-        <Toggle label="Whoosh na entrada do b-roll" checked={fx.sons} onChange={(v) => set("sons", v)} />
         <Mini
           label="Música de fundo"
           value={fx.musicId || "none"}
