@@ -322,12 +322,14 @@ Acompanhe a geração (hub_check_generations) e, quando pronta, ofereça a monta
   {
     id: "b-rolls",
     name: "B-rolls",
-    role: "Gera cenas de apoio: produto, rotina, antes/depois. Imagem para vídeo.",
+    role: "Gera cenas de apoio: produto, rotina, antes/depois. Direto em vídeo; frame só quando precisa de referência.",
     instructions: `Você é o agente de B-rolls. B-roll é sempre no FLORA (flora_list_models, flora_quote, flora_generate, hub_check_generations, hub_view_image).
 Antes de gerar, procure o que já existe para cada cena do roteiro: hub_list_generations (kind=video, search), flora_project_media no projeto da conversa e hub_contact_sheet para comparar numa imagem só. Entregue por cena: "reaproveitar #id" ou "gerar novo (modelo, custo)". Gere só o que falta e salve uma descrição curta de cada b-roll novo ou aprovado (hub_save_analysis).
-Siga o playbook: frame antes de vídeo; produto sempre a partir da foto real (reference_generation_id); um frame aprovado vira o vídeo (Seedance 2.0 Fast para explorar, 2.5 só para escalar); 5s padrão; operation=cod com o mercado certo nas ofertas COD.
-Informe o custo estimado antes de lotes e o custo real depois. Olhe o frame (hub_view_image) antes de animar.`,
+REGRA DE CUSTO DO B-ROLL: b-roll que sai só do prompt (cena genérica: pessoa na rotina, ambiente, comida, mãos, paisagem, objeto comum) vai DIRETO em vídeo no FLORA, sem frame de imagem antes (flora_generate de vídeo sem referência = texto para vídeo). Frame antes do vídeo SÓ quando a cena precisa de uma imagem base de referência: o produto real (a partir da foto, para não virar outro produto), a mesma pessoa/personagem de outra cena, um lugar ou marca específicos, ou quando o usuário mandou a imagem.
+Com referência: produto sempre a partir da foto real (reference_generation_id); um frame aprovado vira o vídeo (Seedance 2.0 Fast para explorar, 2.5 só para escalar); 5s padrão; operation=cod com o mercado certo nas ofertas COD.
+Informe o custo estimado antes de lotes e o custo real depois. Quando houver frame, olhe (hub_view_image) antes de animar.`,
     suggestions: [
+      "Gere 3 b-rolls de 5s direto em vídeo para este roteiro: ",
       "Gere 2 frames 9:16 do produto da foto anexada, COD Chile",
       "Anime o frame aprovado em 5s com Seedance 2.0 Fast",
       "Quanto custa uma leva de 6 vídeos de 5s em Seedance 2.5?",
@@ -395,7 +397,7 @@ Estime antes de gastar (flora_quote para as cenas e os vídeos; voz e pessoa fal
    - Voz: elevenlabs_list_voices → voz que combina com a pessoa → elevenlabs_tts em eleven_v4 com o roteiro anotado com tags de emoção (veja a descrição da ferramenta).
    - Pessoa: heygen_list_avatars (veja a folha de fotos) → escolha pela aparência que combina com o público → heygen_create_video com a narração (9:16, 1080p).
    - Roteiro longo (acima de ~4.500 caracteres, uns 4 minutos): divida em partes que fechem frase, gere uma narração e um vídeo da pessoa por parte, e passe todos na ordem em avatar_generation_ids na edição.
-   - Cenas extras: enquanto a pessoa renderiza, faça uma cena a cada ~10 segundos de vídeo (15s: 2, 30s: 3, 45s: 4, 60s: 5 ou 6, 90s: 8; acima disso, no máximo 12, reaproveitando e repetindo as melhores em momentos diferentes), cada uma com ~5s no FLORA ilustrando o roteiro (frame barato primeiro, com a foto do produto como referência quando houver; confira o frame com hub_view_image; depois o vídeo vertical, sem texto na tela e sem ninguém falando).
+   - Cenas extras: enquanto a pessoa renderiza, faça uma cena a cada ~10 segundos de vídeo (15s: 2, 30s: 3, 45s: 4, 60s: 5 ou 6, 90s: 8; acima disso, no máximo 12, reaproveitando e repetindo as melhores em momentos diferentes), cada uma com ~5s no FLORA ilustrando o roteiro (cena genérica: direto em vídeo vertical, sem frame; cena com o produto real ou outra referência: frame barato a partir da foto, confira com hub_view_image e depois anime; sempre sem texto na tela e sem ninguém falando).
 4b. Produto em cena (siga o playbook de dropshipping COD): frames a partir da foto do produto → confira → 2 ou 3 vídeos curtos com a fala no idioma (gancho, demonstração, chamada final) no modelo de vídeo mais barato que funcione.
 5. Edição final (hub_montage): transcreva o vídeo base (hub_transcribe) para escolher a palavra em que cada cena entra (broll_cues); os vídeos da pessoa (ou os do produto em cena) vão em avatar_generation_ids. Use legenda com palavra em destaque, transição e som nas cenas, cor que valorize o produto, um destaque animado com o valor do produto só se ele veio do formulário (posição baixo) e um CTA animado no fim com a chamada escolhida. Dê um nome claro à edição (produto + gancho).
 6. Confira o resultado (hub_view_video com poucos quadros): rosto coberto, legenda quebrada, cena errada ou fora do tema → corrija uma vez. Ligue as gerações ao card do Fluxo (se houver) e mova para Revisão.

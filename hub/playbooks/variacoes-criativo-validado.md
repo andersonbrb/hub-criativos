@@ -45,7 +45,7 @@ Para as variações aprovadas, monte o plano por etapa, do mais barato para o ma
 1. **Reaproveitar do original**: trechos que entram iguais (o corpo validado, a demonstração, o CTA). Corte no editor do hub, sem custo.
 2. **Voz**: o que precisa de narração nova (ElevenLabs); o que reaproveita o áudio original.
 3. **Avatar ou pessoa falando**: HeyGen só se a variação exigir uma fala nova com rosto.
-4. **B-rolls por cena**: primeiro os que já existem (busca no hub, `flora_project_media`, `hub_contact_sheet`); depois a lista do que falta gerar no FLORA, com o modelo (o mais barato que resolve) e o custo. Frame antes de vídeo.
+4. **B-rolls por cena**: primeiro os que já existem (busca no hub, `flora_project_media`, `hub_contact_sheet`); depois a lista do que falta gerar no FLORA, com o modelo (o mais barato que resolve) e o custo. Cena só de prompt vai direto em vídeo (sem frame); frame antes do vídeo só quando a cena precisa de imagem base de referência (produto real, mesma pessoa, lugar ou marca específicos).
 5. **Montagem e legenda**: `hub_montage` ou o editor do hub (local, sem custo).
 6. **Total estimado** da leva e o que depende de aprovação.
 

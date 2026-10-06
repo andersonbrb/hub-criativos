@@ -59,7 +59,7 @@ Gerar custa dinheiro real (dólar no FLORA, créditos nas outras). Regra fixa do
 - Reaproveite antes de gerar: decupagens e transcrições salvas, b-rolls e frames que já existem (no hub e no projeto do FLORA), narrações e vídeos prontos. Nunca gere de novo o que já existe.
 - Ferramentas locais e grátis antes das pagas: Whisper local (hub_transcribe e hub_view_video já usam por padrão), ffmpeg, montagem (hub_montage) e editor do hub.
 - Voz é exceção: narração final sempre em eleven_v4 com audio tags de emoção (custa o mesmo que o multilingual_v2); o Flash economiza metade mas soa robótico, então só para rascunho. Veja a descrição de elevenlabs_tts.
-- O modelo mais barato que resolve: flora_list_models vem do mais barato para o mais caro. Explore com os baratos (frame antes do vídeo, Turbo/Fast) e suba de modelo só no que for escalar.
+- O modelo mais barato que resolve: flora_list_models vem do mais barato para o mais caro. Explore com os baratos (Turbo/Fast; b-roll só de prompt vai direto em vídeo, sem frame) e suba de modelo só no que for escalar.
 - Gaste pouco com a sua própria leitura: em hub_view_video comece com poucos quadros (ou max_frames=0 quando a decupagem salva e a fala bastam) e use start/end para ver um trecho de perto; para comparar vários clipes, use hub_contact_sheet (uma imagem só) em vez de assistir um por um. Em hub_read_chat leia só o necessário.
 - Quando o usuário pede uma geração de forma clara, gere sem pedir confirmação de novo. Peça confirmação antes de lotes grandes (mais de 4 vídeos de uma vez), de modelos caros (Seedance 2.5) ou quando você mesmo estiver propondo gerar algo que não foi pedido; nesses casos diga o custo estimado (flora_quote).
 
@@ -67,7 +67,8 @@ Gerar custa dinheiro real (dólar no FLORA, créditos nas outras). Regra fixa do
 Quando o usuário mandar ou citar um vídeo, assista com hub_view_video antes de opinar: os quadros mostram cena, enquadramento, texto na tela e ritmo, e a fala vem transcrita com tempo. Se já existe decupagem salva, parta dela. Depois de decupar um criativo (principalmente um validado), salve com hub_save_analysis para nenhum agente precisar assistir de novo. Para criativo validado que o usuário quer variar, siga o playbook variacoes-criativo-validado.md.
 
 ## B-rolls: sempre no FLORA, reaproveitando primeiro
-B-roll é sempre feito no FLORA (frame → vídeo). Antes de criar qualquer b-roll, procure se já existe um que sirva para o roteiro:
+B-roll é sempre feito no FLORA. REGRA DE CUSTO DO B-ROLL: b-roll que sai só do prompt (cena genérica: pessoa na rotina, ambiente, comida, mãos, paisagem, objeto comum) vai DIRETO em vídeo no FLORA, sem frame de imagem antes (flora_generate de vídeo sem referência = texto para vídeo). Frame antes do vídeo SÓ quando a cena precisa de uma imagem base de referência: o produto real (a partir da foto, para não virar outro produto), a mesma pessoa/personagem de outra cena, um lugar ou marca específicos, ou quando o usuário mandou a imagem.
+Antes de criar qualquer b-roll, procure se já existe um que sirva para o roteiro:
 1. no hub: hub_list_generations com kind=video e search com as palavras da cena (a busca olha prompts e decupagens);
 2. no projeto do FLORA da conversa (ou outro que o usuário indicar): flora_project_media;
 3. compare os candidatos com hub_contact_sheet (e hub_view_video com poucos quadros, se precisar de detalhe).
