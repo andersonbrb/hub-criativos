@@ -23,6 +23,9 @@ export type FloraFamily = {
   fromImage: string;
   // Campo da imagem na versão fromImage. Quase todos usam image_url; o Gemini Omni pede uma lista.
   imageField?: "image_url" | "image_urls";
+  // Versão com VÁRIAS imagens de referência (image_urls): is2i-* (imagem) e r2v-* (vídeo a partir de referências).
+  // Sem ela, o modelo aceita uma imagem só.
+  fromImages?: string;
   baseCostUsd: number; // orçamento do FLORA nos padrões do hub (imagem: 9:16 1K alta; vídeo: 5s)
   params: FloraParam[];
 };
@@ -85,6 +88,7 @@ const FAMILIES: FloraFamily[] = [
     note: "O mais barato e rápido (só 1K). Bom para rascunho.",
     fromText: "t2i-nano-banana-2-lite-t2i-google-gemini",
     fromImage: "i2i-nano-banana-2-lite-i2i-google-gemini",
+    fromImages: "is2i-nano-banana-2-lite-is2i-google-gemini",
     baseCostUsd: 0.043,
     params: [aspect(GEMINI_AR)],
   },
@@ -95,6 +99,7 @@ const FAMILIES: FloraFamily[] = [
     note: "Barato, mas sem 9:16 (vertical é 2:3).",
     fromText: "t2i-openai-gpt-image-1",
     fromImage: "i2i-openai-gpt-image-1",
+    fromImages: "is2i-openai-gpt-image-1",
     baseCostUsd: 0.045,
     params: [aspect(GPT_LEGACY_AR), QUALITY, FIDELITY],
   },
@@ -105,6 +110,7 @@ const FAMILIES: FloraFamily[] = [
     note: "Primeira versão do Nano Banana. Edição rápida a partir da foto.",
     fromText: "t2i-nano-banana",
     fromImage: "i2i-nano-banana",
+    fromImages: "is2i-nano-banana",
     baseCostUsd: 0.047,
     params: [aspect(GEMINI_AR)],
   },
@@ -115,6 +121,7 @@ const FAMILIES: FloraFamily[] = [
     note: "Frame barato e rápido, bom para explorar.",
     fromText: "t2i-gpt-image-2-5-flare",
     fromImage: "i2i-gpt-image-2-5-flare",
+    fromImages: "is2i-gpt-image-2-5-flare",
     baseCostUsd: 0.055,
     params: [aspect(GPT25_AR), QUALITY, resolution(["1k", "2k", "4k"])],
   },
@@ -125,6 +132,7 @@ const FAMILIES: FloraFamily[] = [
     note: "Mesmo preço do Flare com outra estética; vale testar lado a lado.",
     fromText: "t2i-gpt-image-2-5-sunburst",
     fromImage: "i2i-gpt-image-2-5-sunburst",
+    fromImages: "is2i-gpt-image-2-5-sunburst",
     baseCostUsd: 0.055,
     params: [aspect(GPT25_AR), QUALITY, resolution(["1k", "2k", "4k"])],
   },
@@ -135,6 +143,7 @@ const FAMILIES: FloraFamily[] = [
     note: "Melhor custo-benefício do Nano Banana; ótimo editando a foto do produto.",
     fromText: "t2i-gemini-3.1-flash-image",
     fromImage: "i2i-gemini-3.1-flash-image",
+    fromImages: "is2i-gemini-3.1-flash-image",
     baseCostUsd: 0.072,
     params: [aspect(GEMINI_AR), resolution(["1K", "2K", "4K"])],
   },
@@ -145,6 +154,7 @@ const FAMILIES: FloraFamily[] = [
     note: "Sem 9:16 (vertical é 2:3). Prefira o 2.5 ou o 2.",
     fromText: "t2i-openai-gpt-image-1-5",
     fromImage: "i2i-openai-gpt-image-1-5",
+    fromImages: "is2i-openai-gpt-image-1-5",
     baseCostUsd: 0.168,
     params: [aspect(GPT_LEGACY_AR), QUALITY, FIDELITY],
   },
@@ -155,6 +165,7 @@ const FAMILIES: FloraFamily[] = [
     note: "Topo do Nano Banana: detalhe fino e texto legível na embalagem.",
     fromText: "t2i-gemini-3-pro",
     fromImage: "i2i-gemini-3-pro",
+    fromImages: "is2i-gemini-3-pro",
     baseCostUsd: 0.18,
     params: [aspect(GEMINI_AR), resolution(["1K", "2K", "4K"])],
   },
@@ -165,6 +176,7 @@ const FAMILIES: FloraFamily[] = [
     note: "Padrão para frames. Fiel à foto do produto.",
     fromText: "t2i-gpt-image-2-t2i",
     fromImage: "i2i-gpt-image-2-i2i",
+    fromImages: "is2i-gpt-image-2",
     baseCostUsd: 0.254,
     params: [aspect(GEMINI_AR), QUALITY, resolution(["1k", "2k", "4k"])],
   },
@@ -197,6 +209,7 @@ const FAMILIES: FloraFamily[] = [
     note: "Mais qualidade que o Turbo, ainda rápido. Com frame, a proporção segue a imagem.",
     fromText: "t2v-minimax-h3-max-gateway",
     fromImage: "i2v-minimax-h3-max-gateway",
+    fromImages: "r2v-minimax-h3-max-gateway",
     baseCostUsd: 0.48,
     params: [aspect(VIDEO_AR, "text"), duration(MINIMAX_DUR), resolution(["480P", "768P"], "768P")],
   },
@@ -207,6 +220,7 @@ const FAMILIES: FloraFamily[] = [
     note: "Modelo do Google. Só 9:16 ou 16:9, até 10s.",
     fromText: "t2v-gemini-omni-1-1-flash-t2v",
     fromImage: "i2v-gengateway-omni-1-1-flash-gg",
+    fromImages: "r2v-gengateway-omni-1-1-flash-gg",
     imageField: "image_urls",
     baseCostUsd: 0.6, // FLORA cota US$ 0,96 para 8s
     params: [
@@ -222,6 +236,7 @@ const FAMILIES: FloraFamily[] = [
     note: "Em 768P sai mais barato que o Max; vai até 4K, mas 2K/4K custam bem mais. Com frame, a proporção segue a imagem.",
     fromText: "t2v-minimax-h3-gateway",
     fromImage: "i2v-minimax-h3-gateway",
+    fromImages: "r2v-minimax-h3-gateway",
     baseCostUsd: 0.315,
     params: [aspect(VIDEO_AR, "text"), duration(MINIMAX_DUR), resolution(["480P", "768P", "2K", "4K"], "768P")],
   },
@@ -232,6 +247,7 @@ const FAMILIES: FloraFamily[] = [
     note: "Padrão para explorar hooks.",
     fromText: "t2v-seedance-2.0-fast-enhancor",
     fromImage: "i2v-seedance-2-fast-enhancor",
+    fromImages: "r2v-seedance-2.0-fast-enhancor",
     baseCostUsd: 0.851,
     params: [aspect(VIDEO_AR), duration(SEEDANCE_DUR), resolution(["480p", "720p"], "720p")],
   },
@@ -252,6 +268,7 @@ const FAMILIES: FloraFamily[] = [
     note: "Mais qualidade que o Fast.",
     fromText: "t2v-seedance-2.0-enhancor",
     fromImage: "i2v-seedance-2.0-enhancor",
+    fromImages: "r2v-seedance-2.0-enhancor",
     baseCostUsd: 1.058,
     params: [aspect(VIDEO_AR), duration(SEEDANCE_DUR), resolution(["480p", "720p", "1080p", "4k"], "720p")],
   },
@@ -262,6 +279,7 @@ const FAMILIES: FloraFamily[] = [
     note: "Só para o que vai escalar.",
     fromText: "t2v-gengateway-seedance-2-5-t2v",
     fromImage: "i2v-gengateway-seedance-2-5-i2v",
+    fromImages: "r2v-seedance-2-5",
     baseCostUsd: 2.483,
     params: [aspect(VIDEO_AR), duration(SEEDANCE_DUR), resolution(["480p", "720p", "1080p"], "720p")],
   },
@@ -273,6 +291,9 @@ export const FLORA_FAMILIES: FloraFamily[] = [...FAMILIES].sort((a, b) => a.base
 export const DEFAULT_FAMILY: Record<FloraKind, string> = { image: "gpt-image-2", video: "seedance-2-fast" };
 
 export const getFamily = (id: string) => FLORA_FAMILIES.find((f) => f.id === id);
+
+// Limite do hub de imagens de referência numa geração (o FLORA não publica um máximo por modelo).
+export const MAX_REFERENCES = 8;
 
 // Parâmetros que valem para a versão que vai rodar (com ou sem imagem de referência).
 export const paramsFor = (family: FloraFamily, withImage: boolean) =>

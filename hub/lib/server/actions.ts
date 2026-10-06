@@ -3,7 +3,7 @@ import "server-only";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { applyRules, getFamily, paramsFor, type FloraFamily, type Operation } from "@/lib/flora-models";
+import { applyRules, FLORA_FAMILIES, type FloraFamily, getFamily, MAX_REFERENCES, type Operation, paramsFor } from "@/lib/flora-models";
 import type { Generation } from "@/lib/generations";
 import { getEditTool } from "@/lib/higgsfield-edits";
 import { InputError } from "@/lib/server/http";
@@ -130,9 +130,12 @@ export type FloraRequest = {
   count?: number;
   operation?: string;
   market?: string;
-  // No máximo UMA referência (playbook COD: a foto do produto; duas enfraquecem o produto).
+  // Imagens de referência (fotos enviadas e/ou gerações do hub). Com mais de uma, o modelo precisa ter fromImages.
+  // Playbook COD: para a fidelidade do produto, prefira uma foto só.
   referenceId?: string;
+  referenceIds?: string[];
   image?: File | null;
+  images?: File[];
   // Projeto do FLORA escolhido na conversa do chat; sem ele, o projeto padrão "Hub de Criativos".
   projectId?: string | null;
   // Nome curto do que está sendo gerado (ex.: "B-roll 03 · xícara às 16h"); vira o nome do nó no canvas.
@@ -175,20 +178,30 @@ export async function runFlora(req: FloraRequest): Promise<Generation[]> {
   const count = Math.min(4, Math.max(1, Number(req.count) || 1));
 
   const projectId = req.projectId || (await getTarget()).projectId;
-  let reference: FloraReference | null = null;
-  if (req.image instanceof File && req.image.size > 0) reference = await uploadReference(req.image, projectId);
-  else if (req.referenceId) reference = await referenceFromGeneration(req.referenceId, projectId);
-  const params = pickParams(family, req.params, Boolean(reference));
+  const files = [...(req.images ?? []), ...(req.image ? [req.image] : [])].filter((f) => f instanceof File && f.size > 0);
+  const refIds = [...new Set([...(req.referenceIds ?? []), ...(req.referenceId ? [req.referenceId] : [])].filter(Boolean))];
+  const total = files.length + refIds.length;
+  if (total > MAX_REFERENCES) throw new InputError(`No máximo ${MAX_REFERENCES} imagens de referência por geração.`);
+  if (total > 1 && !family.fromImages) {
+    const multi = FLORA_FAMILIES.filter((f) => f.kind === family.kind && f.fromImages).map((f) => f.label);
+    throw new InputError(`${family.label} aceita só 1 imagem de referência. Com várias, use: ${multi.join(", ")}.`);
+  }
+  const references: FloraReference[] = [
+    ...(await Promise.all(files.map((f) => uploadReference(f, projectId)))),
+    ...(await Promise.all(refIds.map((id) => referenceFromGeneration(id, projectId)))),
+  ];
+  const params = pickParams(family, req.params, references.length > 0);
 
   const operation = (req.operation === "cod" ? "cod" : "none") as Operation;
   const prompt = applyRules(rawPrompt, family.kind, operation, String(req.market ?? ""));
-  const model = reference ? family.fromImage : family.fromText;
+  const multi = references.length > 1;
+  const model = multi ? family.fromImages! : references.length ? family.fromImage : family.fromText;
 
   const name = String(req.label ?? "").trim() || rawPrompt;
   const labels = Array.from({ length: count }, (_, i) => canvasLabel(family.kind, name, i, count));
   const generations: Generation[] = [];
   for (let i = 0; i < count; i++) {
-    const run = await generate({ type: family.kind, prompt, model, params, reference, imageField: family.imageField, projectId });
+    const run = await generate({ type: family.kind, prompt, model, params, references, imageField: multi ? "image_urls" : family.imageField, projectId });
     generations.push(
       await createGeneration({
         tool: "flora",
@@ -205,7 +218,8 @@ export async function runFlora(req: FloraRequest): Promise<Generation[]> {
           model,
           operation,
           finalPrompt: prompt,
-          referenceUrl: reference?.url ?? null,
+          referenceUrl: references[0]?.url ?? null,
+          referenceCount: references.length,
           cost: run.charged_cost ?? null,
           ...params,
         },
@@ -218,8 +232,11 @@ export async function runFlora(req: FloraRequest): Promise<Generation[]> {
     projectId,
     nodeIds: generations.map((g) => String(g.params.nodeId)),
     labels,
-    reference,
-    referenceLabel: req.image instanceof File ? `Referência · ${req.image.name.replace(/\.[^.]+$/, "")}` : "Referência",
+    references,
+    referenceLabels: [
+      ...files.map((f) => `Referência · ${f.name.replace(/\.[^.]+$/, "")}`),
+      ...refIds.map((_, i) => (refIds.length > 1 ? `Referência ${files.length + i + 1}` : "Referência")),
+    ],
   }).catch((err) => console.error("[hub] FLORA: não consegui organizar o canvas:", err instanceof Error ? err.message : err));
   return generations;
 }
@@ -231,6 +248,8 @@ export async function quoteFlora(req: {
   count?: number;
   referenceId?: string;
   withImage?: boolean;
+  // Total de imagens de referência; com várias, o orçamento é o valor de referência da família.
+  referenceCount?: number;
 }): Promise<{ estimatedCost: number; approximate: boolean }> {
   const family = getFamily(String(req.family ?? ""));
   if (!family) throw new InputError("Modelo inválido.");
@@ -244,13 +263,14 @@ export async function quoteFlora(req: {
   };
 
   if ((req.withImage || ref) && !remoteRef) return fallback();
+  if ((Number(req.referenceCount) || 0) > 1) return fallback();
   try {
     const cost = await quote({
       type: family.kind,
       prompt: "estimativa",
       model: remoteRef ? family.fromImage : family.fromText,
       params,
-      reference: remoteRef ? { url: remoteRef, nodeId: null } : null,
+      references: remoteRef ? [{ url: remoteRef, nodeId: null }] : [],
       imageField: family.imageField,
     });
     return cost === null ? fallback() : { estimatedCost: cost * count, approximate: false };

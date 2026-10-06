@@ -238,6 +238,13 @@ const definitions: Anthropic.Beta.BetaTool[] = [
         },
         count: { type: "integer", minimum: 1, maximum: 4, description: "Variações (padrão 1)." },
         reference_generation_id: { type: "string" },
+        reference_generation_ids: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: 8,
+          description:
+            "Várias imagens de referência na MESMA geração (ex.: vários frames iniciais, produto + cenário). Só nos modelos com versão de várias imagens (flora_list_models: multi_reference=true).",
+        },
         operation: { type: "string", enum: ["none", "cod"], description: "Padrão none." },
         market: {
           type: "string",
@@ -630,6 +637,7 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
       label: f.label,
       note: f.note,
       base_cost_usd: f.baseCostUsd,
+      multi_reference: Boolean(f.fromImages),
       params: Object.fromEntries(
         f.params.map((p) => [
           p.name,
@@ -672,6 +680,7 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
       operation: str(input.operation),
       market: str(input.market),
       referenceId: str(input.reference_generation_id) || undefined,
+      referenceIds: (Array.isArray(input.reference_generation_ids) ? input.reference_generation_ids : []).map(str),
       label: str(input.label) || undefined,
     });
     return {

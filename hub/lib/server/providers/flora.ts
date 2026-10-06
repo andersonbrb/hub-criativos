@@ -133,20 +133,20 @@ export type FloraGenerateInput = {
   prompt: string;
   model: string;
   params: Record<string, string>;
-  reference?: FloraReference | null;
+  // Imagens de referência: uma vai em image_url (ou image_urls, no Gemini Omni); várias, sempre em image_urls.
+  references?: FloraReference[];
   imageField?: "image_url" | "image_urls";
   projectId?: string | null;
 };
 
 function body(input: FloraGenerateInput, ids: { workspaceId: string; projectId: string }, quote = false) {
   const params: Record<string, string | string[]> = { ...input.params };
-  // A imagem de referência vai em params.image_url (obrigatório nos modelos i2i/i2v); o Gemini Omni pede image_urls.
-  if (input.reference) {
-    if (input.imageField === "image_urls") params.image_urls = [input.reference.url];
-    else params.image_url = input.reference.url;
-  }
-  // Frames também ligam o nó do produto no canvas; em modelo de vídeo reference_node_ids dá erro 400.
-  const nodeRefs = input.type === "image" && input.reference?.nodeId ? [input.reference.nodeId] : [];
+  const refs = input.references ?? [];
+  if (refs.length > 1 || (refs.length === 1 && input.imageField === "image_urls")) params.image_urls = refs.map((r) => r.url);
+  else if (refs.length === 1) params.image_url = refs[0].url;
+  // Com uma referência, o frame também liga o nó do produto no canvas (em vídeo reference_node_ids dá erro 400).
+  // Com várias, as imagens já vão em image_urls; as setas no canvas ficam por conta do organizeCanvas.
+  const nodeRefs = input.type === "image" && refs.length === 1 && refs[0].nodeId ? [refs[0].nodeId] : [];
   return JSON.stringify({
     type: input.type,
     prompt: input.prompt,
@@ -200,8 +200,8 @@ export async function organizeCanvas(input: {
   projectId: string;
   nodeIds: string[];
   labels: string[];
-  reference?: FloraReference | null;
-  referenceLabel?: string;
+  references?: FloraReference[];
+  referenceLabels?: string[];
 }) {
   const { workspaceId } = await getTarget();
   const base = `/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(input.projectId)}`;
@@ -210,10 +210,13 @@ export async function organizeCanvas(input: {
 
   const batch = input.nodeIds.map((id, i) => ({ node: find(id), label: input.labels[i] })).filter((b): b is { node: GraphNode; label: string } => Boolean(b.node));
   if (!batch.length) return;
-  const ref = find(input.reference?.nodeId);
-  const moveRef = Boolean(ref && input.reference?.fresh);
+  // Referências no canvas; as enviadas agora entram na fileira, antes das variações.
+  const refs = (input.references ?? [])
+    .map((r, i) => ({ node: find(r.nodeId), fresh: Boolean(r.fresh), label: input.referenceLabels?.[i] }))
+    .filter((r): r is { node: GraphNode; fresh: boolean; label: string | undefined } => Boolean(r.node));
+  const moved = refs.filter((r) => r.fresh);
 
-  const moving = new Set([...batch.map((b) => b.node.id), ...(moveRef && ref ? [ref.id] : [])]);
+  const moving = new Set([...batch.map((b) => b.node.id), ...moved.map((r) => r.node.id)]);
   const others = graph.nodes.filter((n) => !moving.has(n.id) && n.position);
   const size = (n: GraphNode) => n.size ?? DEFAULT_SIZE;
   const top = others.length ? Math.max(...others.map((n) => n.position!.y + size(n).height)) + ROW_GAP : 0;
@@ -222,17 +225,17 @@ export async function organizeCanvas(input: {
 
   const update: { id: string; label?: string; position: { x: number; y: number } }[] = [];
   let x = left;
-  if (moveRef && ref) {
-    update.push({ id: ref.id, ...(input.referenceLabel ? { label: input.referenceLabel } : {}), position: { x, y: top } });
-    x += size(ref).width + COL_GAP;
+  for (const r of moved) {
+    update.push({ id: r.node.id, ...(r.label ? { label: r.label } : {}), position: { x, y: top } });
+    x += size(r.node).width + COL_GAP;
   }
   for (const b of batch) {
     update.push({ id: b.node.id, label: b.label, position: { x, y: top } });
     x += step;
   }
-  const connect = ref
-    ? batch.filter((b) => !graph.edges.some((e) => e.from === ref.id && e.to === b.node.id)).map((b) => ({ from: ref.id, to: b.node.id }))
-    : [];
+  const connect = refs.flatMap((r) =>
+    batch.filter((b) => !graph.edges.some((e) => e.from === r.node.id && e.to === b.node.id)).map((b) => ({ from: r.node.id, to: b.node.id })),
+  );
 
   const apply = (changes: object) => call(`${base}/canvas/changeset`, { method: "POST", body: JSON.stringify(changes) });
   try {

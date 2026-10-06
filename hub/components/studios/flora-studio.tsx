@@ -12,7 +12,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Workspace, WorkspacePanel } from "@/components/workspace";
-import { DEFAULT_FAMILY, FLORA_FAMILIES, MARKETS, applyRules, paramsFor, type FloraKind, type Operation } from "@/lib/flora-models";
+import { DEFAULT_FAMILY, FLORA_FAMILIES, MARKETS, MAX_REFERENCES, applyRules, paramsFor, type FloraKind, type Operation } from "@/lib/flora-models";
 import { apiFetch, mediaUrl, type Generation } from "@/lib/generations";
 import { cn } from "@/lib/utils";
 
@@ -48,18 +48,23 @@ export function FloraStudio({ configured }: { configured: boolean }) {
   // Sem regras COD: idioma da fala do vídeo (opcional).
   const [speech, setSpeech] = useState<string>("auto");
   const marketSent = operation === "cod" ? market : speech === "auto" ? "" : speech;
-  // Uma referência só: foto enviada OU uma imagem já gerada no hub.
-  const [refId, setRefId] = useState<string | null>(null);
-  const [image, setImage] = useState<File | null>(null);
+  // Referências: fotos enviadas e/ou imagens já geradas no hub (várias nos modelos com versão de várias imagens).
+  const [refIds, setRefIds] = useState<string[]>([]);
+  const [images, setImages] = useState<File[]>([]);
   const [estimate, setEstimate] = useState<{ value: number; approximate: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const { items, loaded, add, remove, clear } = useGenerations("flora", pollRun);
 
   const family = FLORA_FAMILIES.find((f) => f.id === familyId)!;
   const families = FLORA_FAMILIES.filter((f) => f.kind === kind);
-  const imagePreview = useMemo(() => (image ? URL.createObjectURL(image) : null), [image]);
-  const refItem = items.find((g) => g.id === refId);
-  const hasReference = Boolean(image || refItem);
+  const imagePreviews = useMemo(() => images.map((f) => URL.createObjectURL(f)), [images]);
+  useEffect(() => () => imagePreviews.forEach((u) => URL.revokeObjectURL(u)), [imagePreviews]);
+  const refItems = refIds.map((id) => items.find((g) => g.id === id)).filter((g): g is Generation => Boolean(g));
+  const refCount = images.length + refItems.length;
+  const hasReference = refCount > 0;
+  // Várias referências só nos modelos com versão de várias imagens.
+  const multiBlocked = refCount > 1 && !family.fromImages;
+  const multiFamilies = families.filter((f) => f.fromImages).map((f) => f.label);
   const finalPrompt = applyRules(prompt, kind, operation, marketSent);
 
   useEffect(() => {
@@ -68,13 +73,13 @@ export function FloraStudio({ configured }: { configured: boolean }) {
       apiFetch<{ estimatedCost: number; approximate: boolean }>("/api/flora/quote", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ family: familyId, params: values, count, referenceId: refId, withImage: Boolean(image) }),
+        body: JSON.stringify({ family: familyId, params: values, count, referenceId: refIds[0], withImage: images.length > 0, referenceCount: refCount }),
       })
         .then((d) => setEstimate({ value: d.estimatedCost, approximate: d.approximate }))
         .catch(() => setEstimate(null));
     }, 500);
     return () => clearTimeout(t);
-  }, [configured, familyId, values, count, refId, image]);
+  }, [configured, familyId, values, count, refIds, images, refCount]);
 
   function switchKind(k: string) {
     const next = k as FloraKind;
@@ -89,8 +94,18 @@ export function FloraStudio({ configured }: { configured: boolean }) {
   }
 
   function toggleReference(g: Generation) {
-    setImage(null);
-    setRefId((cur) => (cur === g.id ? null : g.id));
+    if (!refIds.includes(g.id) && refCount >= MAX_REFERENCES) return toast.error(`No máximo ${MAX_REFERENCES} imagens de referência.`);
+    setRefIds((cur) => (cur.includes(g.id) ? cur.filter((id) => id !== g.id) : [...cur, g.id]));
+  }
+
+  function addImages(list: FileList | null) {
+    const picked = [...(list ?? [])];
+    const tooBig = picked.filter((f) => f.size > 4 * 1024 * 1024);
+    if (tooBig.length) toast.error(`Cada imagem precisa ter até 4 MB (${tooBig.map((f) => f.name).join(", ")}).`);
+    const ok = picked.filter((f) => f.size <= 4 * 1024 * 1024);
+    const room = MAX_REFERENCES - refCount;
+    if (ok.length > room) toast.error(`No máximo ${MAX_REFERENCES} imagens de referência.`);
+    setImages((cur) => [...cur, ...ok.slice(0, Math.max(0, room))]);
   }
 
   async function generate() {
@@ -103,8 +118,8 @@ export function FloraStudio({ configured }: { configured: boolean }) {
       form.set("count", String(count));
       form.set("operation", operation);
       form.set("market", marketSent);
-      if (image) form.set("image", image);
-      else if (refId) form.set("referenceId", refId);
+      images.forEach((f) => form.append("image", f));
+      refItems.forEach((g) => form.append("referenceId", g.id));
       const { generations } = await apiFetch<{ generations: Generation[] }>("/api/flora/generate", { method: "POST", body: form });
       generations.reverse().forEach(add);
       toast.success(
@@ -152,37 +167,45 @@ export function FloraStudio({ configured }: { configured: boolean }) {
           </TabsList>
         </Tabs>
 
-        {/* Referência única: foto do produto (frame) ou frame aprovado (vídeo) */}
+        {/* Referências: fotos do produto (frame) ou frames iniciais (vídeo); várias nos modelos que aceitam. */}
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-2 text-xs text-muted-foreground">
           <Link2 className="size-3.5" />
-          {kind === "image" ? "Foto do produto:" : "Frame inicial:"}
-          {image && imagePreview ? (
-            <RefChip src={imagePreview} label={image.name} onRemove={() => setImage(null)} />
-          ) : refItem ? (
-            <RefChip src={mediaUrl(refItem)} label={refItem.prompt} onRemove={() => setRefId(null)} />
-          ) : (
-            <span>nenhuma</span>
-          )}
+          {kind === "image" ? "Fotos do produto:" : "Frames iniciais:"}
+          {refCount === 0 && <span>nenhuma</span>}
+          {images.map((f, i) => (
+            <RefChip key={imagePreviews[i]} src={imagePreviews[i]} label={f.name} onRemove={() => setImages((cur) => cur.filter((_, j) => j !== i))} />
+          ))}
+          {refItems.map((g) => (
+            <RefChip key={g.id} src={mediaUrl(g)} label={g.prompt} onRemove={() => setRefIds((cur) => cur.filter((id) => id !== g.id))} />
+          ))}
           <span className="flex-1" />
+          {refCount > 0 && (
+            <span className="font-mono tabular-nums">
+              {refCount}/{MAX_REFERENCES}
+            </span>
+          )}
           <Button variant="outline" size="xs" asChild>
             <label className="cursor-pointer">
               <ImagePlus />
-              Enviar foto
+              {refCount ? "Adicionar" : "Enviar fotos"}
               <input
                 type="file"
+                multiple
                 accept="image/png,image/jpeg,image/webp"
                 className="sr-only"
                 onChange={(e) => {
-                  const f = e.target.files?.[0] ?? null;
+                  addImages(e.target.files);
                   e.target.value = "";
-                  if (f && f.size > 4 * 1024 * 1024) return toast.error("A imagem precisa ter até 4 MB.");
-                  setRefId(null);
-                  setImage(f);
                 }}
               />
             </label>
           </Button>
         </div>
+        {multiBlocked && (
+          <p className="text-xs text-warn">
+            {family.label} aceita só 1 imagem de referência. Com {refCount} imagens, troque o modelo para: {multiFamilies.join(", ")}.
+          </p>
+        )}
         {needsImageWarning && (
           <p className="text-xs text-warn">
             Sem frame inicial o vídeo sai só do texto e o produto pode virar outro. Escolha um frame aprovado nas gerações (Usar como referência).
@@ -224,7 +247,13 @@ export function FloraStudio({ configured }: { configured: boolean }) {
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">
-            {family.note} {hasReference ? "Usando a versão a partir de imagem." : "Sem referência: versão só texto."}
+            {family.note}{" "}
+            {refCount > 1 && family.fromImages
+              ? `Usando a versão com ${refCount} imagens de referência.`
+              : hasReference
+                ? "Usando a versão a partir de imagem."
+                : "Sem referência: versão só texto."}
+            {family.fromImages ? "" : " Aceita 1 imagem de referência."}
           </p>
         </Field>
 
@@ -321,7 +350,7 @@ export function FloraStudio({ configured }: { configured: boolean }) {
           </span>
           <b className="font-mono text-foreground tabular-nums">{estimate ? usd(estimate.value) : "—"}</b>
         </div>
-        <Button className="bg-rec text-white hover:bg-rec/85" disabled={!configured || busy || !prompt.trim()} onClick={generate}>
+        <Button className="bg-rec text-white hover:bg-rec/85" disabled={!configured || busy || !prompt.trim() || multiBlocked} onClick={generate}>
           {busy ? <Loader2 className="animate-spin" /> : <Sparkles />}
           {busy ? "Enviando…" : `Gerar ${count > 1 ? `${count} ` : ""}${kind === "video" ? (count > 1 ? "vídeos" : "vídeo") : count > 1 ? "frames" : "frame"}`}
         </Button>
@@ -345,13 +374,13 @@ export function FloraStudio({ configured }: { configured: boolean }) {
           className="grid grid-cols-1 gap-3 @xs:grid-cols-2 @2xl:grid-cols-3 @5xl:grid-cols-4"
         >
           {items.map((g) => {
-            const isRef = refId === g.id;
+            const isRef = refIds.includes(g.id);
             return (
               <div key={g.id} className="relative">
                 <GenerationCard
                   g={g}
                   onDelete={(id) => {
-                    if (id === refId) setRefId(null);
+                    setRefIds((cur) => cur.filter((r) => r !== id));
                     remove(id);
                   }}
                   meta={`${g.params.modelName} · ${g.params.aspect_ratio ?? ""}${g.params.duration ? ` · ${g.params.duration}s` : ""}${typeof g.params.cost === "number" ? ` · ${usd(g.params.cost)}` : ""}`}
