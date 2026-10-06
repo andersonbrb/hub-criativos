@@ -331,12 +331,12 @@ const definitions: Anthropic.Beta.BetaTool[] = [
           type: "object",
           additionalProperties: false,
           description:
-            "Efeitos OPCIONAIS (todos desligados por padrão; a edição padrão do infoproduto é sem efeitos). Use só quando o usuário pedir ou quando o criativo claramente ganhar com eles: UGC/gancho rápido → legenda destaque + zoom_cortes; troca de cena → transicao (nunca há efeito sonoro nas transições); vídeo longo → barra_progresso. Não empilhe tudo num vídeo só.",
+            "Efeitos. O PADRÃO já é profissional e não precisa de fx: áudio tratado (-14 LUFS), cortes com respiro e aproximação lenta, b-roll em corte seco até o fim da frase, legenda de 2-3 palavras. Mude só quando o usuário pedir ou o criativo claramente ganhar: palavra-chave em cor → legenda destaque; nunca há efeito sonoro nas transições; vídeo longo → barra_progresso. Não empilhe tudo num vídeo só.",
           properties: {
-            legenda: { type: "string", enum: ["padrao", "destaque"], description: "destaque = palavra falada em cor, com pop (estilo CapCut)." },
+            legenda: { type: "string", enum: ["padrao", "destaque"], description: "destaque = a palavra-chave de cada bloco (preço, número ou a mais forte) em cor." },
             cor_destaque: { type: "string", description: "#RRGGBB da palavra destacada e da barra. Padrão #22FF66." },
-            zoom_cortes: { type: "boolean", description: "Alterna o enquadramento 100%/110% a cada corte." },
-            transicao: { type: "string", enum: ["dissolve", "zoom", "slide"], description: "Entrada do b-roll. Padrão dissolve." },
+            zoom_cortes: { type: "boolean", description: "Aproximação lenta e contínua em cada trecho (padrão true). false = enquadramento fixo." },
+            transicao: { type: "string", enum: ["corte", "dissolve", "zoom", "slide"], description: "Entrada do b-roll. Padrão corte (seco), o mais profissional." },
             music_generation_id: { type: "string", description: "Áudio do hub para música de fundo (abaixa sozinho quando há fala)." },
             musica_volume: { type: "number", minimum: 0.02, maximum: 1, description: "Padrão 0.18." },
             cor: { type: "string", enum: ["nenhuma", "quente", "fria", "vivo"] },

@@ -27,13 +27,14 @@ const running: Set<string> = ((globalThis as { __montagens?: Set<string> }).__mo
 // avatarIds: vários vídeos do avatar, juntados na ordem antes dos cortes (gancho + body, várias tomadas).
 // avatarId continua valendo (um só), para o chat e chamadas antigas.
 // brollCues: "deixa" de cada b-roll (mesma ordem de brollIds): palavra/frase falada em que ele entra. Vazia = grade do padrão.
-// fx: efeitos opcionais (scripts/montagem.py, FX_DEFAULTS), todos desligados por padrão. musicId = áudio do hub para fundo.
+// fx: efeitos (scripts/montagem.py, FX_DEFAULTS). Padrão: aproximação lenta nos cortes e b-roll em corte seco, áudio
+// sempre tratado; o resto desligado. musicId = áudio do hub para fundo.
 // graphics: gráficos animados com Remotion (lib/server/motion.ts), aplicados depois da edição.
 export type MontageFx = {
   legenda?: "padrao" | "destaque";
   cor_destaque?: string;
   zoom_cortes?: boolean;
-  transicao?: "dissolve" | "zoom" | "slide";
+  transicao?: "corte" | "dissolve" | "zoom" | "slide";
   musicId?: string;
   musica_volume?: number;
   cor?: "nenhuma" | "quente" | "fria" | "vivo";
@@ -50,7 +51,7 @@ export type MontageRequest = {
   graphics?: GraphicRequest[];
 };
 
-// Só o que é válido; o resto fica no padrão do script (desligado).
+// Só o que é válido e diferente do padrão do script.
 async function cleanFx(fx: MontageFx | undefined) {
   if (!fx || typeof fx !== "object") return { fx: {}, labels: [] as string[] };
   const out: Record<string, unknown> = {};
@@ -61,8 +62,8 @@ async function cleanFx(fx: MontageFx | undefined) {
   };
   if (fx.legenda === "destaque") set("legenda", "destaque", "legenda destaque");
   if (typeof fx.cor_destaque === "string" && /^#[0-9a-f]{6}$/i.test(fx.cor_destaque)) out.cor_destaque = fx.cor_destaque;
-  if (fx.zoom_cortes === true) set("zoom_cortes", true, "zoom nos cortes");
-  if (fx.transicao === "zoom" || fx.transicao === "slide") set("transicao", fx.transicao, `transição ${fx.transicao}`);
+  if (fx.zoom_cortes === false) set("zoom_cortes", false, "sem aproximação nos cortes");
+  if (fx.transicao === "dissolve" || fx.transicao === "zoom" || fx.transicao === "slide") set("transicao", fx.transicao, `transição ${fx.transicao}`);
   if (fx.cor === "quente" || fx.cor === "fria" || fx.cor === "vivo") set("cor", fx.cor, `cor ${fx.cor}`);
   if (fx.barra_progresso === true) set("barra_progresso", true, "barra de progresso");
   if (fx.musicId) {
