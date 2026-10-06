@@ -435,9 +435,13 @@ export function WorkspacePanel({
   }, [revealKey]);
 
   const count = badge && badge > 0 ? (badge > 99 ? "99+" : String(badge)) : null;
+  // Recolhida: verde e piscando devagar, para o usuário notar que tem coisa ali dentro.
   const badgeEl = count && (
     <span
-      className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-rec px-1 font-mono text-[0.625rem] leading-none font-bold text-white tabular-nums shadow-[0_0_0_2px_var(--background)]"
+      className={cn(
+        "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 font-mono text-[0.625rem] leading-none font-bold tabular-nums shadow-[0_0_0_2px_var(--background)]",
+        collapsed ? "badge-blink bg-ok text-background" : "bg-rec text-white",
+      )}
       aria-label={`${badge} itens`}
     >
       {count}
