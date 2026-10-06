@@ -44,21 +44,25 @@ export class HeyGenNotConnected extends InputError {
 }
 
 async function load(): Promise<Saved> {
+  let saved: Saved = {};
   try {
-    return JSON.parse(await readFile(STORE, "utf8")) as Saved;
+    saved = JSON.parse(await readFile(STORE, "utf8")) as Saved;
+  } catch {}
+  // Arquivo com login: ele vale (guarda as renovações do token).
+  if (saved.tokens) return saved;
+  // Servidor novo (ex.: Railway) ou arquivo sem login (de uma tentativa antiga): a sessão vem da variável
+  // HEYGEN_MCP_SESSION (base64 do JSON) e passa a ficar no arquivo.
+  // Sem BOM nem espaços: o PowerShell coloca um BOM (U+FEFF) no começo ao enviar o valor por --stdin.
+  const seed = process.env.HEYGEN_MCP_SESSION?.replace(/^﻿/, "").replace(/\s+/g, "");
+  if (!seed) return saved;
+  try {
+    const s = JSON.parse(Buffer.from(seed, "base64").toString("utf8")) as Saved;
+    if (!s.tokens) return saved;
+    await mkdir(DATA_DIR, { recursive: true });
+    await writeFile(STORE, JSON.stringify(s, null, 1));
+    return s;
   } catch {
-    // Servidor novo (ex.: Railway): a sessão vem da variável HEYGEN_MCP_SESSION (base64 do JSON) na primeira vez;
-    // depois fica no arquivo, que guarda as renovações.
-    const seed = process.env.HEYGEN_MCP_SESSION?.trim();
-    if (!seed) return {};
-    try {
-      const s = JSON.parse(Buffer.from(seed, "base64").toString("utf8")) as Saved;
-      await mkdir(DATA_DIR, { recursive: true });
-      await writeFile(STORE, JSON.stringify(s, null, 1));
-      return s;
-    } catch {
-      return {};
-    }
+    return saved;
   }
 }
 
