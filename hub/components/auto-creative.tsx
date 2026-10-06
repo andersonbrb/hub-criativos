@@ -23,7 +23,11 @@ const FORMATS = [
   { value: "produto", label: "Produto em cena", hint: "O produto aparecendo em uso, com fala", text: "produto em cena (vídeo do produto com fala)" },
 ] as const;
 
-const DURATIONS = [15, 30, 45] as const;
+const DURATIONS = [15, 30, 45, 60, 90] as const;
+const MAX_SECONDS = 600;
+
+const durationLabel = (s: number) =>
+  s < 60 ? `${s} segundos` : `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60}s` : ""}`;
 
 // Para onde a chamada final (CTA) leva a pessoa.
 const CTAS = [
@@ -66,6 +70,10 @@ function StartForm({ start, configured }: { start: StartChat; configured: boolea
   const [lang, setLang] = useState("pt");
   const [country, setCountry] = useState("");
   const [duration, setDuration] = useState<(typeof DURATIONS)[number]>(30);
+  const [customDuration, setCustomDuration] = useState(false);
+  const [customValue, setCustomValue] = useState("");
+  const custom = Number(customValue);
+  const seconds = customDuration ? (custom >= 10 && custom <= MAX_SECONDS ? custom : 0) : duration;
   const [mode, setMode] = useState<(typeof MODES)[number]["value"]>("perguntar");
   const [sayPrice, setSayPrice] = useState(false);
   const [price, setPrice] = useState("");
@@ -78,6 +86,7 @@ function StartForm({ start, configured }: { start: StartChat; configured: boolea
     (about.trim().length > 0 || photos.length > 0) &&
     (!sayPrice || price.trim().length > 0) &&
     (cta !== "outro" || ctaOther.trim().length > 0) &&
+    seconds > 0 &&
     !busy;
 
   function addPhotos(list: FileList | null) {
@@ -96,7 +105,7 @@ function StartForm({ start, configured }: { start: StartChat; configured: boolea
       `O que anunciar: ${about.trim() || "(veja a foto do produto)"}`,
       `Formato: ${FORMATS.find((f) => f.value === format)!.text}`,
       `Idioma do criativo: ${language?.label ?? "Português"}${country.trim() ? ` · País/mercado: ${country.trim()}` : ""}`,
-      `Duração: cerca de ${duration} segundos`,
+      `Duração: cerca de ${durationLabel(seconds)} (${seconds} segundos)`,
       `Modo de trabalho: ${MODES.find((m) => m.value === mode)!.text}`,
       `Valor do produto: ${sayPrice ? `${price.trim()} (falar no CTA e mostrar no destaque animado)` : "não falar o valor no anúncio"}`,
       `Chamada final (CTA): ${ctaText}`,
@@ -169,7 +178,7 @@ function StartForm({ start, configured }: { start: StartChat; configured: boolea
         </div>
       </Field>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Idioma do anúncio" id="auto-lang">
           <Select value={lang} onValueChange={setLang}>
             <SelectTrigger id="auto-lang" className="w-full">
@@ -187,23 +196,52 @@ function StartForm({ start, configured }: { start: StartChat; configured: boolea
         <Field label="País (opcional)" id="auto-country">
           <Input id="auto-country" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Ex.: Brasil, México" maxLength={40} />
         </Field>
-        <Field label="Duração">
-          <div className="grid grid-cols-3 gap-1 border p-1" role="radiogroup" aria-label="Duração">
+      </div>
+
+      <Field label="Duração do vídeo" hint={seconds ? durationLabel(seconds) : "escolha ou digite"}>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="grid grid-cols-6 gap-1 border p-1" role="radiogroup" aria-label="Duração">
             {DURATIONS.map((d) => (
               <button
                 key={d}
                 type="button"
                 role="radio"
-                aria-checked={duration === d}
-                onClick={() => setDuration(d)}
-                className={cn("py-1.5 text-xs font-medium transition-colors", duration === d ? "bg-rec text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground")}
+                aria-checked={!customDuration && duration === d}
+                onClick={() => (setDuration(d), setCustomDuration(false))}
+                className={cn(
+                  "px-2.5 py-1.5 text-xs font-medium transition-colors",
+                  !customDuration && duration === d ? "bg-rec text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
               >
                 {d}s
               </button>
             ))}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={customDuration}
+              onClick={() => setCustomDuration(true)}
+              className={cn("px-2.5 py-1.5 text-xs font-medium transition-colors", customDuration ? "bg-rec text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground")}
+            >
+              Outra
+            </button>
           </div>
-        </Field>
-      </div>
+          {customDuration && (
+            <div className="flex items-center gap-1.5">
+              <Input
+                autoFocus
+                inputMode="numeric"
+                value={customValue}
+                onChange={(e) => setCustomValue(e.target.value.replace(/[^\d]/g, "").slice(0, 3))}
+                placeholder="120"
+                aria-label="Duração em segundos"
+                className="w-20"
+              />
+              <span className="text-xs text-muted-foreground">segundos (até 600)</span>
+            </div>
+          )}
+        </div>
+      </Field>
 
       <Field label="Como a IA deve trabalhar">
         <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Como a IA deve trabalhar">
@@ -282,7 +320,7 @@ function StartForm({ start, configured }: { start: StartChat; configured: boolea
         <span className="text-xs text-muted-foreground">
           {!configured
             ? "O chat não está disponível neste servidor."
-            : "Leva de 10 a 20 minutos. Pode sair desta tela: a produção continua e fica na lista de conversas."}
+            : `Leva de 10 a 20 minutos${seconds > 60 ? " (vídeos longos levam mais)" : ""}. Pode sair desta tela: a produção continua e fica na lista de conversas.`}
         </span>
       </div>
     </div>
