@@ -146,7 +146,7 @@ export async function POST(request: Request) {
   if (auth === `Bearer ${mcpToken()}`) caller = { kind: "hub" };
   else {
     const person = auth.startsWith("Bearer ") ? await verifyAccess(auth.slice(7).trim()) : null;
-    if (!person) return Response.json(fail(null, -32001, "Não autorizado: gere um token novo em \"Conectar pelo chat\" no hub."), { status: 401 });
+    if (!person) return Response.json(fail(null, -32001, "Não autorizado: gere um token novo em \"Conectar com a IA\" no hub."), { status: 401 });
     caller = { kind: "person", person, origin: publicOrigin(request) };
   }
   // ?chat= só vale para o chat do próprio hub.
