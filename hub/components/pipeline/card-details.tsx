@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 
 type CardPatch = Partial<Pick<BoardCard, "title" | "description" | "operation" | "product" | "generationIds">>;
 
-const LABEL = "text-[11px] font-medium tracking-wider text-muted-foreground uppercase";
+const LABEL = "text-[0.6875rem] font-medium tracking-wider text-muted-foreground uppercase";
 const NONE = "none"; // o Select do Radix não aceita valor vazio
 
 const operationOptions: { value: string; label: string }[] = [
@@ -277,7 +277,7 @@ export function CardDetails({
         </Button>
       </div>
 
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-[0.6875rem] text-muted-foreground">
         Criado em {formatDate(card.createdAt)} · atualizado em {formatDate(card.updatedAt)}
       </p>
 

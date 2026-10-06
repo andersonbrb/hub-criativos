@@ -5,8 +5,9 @@
 > A seção "Configurações de saída (imutáveis)" chegou vazia (o texto colado terminou ali).
 >
 > **Como roda dentro do hub:** os passos 4 a 7 (slot de upload, sandbox do Higgsfield, `media_confirm`) não existem
-> no hub. A montagem roda nesta máquina com o mesmo pipeline e os mesmos parâmetros, pela ferramenta `hub_montage`
-> do chat ou pelo estúdio Montagem (`scripts/montagem.py`). O resultado fica no histórico do hub. B-rolls são
+> no hub. A edição final roda nesta máquina com o mesmo pipeline e os mesmos parâmetros, pela ferramenta `hub_montage`
+> do chat ou pelo estúdio Edição (`scripts/montagem.py`). No hub, cada b-roll pode ter uma "deixa" (palavra falada em
+> que ele entra, `broll_cues`); sem deixa, segue a grade FIRST_BR/SPACING abaixo. O resultado fica no histórico do hub. B-rolls são
 > gerados no FLORA (Geração). Correções aplicadas ao código abaixo: cortes reencodados (com `-c copy` o corte cai
 > no keyframe), dissolve `FADE_DUR` aplicado, `-fps_mode cfr` no lugar de `-vsync` (removido no ffmpeg atual) e
 > áudio lido pelo ffmpeg (o Windows desta máquina bloqueia a DLL do PyAV).

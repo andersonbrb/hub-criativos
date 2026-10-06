@@ -13,7 +13,7 @@ const TOOL_NAMES: Record<string, string> = {
   elevenlabs: "ElevenLabs",
   upload: "Anexo",
   editor: "Editor de vídeo",
-  montagem: "Montagem",
+  montagem: "Edição final",
   "heygen-traducao": "Tradução HeyGen",
 };
 
@@ -27,7 +27,7 @@ export default async function VerPage({ params }: PageProps<"/ver/[id]">) {
   return (
     <main className="flex h-workspace flex-col">
       <div className="flex min-h-11 items-center gap-2 border-b px-4 py-1.5">
-        <span className="rounded border px-1.5 font-mono text-[11px] text-muted-foreground">{TOOL_NAMES[g.tool] ?? g.tool}</span>
+        <span className="rounded border px-1.5 font-mono text-[0.6875rem] text-muted-foreground">{TOOL_NAMES[g.tool] ?? g.tool}</span>
         <p className="min-w-0 flex-1 truncate text-sm" title={g.prompt}>
           {g.prompt}
         </p>

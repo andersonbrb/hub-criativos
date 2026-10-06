@@ -109,7 +109,7 @@ export function VoicePicker({
           <>
             {playButton(selected)}
             <span className="min-w-0 flex-1 truncate text-sm font-semibold">{selected.name}</span>
-            <span className="shrink-0 text-[11px] text-muted-foreground">
+            <span className="shrink-0 text-[0.6875rem] text-muted-foreground">
               {[GENDER_SHORT[selected.gender], selected.age ? AGE_TITLE[selected.age] : ""].filter(Boolean).join(" · ")}
             </span>
           </>
@@ -165,7 +165,7 @@ export function VoicePicker({
                 aria-pressed={age === a.id}
                 onClick={() => setAge(a.id)}
                 className={cn(
-                  "rounded-full px-2.5 py-0.5 text-[11px] transition-colors",
+                  "rounded-full px-2.5 py-0.5 text-[0.6875rem] transition-colors",
                   age === a.id ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:text-foreground",
                 )}
               >
@@ -183,7 +183,7 @@ export function VoicePicker({
             ) : (
               groups.map((g) => (
                 <section key={g.age}>
-                  <h3 className="sticky top-0 z-10 bg-card px-1 pt-1.5 pb-0.5 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+                  <h3 className="sticky top-0 z-10 bg-card px-1 pt-1.5 pb-0.5 text-[0.625rem] font-semibold tracking-wider text-muted-foreground uppercase">
                     {AGE_TITLE[g.age]} · {g.list.length}
                   </h3>
                   <ul>

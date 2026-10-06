@@ -54,7 +54,7 @@ const clampZoom = (z: number) => Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN
 // Largura de uma coluna (w-72) + espaço entre colunas (gap-3), em px sem zoom.
 const COLUMN_STEP = 288 + 12;
 
-const LABEL = "text-[11px] font-medium tracking-wider text-muted-foreground uppercase";
+const LABEL = "text-[0.6875rem] font-medium tracking-wider text-muted-foreground uppercase";
 
 const columnOf = (board: Board, cardId: string) => board.columns.find((c) => c.cardIds.includes(cardId));
 
@@ -548,7 +548,7 @@ export function PipelineView({ initialBoard, initialGenerations }: { initialBoar
                 type="button"
                 onClick={() => setZoom(ZOOM_DEFAULT)}
                 title={`Voltar para ${Math.round(ZOOM_DEFAULT * 100)}%`}
-                className="min-w-11 rounded px-1 text-center font-mono text-[11px] font-semibold tabular-nums hover:bg-muted"
+                className="min-w-11 rounded px-1 text-center font-mono text-[0.6875rem] font-semibold tabular-nums hover:bg-muted"
               >
                 {Math.round(zoom * 100)}%
               </button>

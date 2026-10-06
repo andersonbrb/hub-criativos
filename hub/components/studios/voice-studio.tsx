@@ -76,7 +76,7 @@ export function VoiceStudio({ configured }: { configured: boolean }) {
       toolbar={
         <>
           <h1 className="shrink-0 font-heading text-lg font-bold tracking-tight">Voz</h1>
-          <span className="shrink-0 rounded border px-1.5 font-mono text-[11px] text-muted-foreground">ElevenLabs</span>
+          <span className="shrink-0 rounded border px-1.5 font-mono text-[0.6875rem] text-muted-foreground">ElevenLabs</span>
           <Tooltip>
             <TooltipTrigger asChild>
               <p className="hidden min-w-0 truncate text-xs text-muted-foreground lg:block">{DESCRIPTION}</p>

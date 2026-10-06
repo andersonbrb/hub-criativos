@@ -421,7 +421,7 @@ export function ChatView({
                     <p className="font-heading text-2xl font-bold">{agent ? `Agente de ${agent.name}` : "O que vamos produzir?"}</p>
                     <p className="mt-1 max-w-[52ch] text-sm text-muted-foreground">
                       {agent ? `${agent.role} ` : ""}
-                      {agent ? "Tem as mesmas ferramentas do chat principal" : "Este chat vê tudo que já foi gerado no hub, o quadro do Fluxo e os playbooks, e usa ElevenLabs, HeyGen, FLORA, Higgsfield, o editor de vídeo e a web"}
+                      {agent ? "Tem as mesmas ferramentas do chat principal" : "Este chat vê tudo que já foi gerado no hub, o quadro do Fluxo e os playbooks, e usa ElevenLabs, HeyGen, FLORA, o editor e a edição final de vídeo e a web"}
                       . Anexe qualquer arquivo: foto do produto, vídeo, áudio, PDF ou texto.
                     </p>
                   </div>
@@ -485,7 +485,7 @@ export function ChatView({
                             <KindIcon kind={f.kind} className="size-5 shrink-0 text-muted-foreground" />
                             <div className="min-w-0">
                               <p className="truncate text-xs font-medium">{f.file.name}</p>
-                              <p className="text-[11px] text-muted-foreground">{sizeLabel(f.file.size)}</p>
+                              <p className="text-[0.6875rem] text-muted-foreground">{sizeLabel(f.file.size)}</p>
                             </div>
                           </div>
                         )}
@@ -547,7 +547,7 @@ export function ChatView({
                   </Button>
                   <BlackModeButton on={black} onToggle={toggleBlack} />
                   <LanguagePicker value={lang} onChange={(v) => setLang(v)} />
-                  <span className="hidden text-[11px] text-muted-foreground sm:inline [html[data-mobile-frame]_&]:hidden">imagem, vídeo, áudio, PDF ou texto · arraste ou cole</span>
+                  <span className="hidden text-[0.6875rem] text-muted-foreground sm:inline [html[data-mobile-frame]_&]:hidden">imagem, vídeo, áudio, PDF ou texto · arraste ou cole</span>
                   {running ? (
                     <Button type="button" size="icon" variant="outline" aria-label="Parar" className="ml-auto" onClick={stop}>
                       <Square className="fill-current" />
@@ -586,7 +586,7 @@ export function ChatView({
           )}
           {attachments.length > 0 && (
             <div className="flex flex-col gap-2">
-              <h3 className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">Anexos</h3>
+              <h3 className="text-[0.6875rem] font-medium tracking-wider text-muted-foreground uppercase">Anexos</h3>
               {attachments.map((a, i) => (
                 <AttachmentChip key={`${a.url}-${i}`} a={a} />
               ))}

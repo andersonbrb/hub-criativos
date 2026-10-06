@@ -197,7 +197,7 @@ export function SortableColumn({
       >
         <ColumnTitle title={column.title} editing={editing} setEditing={setEditing} onRename={onRename} />
         {!editing && (
-          <span className="rounded-full bg-[color-mix(in_oklch,var(--col)_28%,transparent)] px-2 font-mono text-[11px] font-bold text-foreground tabular-nums">
+          <span className="rounded-full bg-[color-mix(in_oklch,var(--col)_28%,transparent)] px-2 font-mono text-[0.6875rem] font-bold text-foreground tabular-nums">
             {cards.length}
           </span>
         )}
@@ -273,7 +273,7 @@ export function ColumnOverlay({ column, count, index }: { column: BoardColumn; c
       <div className="flex h-12 items-center gap-2 bg-[color-mix(in_oklch,var(--col)_14%,transparent)] px-3">
         <span className="size-2.5 rounded-full bg-[var(--col)]" aria-hidden />
         <span className="truncate font-heading text-sm font-bold">{column.title}</span>
-        <span className="rounded-full bg-[color-mix(in_oklch,var(--col)_28%,transparent)] px-2 font-mono text-[11px] font-bold tabular-nums">{count}</span>
+        <span className="rounded-full bg-[color-mix(in_oklch,var(--col)_28%,transparent)] px-2 font-mono text-[0.6875rem] font-bold tabular-nums">{count}</span>
       </div>
       <div className="min-h-24" />
     </div>

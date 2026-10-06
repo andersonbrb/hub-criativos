@@ -24,9 +24,13 @@ const SCOPE = "openid profile email";
 const PROTOCOL = "2025-06-18";
 const STORE = path.join(DATA_DIR, "heygen-mcp.json");
 
+// Sessão de outro servidor (ex.: o hub na nuvem): gerada aqui com ?para=nuvem e guardada à parte, para não derrubar
+// a sessão desta máquina (o HeyGen troca o refresh token a cada renovação, então cada servidor precisa da sua).
+const OTHER_STORE = path.join(DATA_DIR, "heygen-mcp-nuvem.json");
+
 type Saved = {
   client?: { id: string; redirectUri: string };
-  pending?: { state: string; verifier: string; returnTo: string; createdAt: number };
+  pending?: { state: string; verifier: string; returnTo: string; createdAt: number; slot?: "nuvem" };
   tokens?: { access: string; refresh: string | null; expiresAt: number };
   account?: { email: string | null; name: string | null };
   // Arquivo do hub (.data/media) → asset_id no HeyGen, para não subir o mesmo vídeo duas vezes.
@@ -35,7 +39,7 @@ type Saved = {
 
 export class HeyGenNotConnected extends InputError {
   constructor(detail = "") {
-    super(`O HeyGen (MCP) não está conectado${detail ? ` (${detail})` : ""}. Clique em "Conectar HeyGen" no estúdio de Tradução.`);
+    super(`O HeyGen (MCP) não está conectado neste servidor${detail ? ` (${detail})` : ""}. Peça para quem administra o hub configurar a conexão.`);
   }
 }
 
@@ -43,7 +47,18 @@ async function load(): Promise<Saved> {
   try {
     return JSON.parse(await readFile(STORE, "utf8")) as Saved;
   } catch {
-    return {};
+    // Servidor novo (ex.: Railway): a sessão vem da variável HEYGEN_MCP_SESSION (base64 do JSON) na primeira vez;
+    // depois fica no arquivo, que guarda as renovações.
+    const seed = process.env.HEYGEN_MCP_SESSION?.trim();
+    if (!seed) return {};
+    try {
+      const s = JSON.parse(Buffer.from(seed, "base64").toString("utf8")) as Saved;
+      await mkdir(DATA_DIR, { recursive: true });
+      await writeFile(STORE, JSON.stringify(s, null, 1));
+      return s;
+    } catch {
+      return {};
+    }
   }
 }
 
@@ -62,7 +77,7 @@ export async function connectionStatus() {
 }
 
 // 1º passo do login: registra o hub como cliente (uma vez por endereço) e devolve a URL de autorização.
-export async function startLogin(origin: string, returnTo: string): Promise<string> {
+export async function startLogin(origin: string, returnTo: string, slot?: "nuvem"): Promise<string> {
   const redirectUri = `${origin}/api/heygen/mcp/callback`;
   let { client } = await load();
   if (!client || client.redirectUri !== redirectUri) {
@@ -84,7 +99,7 @@ export async function startLogin(origin: string, returnTo: string): Promise<stri
   }
   const verifier = b64url(randomBytes(32));
   const state = b64url(randomBytes(16));
-  await save({ client, pending: { state, verifier, returnTo, createdAt: Date.now() } });
+  await save({ client, pending: { state, verifier, returnTo, createdAt: Date.now(), ...(slot ? { slot } : {}) } });
   const url = new URL(OAUTH.authorize);
   url.search = new URLSearchParams({
     response_type: "code",
@@ -134,6 +149,12 @@ export async function finishLogin(code: string, state: string): Promise<string> 
     const info = (await (await fetch(OAUTH.userinfo, { headers: { Authorization: `Bearer ${tokens.access}` } })).json()) as { email?: string; name?: string };
     account = { email: info.email ?? null, name: info.name ?? null };
   } catch {}
+  if (s.pending.slot === "nuvem") {
+    // Sessão para o outro servidor: fica à parte (a desta máquina continua igual).
+    await writeFile(OTHER_STORE, JSON.stringify({ client: s.client, tokens, account }, null, 1));
+    await save({ pending: undefined });
+    return s.pending.returnTo;
+  }
   session = null;
   await save({ tokens, account, pending: undefined });
   return s.pending.returnTo;

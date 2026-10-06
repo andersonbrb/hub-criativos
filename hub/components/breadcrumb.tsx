@@ -10,14 +10,11 @@ const PAGES: Record<string, string> = {
   "/chat": "Chat principal",
   "/editor": "Editor",
   "/biblioteca": "Biblioteca",
-  "/integracoes": "Integrações",
-  "/design": "Aparência",
-  "/estudios/geracao": "Estúdio · Geração",
+  "/integracoes": "Integrações",  "/estudios/geracao": "Estúdio · Geração",
   "/estudios/voz": "Estúdio · Voz",
   "/estudios/avatar": "Estúdio · Avatar",
   "/estudios/traducao": "Estúdio · Tradução",
   "/estudios/edicao": "Estúdio · Edição",
-  "/estudios/montagem": "Estúdio · Montagem",
 };
 
 // Caminho do topo: a página em que você está (antes era um projeto de exemplo fixo).

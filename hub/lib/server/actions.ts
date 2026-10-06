@@ -5,14 +5,13 @@ import path from "node:path";
 
 import { applyRules, FLORA_FAMILIES, type FloraFamily, getFamily, MAX_REFERENCES, type Operation, paramsFor } from "@/lib/flora-models";
 import type { Generation } from "@/lib/generations";
-import { getEditTool } from "@/lib/higgsfield-edits";
 import { InputError } from "@/lib/server/http";
 import { CONTENT_TYPES, downloadMedia, MEDIA_DIR, saveMedia } from "@/lib/server/media";
 import { montageStatus } from "@/lib/server/montage";
 import { textToSpeech } from "@/lib/server/providers/elevenlabs";
 import { generate, getRun, getTarget, organizeCanvas, quote, uploadReference, type FloraReference } from "@/lib/server/providers/flora";
 import { createVideo, getVideo, uploadAudio } from "@/lib/server/providers/heygen";
-import { createEdit, DONE, FAILED, getJob } from "@/lib/server/providers/higgsfield";
+import { DONE, FAILED, getJob } from "@/lib/server/providers/higgsfield";
 import { createGeneration, getGeneration, updateGeneration } from "@/lib/server/store";
 import { refreshTranslation } from "@/lib/server/video-translation";
 
@@ -280,51 +279,8 @@ export async function quoteFlora(req: {
 }
 
 // ---------- Higgsfield ----------
-
-export type EditRequest = {
-  tool: string;
-  params?: Record<string, string>;
-  prompt?: string;
-  source: { generationId: string } | { path: string; label: string };
-};
-
-export async function runEdit(req: EditRequest): Promise<Generation> {
-  const tool = getEditTool(String(req.tool ?? ""));
-  if (!tool) throw new InputError("Escolha uma ferramenta de edição.");
-  const prompt = String(req.prompt ?? "").trim();
-  if (tool.prompt && !prompt) throw new InputError(`Preencha: ${tool.prompt.label}.`);
-
-  const raw = req.params ?? {};
-  const params: Record<string, string | number> = {};
-  for (const f of tool.fields) {
-    const v = raw[f.name] ?? f.default;
-    params[f.name] = f.number ? Number(v) : v;
-  }
-
-  let videoPath: string;
-  let sourceLabel: string;
-  let sourceId: string | null = null;
-  if ("generationId" in req.source) {
-    const source = await getGeneration(req.source.generationId);
-    if (!source?.file || source.kind !== "video") throw new InputError("Vídeo de origem não encontrado (precisa estar pronto).");
-    videoPath = path.join(MEDIA_DIR, source.file);
-    sourceLabel = source.prompt;
-    sourceId = source.id;
-  } else {
-    videoPath = req.source.path;
-    sourceLabel = req.source.label;
-  }
-
-  const job = await createEdit(tool, videoPath, params, prompt || undefined);
-  return createGeneration({
-    tool: "higgsfield",
-    kind: "video",
-    status: "running",
-    prompt: prompt || `${tool.label}: ${sourceLabel}`,
-    jobId: job.id,
-    params: { edit: tool.id, editLabel: tool.label, source: sourceLabel, sourceId, ...params },
-  });
-}
+// As edições de IA do Higgsfield foram removidas (2026-10-06): a edição final é a montagem (lib/server/montage.ts).
+// Só o status das gerações antigas do Higgsfield continua (refreshGeneration, abaixo).
 
 // ---------- Status dos jobs ----------
 

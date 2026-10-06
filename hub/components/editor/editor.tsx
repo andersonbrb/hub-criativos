@@ -519,7 +519,7 @@ export function Editor({ initialProjectId, initialGenerationId }: { initialProje
                     <Trash2 />
                     Apagar
                   </Button>
-                  <span className="hidden text-[11px] tracking-wider text-muted-foreground uppercase lg:inline">
+                  <span className="hidden text-[0.6875rem] tracking-wider text-muted-foreground uppercase lg:inline">
                     {project.width}×{project.height} · espaço, S, Delete, Ctrl+Z
                   </span>
                 </div>
@@ -590,7 +590,7 @@ function Library({
         {uploading ? "Enviando…" : hasProject ? "Enviar vídeo para a timeline" : "Enviar vídeo"}
       </Button>
       <section className="flex flex-col gap-1">
-        <h3 className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">Projetos</h3>
+        <h3 className="text-[0.6875rem] font-medium tracking-wider text-muted-foreground uppercase">Projetos</h3>
         {projects.length === 0 && <p className="text-xs text-muted-foreground">Nenhum projeto ainda.</p>}
         {projects.map((p) => (
           <div key={p.id} className={cn("group flex items-center gap-1 rounded-md pr-1 text-sm hover:bg-muted", p.id === activeId && "bg-muted font-medium")}>
@@ -604,13 +604,13 @@ function Library({
         ))}
       </section>
       <section className="flex flex-col gap-2">
-        <h3 className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">Vídeos do hub</h3>
+        <h3 className="text-[0.6875rem] font-medium tracking-wider text-muted-foreground uppercase">Vídeos do hub</h3>
         {videos.length === 0 && <p className="text-xs text-muted-foreground">Nenhum vídeo pronto no hub ainda.</p>}
         <div className="grid grid-cols-[repeat(auto-fill,minmax(6rem,1fr))] gap-2">
           {videos.map((v) => (
             <div key={v.id} className="flex flex-col overflow-hidden rounded-md border bg-card">
               <video src={mediaUrl(v)} preload="metadata" muted playsInline className="aspect-[3/4] w-full bg-black object-contain" />
-              <p className="line-clamp-2 px-1.5 pt-1 text-[11px]" title={v.prompt}>
+              <p className="line-clamp-2 px-1.5 pt-1 text-[0.6875rem]" title={v.prompt}>
                 {v.prompt}
               </p>
               <div className="flex gap-1 p-1.5">

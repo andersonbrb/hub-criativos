@@ -141,7 +141,7 @@ export function FloraStudio({ configured }: { configured: boolean }) {
       toolbar={
         <>
           <h1 className="shrink-0 font-heading text-lg font-bold tracking-tight">Geração</h1>
-          <span className="shrink-0 rounded border px-1.5 font-mono text-[11px] text-muted-foreground">FLORA</span>
+          <span className="shrink-0 rounded border px-1.5 font-mono text-[0.6875rem] text-muted-foreground">FLORA</span>
           <Tooltip>
             <TooltipTrigger asChild>
               <p className="hidden min-w-0 truncate text-xs text-muted-foreground lg:block">{DESCRIPTION}</p>
@@ -226,7 +226,7 @@ export function FloraStudio({ configured }: { configured: boolean }) {
         {prompt.trim() && finalPrompt !== prompt.trim() && (
           <details className="text-xs text-muted-foreground">
             <summary className="cursor-pointer">{operation === "cod" ? "Linhas adicionadas pelas regras do COD" : "Linha adicionada (idioma da fala)"}</summary>
-            <pre className="mt-1 font-mono text-[11px] whitespace-pre-wrap">{finalPrompt.slice(prompt.trim().length).trim()}</pre>
+            <pre className="mt-1 font-mono text-[0.6875rem] whitespace-pre-wrap">{finalPrompt.slice(prompt.trim().length).trim()}</pre>
           </details>
         )}
       </WorkspacePanel>
@@ -241,7 +241,7 @@ export function FloraStudio({ configured }: { configured: boolean }) {
               {families.map((f) => (
                 <SelectItem key={f.id} value={f.id}>
                   {f.label}
-                  <span className="font-mono text-[11px] text-muted-foreground">~{usd(f.baseCostUsd)}</span>
+                  <span className="font-mono text-[0.6875rem] text-muted-foreground">~{usd(f.baseCostUsd)}</span>
                 </SelectItem>
               ))}
             </SelectContent>

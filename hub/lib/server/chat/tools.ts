@@ -7,14 +7,14 @@ import { FLORA_FAMILIES, MARKETS } from "@/lib/flora-models";
 import type { Generation } from "@/lib/generations";
 import { OPERATIONS, type Operation } from "@/lib/board";
 import { DEFAULT_STYLE, placeCaptions, placeClips, type CaptionStyle } from "@/lib/editor";
-import { EDIT_TOOLS } from "@/lib/higgsfield-edits";
-import { quoteFlora, refreshGeneration, runAvatar, runEdit, runFlora, runTts } from "@/lib/server/actions";
+import { quoteFlora, refreshGeneration, runAvatar, runFlora, runTts } from "@/lib/server/actions";
 import { imageRef } from "@/lib/server/chat/images";
 import { listFullChats, type Chat } from "@/lib/server/chat/store";
 import { createCard, getBoard, moveCard, updateCard } from "@/lib/server/board";
 import { autoCaptions, joinProject, openProject, renderProject, saveProject } from "@/lib/server/editor";
 import { InputError } from "@/lib/server/http";
-import { runMontage } from "@/lib/server/montage";
+import { runMontage, type MontageFx } from "@/lib/server/montage";
+import type { GraphicRequest } from "@/lib/server/motion";
 import { timeline, type Engine } from "@/lib/server/transcription";
 import { runTranslation } from "@/lib/server/video-translation";
 import { addReferences, drawReferences, kbFiles, kbRead, kbSearch, listNiches, readNiche, saveNiche } from "@/lib/server/ad-writer";
@@ -130,7 +130,7 @@ const definitions: Anthropic.Beta.BetaTool[] = [
   {
     name: "hub_check_generations",
     description:
-      "Atualiza o status de gerações assíncronas (FLORA, HeyGen, Higgsfield) e baixa o resultado quando ficam prontas. Com wait_seconds, espera até todas terminarem ou o tempo acabar; use quando o próximo passo depende do resultado (ex.: frame aprovado antes do vídeo).",
+      "Atualiza o status de gerações assíncronas (FLORA, HeyGen, edição final/montagem, editor) e baixa o resultado quando ficam prontas. Com wait_seconds, espera até todas terminarem ou o tempo acabar; use quando o próximo passo depende do resultado (ex.: frame aprovado antes do vídeo).",
     input_schema: objectSchema(
       {
         ids: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 20 },
@@ -259,20 +259,21 @@ const definitions: Anthropic.Beta.BetaTool[] = [
       ["family", "prompt"],
     ),
   },
+  // Descontinuadas (2026-10-06): o usuário tirou as edições de IA do Higgsfield. Ficam só para conversas antigas
+  // (API com lista de ferramentas congelada); não entram em conversas novas nem na MCP (DEPRECATED, abaixo).
   {
     name: "higgsfield_list_edits",
-    description: "Lista as ferramentas de edição de vídeo do Higgsfield disponíveis no hub e seus parâmetros.",
+    description: "DESCONTINUADA: não use. As edições de IA do Higgsfield foram removidas do hub; a edição final é a hub_montage.",
     input_schema: objectSchema({}),
   },
   {
     name: "higgsfield_edit",
-    description:
-      "Edita um vídeo do hub no Higgsfield (editar com prompt, reenquadrar, upscale, remover fundo, deflicker, FPS, dublagem). Assíncrono: acompanhe com hub_check_generations. Cobra créditos do Higgsfield.",
+    description: "DESCONTINUADA: não use. As edições de IA do Higgsfield foram removidas do hub; a edição final (cortes, juntar, b-rolls, legenda) é a hub_montage.",
     input_schema: objectSchema(
       {
-        tool: { type: "string", enum: EDIT_TOOLS.map((t) => t.id) },
-        source_generation_id: { type: "string", description: "Vídeo pronto do hub." },
-        prompt: { type: "string", description: "Obrigatório na ferramenta prompt-edit." },
+        tool: { type: "string" },
+        source_generation_id: { type: "string" },
+        prompt: { type: "string" },
         params: { type: "object", additionalProperties: { type: "string" } },
       },
       ["tool", "source_generation_id"],
@@ -281,7 +282,7 @@ const definitions: Anthropic.Beta.BetaTool[] = [
   {
     name: "hub_montage",
     description:
-      "Montagem automática do infoproduto (playbook infoproduto-edicao-video): corta os silêncios do vídeo do avatar, transcreve com Whisper, queima legenda Montserrat MAIÚSCULA e coloca os b-rolls (1º aos 6s, a cada 7s, 2,8s com dissolve). Roda local, sem custo. Assíncrono (1 a 3 min): acompanhe com hub_check_generations.",
+      "EDIÇÃO FINAL do criativo no padrão de qualidade (playbook infoproduto-edicao-video): junta os vídeos do avatar na ordem, corta os silêncios (jump cuts), transcreve com Whisper, coloca os b-rolls já criados com dissolve (2,8s na tela) e queima a legenda Montserrat MAIÚSCULA. B-roll nos momentos certos: em broll_cues, a palavra falada em que cada b-roll entra (sem deixa, segue a grade: 1º aos 6s, depois a cada 7s). Use hub_transcribe/hub_view_video antes para escolher as deixas. Roda local, sem custo. Assíncrono (1 a 3 min): acompanhe com hub_check_generations.",
     input_schema: objectSchema(
       {
         avatar_generation_id: { type: "string", description: "Vídeo pronto do avatar falando (HeyGen). Para vários, use avatar_generation_ids." },
@@ -294,6 +295,50 @@ const definitions: Anthropic.Beta.BetaTool[] = [
         broll_generation_ids: { type: "array", items: { type: "string" }, maxItems: 40, description: "Vídeos prontos de b-roll, na ordem em que entram." },
         lang: { type: "string", enum: ["es", "pt", "fr", "en"], description: "Idioma da fala. Padrão es." },
         name: { type: "string", description: "Nome do projeto, ex.: AD01." },
+        broll_cues: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: 40,
+          description: "Deixa de cada b-roll, na mesma ordem de broll_generation_ids: palavra ou frase curta da fala (no idioma falado) em que ele entra, ex.: \"café\", \"sin pagar\". \"\" = grade do padrão.",
+        },
+        fx: {
+          type: "object",
+          additionalProperties: false,
+          description:
+            "Efeitos OPCIONAIS (todos desligados por padrão; a edição padrão do infoproduto é sem efeitos). Use só quando o usuário pedir ou quando o criativo claramente ganhar com eles: UGC/gancho rápido → legenda destaque + zoom_cortes; troca de cena → transicao + sons; vídeo longo → barra_progresso. Não empilhe tudo num vídeo só.",
+          properties: {
+            legenda: { type: "string", enum: ["padrao", "destaque"], description: "destaque = palavra falada em cor, com pop (estilo CapCut)." },
+            cor_destaque: { type: "string", description: "#RRGGBB da palavra destacada e da barra. Padrão #22FF66." },
+            zoom_cortes: { type: "boolean", description: "Alterna o enquadramento 100%/110% a cada corte." },
+            transicao: { type: "string", enum: ["dissolve", "zoom", "slide"], description: "Entrada do b-roll. Padrão dissolve." },
+            sons: { type: "boolean", description: "Whoosh na entrada de cada b-roll." },
+            music_generation_id: { type: "string", description: "Áudio do hub para música de fundo (abaixa sozinho quando há fala)." },
+            musica_volume: { type: "number", minimum: 0.02, maximum: 1, description: "Padrão 0.18." },
+            cor: { type: "string", enum: ["nenhuma", "quente", "fria", "vivo"] },
+            barra_progresso: { type: "boolean" },
+          },
+        },
+        graphics: {
+          type: "array",
+          maxItems: 12,
+          description:
+            "Gráficos animados OPCIONAIS (motion graphics com Remotion, sobrepostos ao vídeo). Use poucos e só quando servem à mensagem ou o usuário pedir: titulo (frase de impacto no topo), destaque (preço/oferta/número: texto grande + sub), lista (benefícios em itens), contador (oferta acaba em; sub = \"09:59\"), cta (botão + seta no final; padrão nos últimos 3,5s). Textos no idioma do anúncio.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              tipo: { type: "string", enum: ["titulo", "destaque", "lista", "contador", "cta"] },
+              texto: { type: "string" },
+              sub: { type: "string" },
+              itens: { type: "array", items: { type: "string" }, maxItems: 6 },
+              deixa: { type: "string", description: "Palavra falada em que o gráfico entra (como em broll_cues)." },
+              inicio: { type: "number", minimum: 0, description: "Ou o segundo exato (no vídeo já editado)." },
+              duracao: { type: "number", minimum: 0.8, maximum: 15 },
+              cor: { type: "string", description: "#RRGGBB" },
+            },
+            required: ["tipo"],
+          },
+        },
       },
       [],
     ),
@@ -697,24 +742,11 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
   },
 
   async higgsfield_list_edits() {
-    const tools = EDIT_TOOLS.map((t) => ({
-      id: t.id,
-      label: t.label,
-      description: t.description,
-      needs_prompt: Boolean(t.prompt),
-      params: Object.fromEntries(t.fields.map((f) => [f.name, { default: f.default, options: f.options.map((o) => o.value) }])),
-    }));
-    return { content: json({ tools }), summary: `${tools.length} edições` };
+    throw new InputError("As edições de IA do Higgsfield foram removidas do hub. Para a edição final (cortes, juntar vídeos, b-rolls, legenda), use hub_montage.");
   },
 
-  async higgsfield_edit(input) {
-    const g = await runEdit({
-      tool: str(input.tool),
-      prompt: str(input.prompt),
-      params: strParams(input.params),
-      source: { generationId: str(input.source_generation_id) },
-    });
-    return { content: json(brief(g)), summary: "edição na fila", generations: [g] };
+  async higgsfield_edit() {
+    throw new InputError("As edições de IA do Higgsfield foram removidas do hub. Para a edição final (cortes, juntar vídeos, b-rolls, legenda), use hub_montage.");
   },
 
   async hub_montage(input) {
@@ -722,6 +754,12 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
       avatarId: str(input.avatar_generation_id),
       avatarIds: (Array.isArray(input.avatar_generation_ids) ? input.avatar_generation_ids : []).map(str),
       brollIds: (Array.isArray(input.broll_generation_ids) ? input.broll_generation_ids : []).map(str),
+      brollCues: (Array.isArray(input.broll_cues) ? input.broll_cues : []).map(str),
+      fx: (() => {
+        const f = (input.fx && typeof input.fx === "object" ? input.fx : {}) as Input;
+        return { ...f, musicId: f.music_generation_id ? str(f.music_generation_id) : undefined } as MontageFx;
+      })(),
+      graphics: Array.isArray(input.graphics) ? (input.graphics as GraphicRequest[]) : [],
       lang: str(input.lang),
       name: str(input.name),
     });
@@ -1074,11 +1112,15 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
 };
 
 export const CLIENT_TOOLS = definitions;
-export const TOOL_NAMES = definitions.map((d) => d.name);
+// Descontinuadas: só aparecem para conversas antigas que já as tinham (lista congelada, modo API).
+const DEPRECATED = new Set(["higgsfield_list_edits", "higgsfield_edit"]);
+const CURRENT = definitions.filter((d) => !DEPRECATED.has(d.name));
+
+export const TOOL_NAMES = CURRENT.map((d) => d.name);
 
 // Cada conversa usa a lista de ferramentas de quando foi criada: mudar as ferramentas no meio
 // de uma conversa muda o prefixo (cache) e invalida os blocos de raciocínio já salvos.
-export const toolsFor = (names?: string[]) => (names ? definitions.filter((d) => names.includes(d.name)) : definitions);
+export const toolsFor = (names?: string[]) => (names ? definitions.filter((d) => names.includes(d.name)) : CURRENT);
 
 // Ferramentas que rodam nos servidores da Anthropic (pesquisa e leitura de páginas, ex.: página de vendas).
 export const SERVER_TOOLS: Anthropic.Beta.BetaToolUnion[] = [

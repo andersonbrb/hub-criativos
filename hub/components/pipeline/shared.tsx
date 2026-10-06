@@ -17,7 +17,7 @@ const TOOL_LABELS: Partial<Record<GenerationTool, string>> = {
   flora: "FLORA",
   upload: "Upload",
   editor: "Editor",
-  montagem: "Montagem",
+  montagem: "Edição",
   "heygen-traducao": "Tradução",
 };
 
@@ -32,7 +32,7 @@ export function OperationBadge({ operation, className }: { operation: Operation;
     <Badge
       variant="secondary"
       className={cn(
-        "h-4.5 px-1.5 text-[10px]",
+        "h-4.5 px-1.5 text-[0.625rem]",
         operation === "infoproduto" ? "bg-track-avatar/15 text-track-avatar" : "bg-track-broll/15 text-track-broll",
         className,
       )}

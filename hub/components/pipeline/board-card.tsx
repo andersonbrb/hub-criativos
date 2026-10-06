@@ -57,7 +57,7 @@ export function CardFace({
           {linked.slice(0, MAX_THUMBS).map((g) => (
             <GenerationThumb key={g.id} g={g} className="h-12 w-[1.6875rem]" />
           ))}
-          {extra > 0 && <span className="font-mono text-[11px] text-muted-foreground tabular-nums">+{extra}</span>}
+          {extra > 0 && <span className="font-mono text-[0.6875rem] text-muted-foreground tabular-nums">+{extra}</span>}
         </div>
       )}
     </div>

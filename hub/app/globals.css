@@ -1,11 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-/* Cores, fontes e acabamentos de cada direção de design (escolhida em /design). */
+/* Cores, fontes e acabamentos do design do hub (Suíço, fixo). */
 @import "./designs.css";
 
-/* Escuro dentro de .dark, menos nas prévias claras da página /design (classe .light). */
-@custom-variant dark (&:where(.dark, .dark *):not(:where(.light, .light *)));
+@custom-variant dark (&:is(.dark *));
 
 /* Altura útil abaixo da barra do topo (h-12), para telas com abas redimensionáveis. */
 @utility h-workspace {
@@ -37,7 +36,7 @@ html[data-mobile-frame] [data-slot="sidebar-inset"] {
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  /* As fontes vêm do design ativo (app/designs.css). */
+  /* As fontes vêm do design do hub (app/designs.css). */
   --font-sans: var(--hub-sans);
   --font-mono: var(--hub-mono);
   --font-heading: var(--hub-heading);
@@ -88,8 +87,8 @@ html[data-mobile-frame] [data-slot="sidebar-inset"] {
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* As cores de cada direção de design (fundo, texto, destaque --rec, bordas, menu...) ficam em app/designs.css.
-   Aqui ficam só as cores de gráfico e das trilhas do editor, iguais em todos os designs. */
+/* As cores do design (fundo, texto, destaque --rec, bordas, menu...) ficam em app/designs.css.
+   Aqui ficam só as cores de gráfico e das trilhas do editor. */
 :root {
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
@@ -123,5 +122,12 @@ html[data-mobile-frame] [data-slot="sidebar-inset"] {
   }
   html {
     @apply font-sans;
+  }
+  /* Escala padrão do hub no computador: 80% (o usuário preferiu o tamanho do navegador em 80%).
+     Tudo que é medido em rem (textos, espaçamentos, ícones, menu, barra do topo) diminui junto. No celular fica 100%. */
+  @media (min-width: 768px) {
+    html {
+      font-size: 80%;
+    }
   }
 }

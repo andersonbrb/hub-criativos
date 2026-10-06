@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AppId } from "@/lib/apps";
 import { hasKey, KEYS, type Provider } from "@/lib/server/env";
-import { account } from "@/lib/server/providers/higgsfield";
 
 type Integration = {
   name: string;
@@ -29,21 +28,15 @@ const keyed = (p: Provider, base: Omit<Integration, "status" | "detail">, where:
 export default async function IntegrationsPage() {
   await connection();
 
-  let higgsfield: Integration = {
-    name: "Higgsfield",
-    role: "Edição de vídeo",
-    features: ["Editar com prompt e reenquadrar", "Resolução, fundo, flicker e FPS", "Dublagem em outro idioma"],
+  // Edição final: o pipeline do playbook de edição (o mesmo do "sandbox do Higgsfield") roda nesta máquina, sem custo.
+  const edicao: Integration = {
+    name: "Edição final",
+    role: "Cortes, junção, b-rolls e legenda (padrão)",
+    features: ["Junta os vídeos do avatar e corta silêncios", "B-rolls nos momentos certos, com dissolve", "Legenda Montserrat MAIÚSCULA queimada"],
     studio: { href: "/estudios/edicao", label: "Edição" },
-    app: "higgsfield",
     status: "ok",
-    detail: "",
+    detail: "Roda neste computador (Whisper + ffmpeg), sem créditos",
   };
-  try {
-    const a = await account();
-    higgsfield = { ...higgsfield, detail: `CLI logada · ${a.email} · ${a.credits} créditos (${a.subscription_plan_type})` };
-  } catch (e) {
-    higgsfield = { ...higgsfield, status: "warn", detail: e instanceof Error ? e.message : "CLI indisponível" };
-  }
 
   const integrations: Integration[] = [
     keyed(
@@ -68,7 +61,7 @@ export default async function IntegrationsPage() {
       },
       "app.heygen.com → Settings → API",
     ),
-    higgsfield,
+    edicao,
     keyed(
       "flora",
       {

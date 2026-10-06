@@ -16,7 +16,7 @@ const TOOL_LABEL: Record<GenerationTool, string> = {
   flora: "FLORA",
   upload: "Upload",
   editor: "Editor",
-  montagem: "Montagem",
+  montagem: "Edição",
   "heygen-traducao": "Tradução",
 };
 
@@ -65,7 +65,7 @@ export function LibraryView() {
             {FILTERS.map((f) => (
               <TabsTrigger key={f.value} value={f.value}>
                 {f.label}
-                <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{count(f.value)}</span>
+                <span className="font-mono text-[0.6875rem] text-muted-foreground tabular-nums">{count(f.value)}</span>
               </TabsTrigger>
             ))}
           </TabsList>

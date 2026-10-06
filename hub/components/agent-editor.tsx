@@ -131,7 +131,7 @@ export function AgentEditorButton({ agentId, agentName }: { agentId: string; age
                 </details>
 
                 <label className="flex flex-col gap-1.5">
-                  <span className="text-[11px] font-semibold tracking-wider text-foreground/85 uppercase">Suas instruções</span>
+                  <span className="text-[0.6875rem] font-semibold tracking-wider text-foreground/85 uppercase">Suas instruções</span>
                   <Textarea
                     rows={6}
                     value={instructions}
@@ -141,7 +141,7 @@ export function AgentEditorButton({ agentId, agentName }: { agentId: string; age
                 </label>
 
                 <label className="flex flex-col gap-1.5">
-                  <span className="text-[11px] font-semibold tracking-wider text-foreground/85 uppercase">Contexto</span>
+                  <span className="text-[0.6875rem] font-semibold tracking-wider text-foreground/85 uppercase">Contexto</span>
                   <Textarea
                     rows={6}
                     value={context}
@@ -152,8 +152,8 @@ export function AgentEditorButton({ agentId, agentName }: { agentId: string; age
 
                 <section className="flex flex-col gap-2">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-semibold tracking-wider text-foreground/85 uppercase">Arquivos de referência</span>
-                    <span className="text-[11px] text-muted-foreground">{files.length}/20</span>
+                    <span className="text-[0.6875rem] font-semibold tracking-wider text-foreground/85 uppercase">Arquivos de referência</span>
+                    <span className="text-[0.6875rem] text-muted-foreground">{files.length}/20</span>
                   </div>
                   <button
                     type="button"
@@ -180,7 +180,7 @@ export function AgentEditorButton({ agentId, agentName }: { agentId: string; age
                       e.target.value = "";
                     }}
                   />
-                  <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  <p className="text-[0.6875rem] leading-relaxed text-muted-foreground">
                     Imagens e PDFs vão anexados em toda conversa nova (até {config.limits.images} imagens, {config.limits.pdfs} PDFs e {config.limits.totalMb} MB somados; prefira PDFs curtos). Vídeos e áudios ficam disponíveis para o agente assistir e usar. Textos entram nas instruções.
                   </p>
                   {files.length > 0 && (
@@ -198,7 +198,7 @@ export function AgentEditorButton({ agentId, agentName }: { agentId: string; age
                           <a href={f.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate hover:underline" title={f.name}>
                             {f.name}
                           </a>
-                          <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{sizeLabel(f.size)}</span>
+                          <span className="shrink-0 font-mono text-[0.6875rem] text-muted-foreground">{sizeLabel(f.size)}</span>
                           <Button variant="ghost" size="icon-xs" aria-label={`Remover ${f.name}`} onClick={() => removeFile(f.id)}>
                             <Trash2 />
                           </Button>

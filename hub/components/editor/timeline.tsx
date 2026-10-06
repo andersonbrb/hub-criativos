@@ -178,7 +178,7 @@ export function Timeline({
               {ticks.map((t) => (
                 <span
                   key={t}
-                  className="absolute top-1 -translate-x-1/2 font-mono text-[10px] text-muted-foreground"
+                  className="absolute top-1 -translate-x-1/2 font-mono text-[0.625rem] text-muted-foreground"
                   style={{ left: t * pxPerSec }}
                 >
                   {t % 1 === 0 ? `${t}s` : "·"}
@@ -218,7 +218,7 @@ export function Timeline({
                       e.key === "Enter" && onSelect({ type: "clip", id: c.id })
                     }
                     className={cn(
-                      "group absolute inset-y-0.5 overflow-hidden rounded-[5px] bg-track-avatar px-2 text-[11px] leading-9 font-semibold text-white outline-none",
+                      "group absolute inset-y-0.5 overflow-hidden rounded-[5px] bg-track-avatar px-2 text-[0.6875rem] leading-9 font-semibold text-white outline-none",
                       i % 2 === 1 && "bg-track-broll",
                       active &&
                         "ring-2 ring-foreground ring-offset-1 ring-offset-background",
@@ -291,7 +291,7 @@ export function Timeline({
                       });
                     }}
                     className={cn(
-                      "absolute inset-y-0.5 cursor-grab overflow-hidden rounded-[5px] bg-track-leg px-1.5 text-[10px] leading-8 font-semibold text-black/80 outline-none active:cursor-grabbing",
+                      "absolute inset-y-0.5 cursor-grab overflow-hidden rounded-[5px] bg-track-leg px-1.5 text-[0.625rem] leading-8 font-semibold text-black/80 outline-none active:cursor-grabbing",
                       !project.captionsEnabled && "opacity-40",
                       active &&
                         "ring-2 ring-foreground ring-offset-1 ring-offset-background",

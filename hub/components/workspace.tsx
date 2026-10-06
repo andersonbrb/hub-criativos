@@ -260,7 +260,7 @@ export function Workspace({
                     >
                       {t.title}
                       {t.badge ? (
-                        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-rec px-1 font-mono text-[10px] leading-none font-bold text-white tabular-nums">
+                        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-rec px-1 font-mono text-[0.625rem] leading-none font-bold text-white tabular-nums">
                           {t.badge > 99 ? "99+" : t.badge}
                         </span>
                       ) : null}
@@ -437,7 +437,7 @@ export function WorkspacePanel({
   const count = badge && badge > 0 ? (badge > 99 ? "99+" : String(badge)) : null;
   const badgeEl = count && (
     <span
-      className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-rec px-1 font-mono text-[10px] leading-none font-bold text-white tabular-nums shadow-[0_0_0_2px_var(--background)]"
+      className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-rec px-1 font-mono text-[0.625rem] leading-none font-bold text-white tabular-nums shadow-[0_0_0_2px_var(--background)]"
       aria-label={`${badge} itens`}
     >
       {count}
@@ -447,7 +447,7 @@ export function WorkspacePanel({
   const header = (
     <div className="flex h-9 shrink-0 items-center gap-1.5 border-b bg-muted/40 px-3">
       {icon}
-      <h2 className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-[11px] font-semibold tracking-wider text-foreground/75 uppercase">
+      <h2 className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-[0.6875rem] font-semibold tracking-wider text-foreground/75 uppercase">
         <span className="truncate">{title}</span>
         {badgeEl}
       </h2>
@@ -523,7 +523,7 @@ export function WorkspacePanel({
           type="button"
           onClick={open}
           className={cn(
-            "flex size-full items-center gap-2 bg-muted/30 text-[11px] font-semibold tracking-wider text-foreground/70 uppercase hover:bg-muted hover:text-foreground",
+            "flex size-full items-center gap-2 bg-muted/30 text-[0.6875rem] font-semibold tracking-wider text-foreground/70 uppercase hover:bg-muted hover:text-foreground",
             orientation === "horizontal" ? "flex-col py-3" : "px-3",
           )}
           aria-label={`Mostrar ${title}${count ? ` (${badge})` : ""}`}

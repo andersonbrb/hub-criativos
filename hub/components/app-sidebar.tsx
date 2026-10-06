@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clapperboard, Film, Languages, LayoutGrid, Library, MessageSquare, Mic, Palette, Plug, Scissors, Sparkles, UserRound } from "lucide-react";
+import { Clapperboard, Film, Languages, LayoutGrid, Library, MessageSquare, Mic, Plug, Scissors, Sparkles, UserRound } from "lucide-react";
 
 import {
   Sidebar,
@@ -23,17 +23,14 @@ const production = [
   { href: "/", label: "Fluxo", icon: LayoutGrid },
   { href: "/editor", label: "Editor", icon: Film },
   { href: "/biblioteca", label: "Biblioteca", icon: Library },
-  { href: "/integracoes", label: "Integrações", icon: Plug },
-  { href: "/design", label: "Aparência", icon: Palette },
-];
+  { href: "/integracoes", label: "Integrações", icon: Plug },];
 
 const studios = [
   { href: "/estudios/geracao", label: "Geração", tool: "FLORA", icon: Sparkles },
   { href: "/estudios/voz", label: "Voz", tool: "ElevenLabs", icon: Mic },
   { href: "/estudios/avatar", label: "Avatar", tool: "HeyGen", icon: UserRound },
   { href: "/estudios/traducao", label: "Tradução", tool: "HeyGen", icon: Languages },
-  { href: "/estudios/edicao", label: "Edição", tool: "Higgsfield", icon: Scissors },
-  { href: "/estudios/montagem", label: "Montagem", tool: "Local", icon: Clapperboard },
+  { href: "/estudios/edicao", label: "Edição", tool: "Local", icon: Scissors },
 ];
 
 export function AppSidebar() {
@@ -90,7 +87,7 @@ export function AppSidebar() {
                       <span>{item.label}</span>
                     </Link>
                   </SidebarMenuButton>
-                  <SidebarMenuBadge className="font-mono text-[10px] text-muted-foreground">{item.tool}</SidebarMenuBadge>
+                  <SidebarMenuBadge className="font-mono text-[0.625rem] text-muted-foreground">{item.tool}</SidebarMenuBadge>
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
@@ -107,7 +104,7 @@ export function AppSidebar() {
                   <SidebarMenuItem key={agent.id}>
                     <SidebarMenuButton asChild isActive={pathname === href} tooltip={agent.name}>
                       <Link href={href}>
-                        <span className="flex size-4 items-center justify-center font-mono text-[10px] font-semibold">
+                        <span className="flex size-4 items-center justify-center font-mono text-[0.625rem] font-semibold">
                           {agent.short}
                         </span>
                         <span>{agent.name}</span>

@@ -44,12 +44,15 @@ const NO_VISION = "[imagem: o modelo do Modo Black não vê imagens. Para avalia
 const MAX_STEPS = 40;
 
 // Acrescentado ao prompt de sistema só nos pedidos à Venice (o prompt salvo da conversa não muda).
-const BLACK_NOTE = `
+// Diz ao modelo quem ele é: sem isso ele "alucina" a identidade (já respondeu que era o Claude).
+const blackNote = (model: string) => `
 
 # Modo Black
-Você está rodando no Modo Black (modelo sem censura). As ferramentas do hub funcionam igual: use-as do mesmo jeito.
+Você está rodando no Modo Black do hub: um modelo SEM censura da Venice AI (api.venice.ai), modelo "${model}".
+- Quem você é: se perguntarem qual IA, modelo ou empresa está por trás, responda exatamente isso: Venice AI, modelo "${model}", chamado pelo hub via API. Você NÃO é o Claude nem a Anthropic. O Claude é o cérebro do modo normal (botão Modo Black desligado); as mensagens anteriores desta conversa podem ter sido escritas por ele, mas a partir de agora quem responde é você. Não invente detalhes sobre a sua arquitetura que você não sabe.
+- As ferramentas do hub funcionam igual: use-as do mesmo jeito.
 - web_search e web_fetch não existem aqui como ferramentas: a pesquisa na web é automática quando a pergunta pede informação atual.
-- Tudo que vai para o anúncio (fala, texto na tela, ad text) sai SEMPRE no idioma do mercado, nunca em português (Chile = espanhol chileno, México = espanhol mexicano etc.).
+- Tudo que vai para o anúncio (fala, texto na tela, ad text) sai no idioma escolhido no chat (nota "[Idioma do criativo: ...]" na mensagem) ou, sem escolha, no idioma do mercado (Chile = espanhol chileno, México = espanhol mexicano etc.).
 - Responda em markdown normal (tabelas em markdown são bem-vindas). Nunca coloque a resposta inteira dentro de bloco de código.
 - Para chamar uma ferramenta, use a chamada de função; não escreva a chamada como texto.`;
 
@@ -210,7 +213,7 @@ export async function runVeniceTurn(chat: Chat, emit: Emit, signal: AbortSignal)
   // Todas as ferramentas atuais, também em conversas antigas (a lista congelada em chat.toolNames só importa no modo HUB_BRAIN=api).
   const defs = toolsFor();
   const tools = defs.map((d) => ({ type: "function", function: { name: d.name, description: d.description ?? "", parameters: d.input_schema } }));
-  const system = chat.system + BLACK_NOTE;
+  const system = chat.system + blackNote(veniceModel());
   const vision = await supportsVision(veniceModel());
 
   try {

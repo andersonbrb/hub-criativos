@@ -83,7 +83,7 @@ export function Inspector(props: Props) {
 
 function Label({ children, htmlFor }: { children: React.ReactNode; htmlFor?: string }) {
   return (
-    <label htmlFor={htmlFor} className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
+    <label htmlFor={htmlFor} className="text-[0.6875rem] font-medium tracking-wider text-muted-foreground uppercase">
       {children}
     </label>
   );
@@ -190,7 +190,7 @@ function CaptionsTab({ project, time, selection, busy, onSeek, onSelect, onChang
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  className="font-mono text-[11px] text-muted-foreground tabular-nums hover:text-foreground"
+                  className="font-mono text-[0.6875rem] text-muted-foreground tabular-nums hover:text-foreground"
                   onClick={() => {
                     onSeek(c.start);
                     onSelect({ type: "caption", id: c.captionId });
@@ -246,7 +246,7 @@ function TimeInput({ label, value, onCommit }: { label: string; value: number; o
         setDraft(null);
       }}
       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-      className="h-6 w-16 px-1.5 text-center font-mono text-[11px]"
+      className="h-6 w-16 px-1.5 text-center font-mono text-[0.6875rem]"
     />
   );
 }
@@ -306,7 +306,7 @@ function StyleTab({ project, onChange }: Props) {
 function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">{label}</span>
+      <span className="text-[0.6875rem] font-medium tracking-wider text-muted-foreground uppercase">{label}</span>
       <span className="flex items-center gap-2 rounded-md border px-2 py-1">
         <input type="color" value={value} onChange={(e) => onChange(e.target.value.toUpperCase())} className="size-6 cursor-pointer rounded border-0 bg-transparent p-0" />
         <span className="font-mono text-xs">{value}</span>

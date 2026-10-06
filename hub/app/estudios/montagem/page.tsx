@@ -1,9 +1,6 @@
-import { MontageStudio } from "@/components/studios/montage-studio";
+import { redirect } from "next/navigation";
 
+// A Montagem virou a aba Edição (edição final do criativo).
 export default function MontagemPage() {
-  return (
-    <main className="h-workspace">
-      <MontageStudio />
-    </main>
-  );
+  redirect("/estudios/edicao");
 }

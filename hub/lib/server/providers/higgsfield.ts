@@ -4,10 +4,8 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import type { EditTool } from "@/lib/higgsfield-edits";
-
-// O Higgsfield roda pela CLI oficial (@higgsfield/cli), que já está logada nesta máquina
-// (`higgsfield auth login`). No hub ele é usado só para EDIÇÃO de vídeo (ver lib/higgsfield-edits.ts).
+// CLI oficial do Higgsfield (@higgsfield/cli). As edições de IA foram removidas do hub (2026-10-06; a edição final é a
+// montagem local). Ficou só o status de jobs antigos (refreshGeneration) e a conta.
 
 function binary(): string {
   if (process.env.HIGGSFIELD_BIN) return process.env.HIGGSFIELD_BIN;
@@ -48,36 +46,6 @@ export type HfJob = { id: string; status: string; result_url?: string | null; mi
 
 export async function account() {
   return (await run(["account", "status"])) as { credits: number; email: string; subscription_plan_type: string };
-}
-
-// Converte { aspect_ratio: "9:16", fps: 60 } em ["--aspect_ratio", "9:16", "--fps", "60"]
-function toFlags(params: Record<string, string | number | boolean>) {
-  return Object.entries(params).flatMap(([k, v]) => [`--${k}`, String(v)]);
-}
-
-// UUID fictício: a estimativa não precisa do vídeo real (evita subir o arquivo só para orçar).
-const PLACEHOLDER_VIDEO = "00000000-0000-0000-0000-000000000000";
-
-export async function editCost(tool: EditTool, params: Record<string, string | number | boolean>, prompt?: string) {
-  if (tool.via === "workflow") return null; // a CLI não estima workflows com mídia
-  const args = ["generate", "cost", tool.target, "--video", PLACEHOLDER_VIDEO, ...toFlags(params)];
-  if (prompt) args.push("--prompt", prompt);
-  const out = (await run(args)) as { credits?: number };
-  return out.credits ?? null;
-}
-
-export async function createEdit(
-  tool: EditTool,
-  videoPath: string,
-  params: Record<string, string | number | boolean>,
-  prompt?: string,
-) {
-  const args =
-    tool.via === "workflow" ? ["generate", "workflow", tool.target] : ["generate", "create", tool.target];
-  args.push("--video", videoPath); // a CLI sobe o arquivo local
-  if (prompt) args.push("--prompt", prompt);
-  args.push(...toFlags(params));
-  return firstJob(await run(args, 600_000));
 }
 
 function firstJob(out: unknown): HfJob {

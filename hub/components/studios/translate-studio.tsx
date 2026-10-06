@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, FileText, Film, Languages, Link2, Loader2, LogOut, Search, Upload, X } from "lucide-react";
+import { Check, ChevronDown, FileText, Film, Languages, Loader2, Search, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { OpenAppButton } from "@/components/open-app-button";
@@ -77,7 +77,7 @@ const SOURCE: Record<string, string> = {
   higgsfield: "Edição",
   upload: "Enviado",
   editor: "Editor",
-  montagem: "Montagem",
+  montagem: "Edição",
 };
 
 type Status = { connected: boolean; account: { email: string | null; name: string | null } | null };
@@ -144,17 +144,6 @@ export function TranslateStudio() {
   const [busy, setBusy] = useState(false);
   const srtRef = useRef<HTMLInputElement>(null);
   const { items, loaded, add, remove, clear } = useGenerations("heygen-traducao", pollTranslation);
-
-  // Volta do login do HeyGen (?heygen=conectado|erro|cancelado).
-  useEffect(() => {
-    const p = new URLSearchParams(window.location.search);
-    const r = p.get("heygen");
-    if (!r) return;
-    if (r === "conectado") toast.success("HeyGen conectado pelo MCP.");
-    else if (r === "cancelado") toast.message("Login do HeyGen cancelado.");
-    else toast.error("Não consegui conectar o HeyGen. Tente de novo.");
-    window.history.replaceState(null, "", window.location.pathname);
-  }, []);
 
   useEffect(() => {
     apiFetch<Status>("/api/heygen/mcp")
@@ -227,10 +216,6 @@ export function TranslateStudio() {
     }
   }
 
-  async function disconnect() {
-    await apiFetch("/api/heygen/mcp", { method: "DELETE" }).catch(() => {});
-    setStatus({ connected: false, account: null });
-  }
 
   async function translate() {
     setBusy(true);
@@ -283,7 +268,7 @@ export function TranslateStudio() {
       toolbar={
         <>
           <h1 className="shrink-0 font-heading text-lg font-bold tracking-tight">Tradução</h1>
-          <span className="shrink-0 rounded border px-1.5 font-mono text-[11px] text-muted-foreground">HeyGen · MCP</span>
+          <span className="shrink-0 rounded border px-1.5 font-mono text-[0.6875rem] text-muted-foreground">HeyGen · MCP</span>
           <Tooltip>
             <TooltipTrigger asChild>
               <p className="hidden min-w-0 truncate text-xs text-muted-foreground lg:block">{DESCRIPTION}</p>
@@ -354,7 +339,7 @@ export function TranslateStudio() {
                   className={cn("relative flex flex-col overflow-hidden rounded-lg border text-left hover:border-foreground/40", active && "border-rec ring-2 ring-rec/40")}
                 >
                   <video src={mediaUrl(v)} muted playsInline preload="metadata" className="aspect-[9/16] w-full bg-muted object-cover" />
-                  <span className="flex items-center justify-between gap-1 px-2 py-1.5 text-[11px]">
+                  <span className="flex items-center justify-between gap-1 px-2 py-1.5 text-[0.6875rem]">
                     <span className="truncate">{v.prompt}</span>
                     <span className="shrink-0 font-mono text-muted-foreground">{SOURCE[v.tool] ?? v.tool}</span>
                   </span>
@@ -372,32 +357,11 @@ export function TranslateStudio() {
 
       <WorkspacePanel id="opcoes" title="2. Tradução" defaultSize={42} minSize={20} bodyClassName="flex flex-col">
         <div className="flex flex-1 flex-col gap-4 p-4">
-          {status === null ? (
-            <Loader2 className="mx-auto my-6 size-5 animate-spin text-muted-foreground" />
-          ) : !connected ? (
-            <div className="flex flex-col gap-3 rounded-lg border border-warn/40 bg-warn/10 p-4 text-sm">
-              <p className="font-medium">Conecte sua conta HeyGen</p>
-              <p className="text-muted-foreground">
-                A tradução roda pelo MCP do HeyGen, com login da sua conta (uma vez só). O consumo sai dos créditos premium do seu plano web, não do saldo da API.
-              </p>
-              <Button asChild className="w-fit bg-rec text-white hover:bg-rec/85">
-                <a href="/api/heygen/mcp/login?returnTo=/estudios/traducao">
-                  <Link2 />
-                  Conectar HeyGen
-                </a>
-              </Button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2 text-xs">
-              <span className="flex min-w-0 items-center gap-1.5">
-                <span className="size-1.5 shrink-0 rounded-full bg-ok" aria-hidden />
-                <span className="truncate">HeyGen conectado{status?.account?.email ? `: ${status.account.email}` : ""}</span>
-              </span>
-              <Button variant="ghost" size="xs" onClick={disconnect} className="text-muted-foreground">
-                <LogOut />
-                Sair
-              </Button>
-            </div>
+          {/* A conexão com o MCP do HeyGen já vem configurada (como as chaves das outras abas): sem botão de conectar. */}
+          {status !== null && !connected && (
+            <p className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm">
+              O HeyGen (MCP) ainda não está configurado neste servidor. Peça para quem administra o hub configurar a conexão.
+            </p>
           )}
 
           <Field label="Traduzir para" hint={outputs.length ? `${outputs.length} idioma${outputs.length > 1 ? "s" : ""}` : undefined}>
@@ -435,7 +399,7 @@ export function TranslateStudio() {
                 <div className="flex max-h-72 flex-col overflow-y-auto" role="listbox" aria-multiselectable aria-label="Idiomas">
                   {langGroups.map((group) => (
                     <div key={group.title} className="flex flex-col">
-                      {group.title && <span className="px-2 pt-1.5 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{group.title}</span>}
+                      {group.title && <span className="px-2 pt-1.5 pb-1 text-[0.6875rem] font-semibold tracking-wider text-muted-foreground uppercase">{group.title}</span>}
                       {group.items.map((l) => {
                         const on = outputs.includes(l);
                         const pt = QUICK.find((q) => q.value === l)?.label;
@@ -541,7 +505,7 @@ export function TranslateStudio() {
           </div>
 
           <details className="group rounded-md border px-3 py-2">
-            <summary className="cursor-pointer text-[11px] font-semibold tracking-wider text-foreground/85 uppercase">Avançado</summary>
+            <summary className="cursor-pointer text-[0.6875rem] font-semibold tracking-wider text-foreground/85 uppercase">Avançado</summary>
             <div className="mt-3 flex flex-col gap-4">
               <div className="flex flex-col">
                 <Toggle label="Manter o mesmo formato" hint="Mesma resolução e bitrate do original" checked={sameFormat} onChange={setSameFormat} />
@@ -650,7 +614,7 @@ export function TranslateStudio() {
             {busy ? <Loader2 className="animate-spin" /> : <Languages />}
             {busy ? "Enviando ao HeyGen…" : outputs.length > 1 ? `Traduzir para ${outputs.length} idiomas` : "Traduzir vídeo"}
           </Button>
-          <p className="text-[11px] text-muted-foreground">Consome créditos premium do plano HeyGen (por minuto de vídeo e por idioma).</p>
+          <p className="text-[0.6875rem] text-muted-foreground">Consome créditos premium do plano HeyGen (por minuto de vídeo e por idioma).</p>
         </div>
       </WorkspacePanel>
 

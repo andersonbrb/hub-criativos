@@ -43,11 +43,11 @@ export function Field({ label, id, hint, children }: { label: string; id?: strin
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between gap-2">
-        <label htmlFor={id} className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-foreground/85 uppercase">
+        <label htmlFor={id} className="flex items-center gap-1.5 text-[0.6875rem] font-semibold tracking-wider text-foreground/85 uppercase">
           <span className="size-1.5 shrink-0 rounded-full bg-rec/80" aria-hidden />
           {label}
         </label>
-        {hint && <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{hint}</span>}
+        {hint && <span className="font-mono text-[0.6875rem] text-muted-foreground tabular-nums">{hint}</span>}
       </div>
       {children}
     </div>
@@ -79,7 +79,7 @@ export function SliderField({
     <Field label={label} hint={format(value)}>
       <Slider aria-label={label} min={min} max={max} step={step} value={[value]} onValueChange={([v]) => onChange(v)} />
       {(left || right) && (
-        <div className="flex justify-between text-[11px] text-muted-foreground">
+        <div className="flex justify-between text-[0.6875rem] text-muted-foreground">
           <span>{left}</span>
           <span>{right}</span>
         </div>

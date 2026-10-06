@@ -8,9 +8,12 @@ function originOf(request: Request) {
   return host ? `${proto}://${host}` : new URL(request.url).origin;
 }
 
-// "Conectar HeyGen": manda o navegador para o login do HeyGen. ?returnTo=/estudios/traducao
+// Configuração da conexão com o MCP do HeyGen (não há botão na interface: a conexão já vem pronta).
+// Uso de administração: abre o login do HeyGen. ?para=nuvem gera a sessão de OUTRO servidor (o hub na nuvem)
+// em .data/heygen-mcp-nuvem.json, sem mexer na sessão desta máquina.
 export const GET = route(async (request: Request) => {
-  const returnTo = new URL(request.url).searchParams.get("returnTo") ?? "/estudios/traducao";
+  const params = new URL(request.url).searchParams;
+  const returnTo = params.get("returnTo") ?? "/estudios/traducao";
   const safe = returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/estudios/traducao";
-  return Response.redirect(await startLogin(originOf(request), safe), 302);
+  return Response.redirect(await startLogin(originOf(request), safe, params.get("para") === "nuvem" ? "nuvem" : undefined), 302);
 });
