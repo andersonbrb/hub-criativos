@@ -36,7 +36,10 @@ import { toolLabel, type Attachment, type AttachmentKind, type ChatEvent, type C
 import { apiFetch, type Generation } from "@/lib/generations";
 import { cn } from "@/lib/utils";
 
-type ViewItem = ChatItem | { kind: "error"; text: string };
+export type ViewItem = ChatItem | { kind: "error"; text: string };
+
+// Começa uma conversa nova direto (ex.: formulário do Criativo automático): texto, anexos e idioma do criativo.
+export type StartChat = (text: string, files: File[], lang: string) => void;
 
 const PRESETS: WorkspacePreset[] = [
   { id: "padrao", label: "Padrão", layout: { conversas: 16, conversa: 84, midia: "collapsed" } },
@@ -109,14 +112,25 @@ export function ChatView({
   initialDraft,
   configured,
   agentId,
+  path,
+  heading,
+  startScreen,
+  renderTop,
 }: {
   initialId: string | null;
   initialDraft: string;
   configured: boolean;
   agentId?: string;
+  // Tela própria (ex.: /criativo-automatico): endereço e título no lugar dos do agente.
+  path?: string;
+  heading?: string;
+  // Conversa vazia: mostra isto no lugar das sugestões e esconde a caixa de mensagem.
+  startScreen?: (start: StartChat) => React.ReactNode;
+  // Faixa acima das mensagens (ex.: etapas do Criativo automático).
+  renderTop?: (items: ViewItem[], running: boolean) => React.ReactNode;
 }) {
   const agent = getAgentProfile(agentId);
-  const basePath = agent ? `/agentes/${agent.id}` : "/chat";
+  const basePath = path ?? (agent ? `/agentes/${agent.id}` : "/chat");
   const suggestions = agent?.suggestions ?? SUGGESTIONS;
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [activeId, setActiveId] = useState<string | null>(initialId);
@@ -294,16 +308,18 @@ export function ChatView({
     setItems((prev) => [...prev, { kind: "error", text: "Parado por você." }]);
   }
 
-  async function send(text = draft) {
+  async function send(text = draft, direct?: { files: File[]; lang: string }) {
     const message = text.trim();
-    if ((!message && !files.length) || running) return;
+    const outFiles = direct ? direct.files : files.map((f) => f.file);
+    const outLang = direct?.lang ?? lang;
+    if ((!message && !outFiles.length) || running) return;
     const form = new FormData();
     form.set("text", message);
     if (activeId) form.set("chatId", activeId);
     if (black) form.set("mode", "black");
-    if (lang !== "auto") form.set("lang", lang);
+    if (outLang !== "auto") form.set("lang", outLang);
     if (agent && !activeId) form.set("agentId", agent.id);
-    files.forEach((f) => form.append("files", f.file));
+    outFiles.forEach((f) => form.append("files", f));
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -331,7 +347,7 @@ export function ChatView({
           if (!line.trim()) continue;
           const event = JSON.parse(line) as ChatEvent;
           if (event.type === "chat") {
-            if (!activeId) setLang(lang, event.chat.id); // conversa nova guarda o idioma escolhido
+            if (!activeId) setLang(outLang as typeof lang, event.chat.id); // conversa nova guarda o idioma escolhido
             turnChatRef.current = event.chat.id;
             setActiveId(event.chat.id);
             selectUrl(event.chat.id);
@@ -361,7 +377,7 @@ export function ChatView({
   const toolbar = (
     <>
       <MessageSquare className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-      <span className="shrink-0 font-heading font-bold">{agent ? `Agente de ${agent.name}` : "Chat principal"}</span>
+      <span className="shrink-0 font-heading font-bold">{heading ?? (agent ? `Agente de ${agent.name}` : "Chat principal (Produção)")}</span>
       {agent && <AgentEditorButton agentId={agent.id} agentName={agent.name} />}
       {active && <span className="min-w-0 truncate text-sm text-muted-foreground">· {active.title}</span>}
       {active && active.costUsd > 0 && (
@@ -465,7 +481,9 @@ export function ChatView({
           >
             <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-6 md:px-6">
               {loading && <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />}
-              {empty && (
+              {empty && startScreen?.((text, startFiles, startLang) => send(text, { files: startFiles, lang: startLang }))}
+              {renderTop && !empty && renderTop(items, running)}
+              {empty && !startScreen && (
                 <div className="flex flex-col items-center gap-5 py-10 text-center">
                   <div>
                     <p className="font-heading text-2xl font-bold">{agent ? `Agente de ${agent.name}` : "O que vamos produzir?"}</p>
@@ -508,7 +526,7 @@ export function ChatView({
               e.preventDefault();
               send();
             }}
-            className="border-t p-3 md:px-6"
+            className={cn("border-t p-3 md:px-6", empty && startScreen && "hidden")}
           >
             <div className="mx-auto max-w-3xl">
               {!configured && !black && (

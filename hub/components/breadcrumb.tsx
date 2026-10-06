@@ -7,7 +7,8 @@ import { agents } from "@/lib/data";
 
 const PAGES: Record<string, string> = {
   "/": "Fluxo",
-  "/chat": "Chat principal",
+  "/chat": "Chat principal (Produção)",
+  "/criativo-automatico": "Criativo automático",
   "/editor": "Editor",
   "/biblioteca": "Biblioteca",
   "/integracoes": "Integrações",  "/estudios/geracao": "Estúdio · Geração",

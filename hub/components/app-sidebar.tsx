@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clapperboard, Film, Languages, LayoutGrid, Library, MessageSquare, Mic, Plug, Scissors, Sparkles, UserRound } from "lucide-react";
+import { Clapperboard, Film, Languages, LayoutGrid, Library, MessageSquare, Mic, Plug, Scissors, Sparkles, UserRound, WandSparkles } from "lucide-react";
 
 import {
   Sidebar,
@@ -19,7 +19,8 @@ import {
 import { agents } from "@/lib/data";
 
 const production = [
-  { href: "/chat", label: "Chat principal", icon: MessageSquare },
+  { href: "/chat", label: "Chat principal (Produção)", icon: MessageSquare },
+  { href: "/criativo-automatico", label: "Criativo automático", icon: WandSparkles },
   { href: "/", label: "Fluxo", icon: LayoutGrid },
   { href: "/editor", label: "Editor", icon: Film },
   { href: "/biblioteca", label: "Biblioteca", icon: Library },

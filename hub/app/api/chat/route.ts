@@ -122,13 +122,15 @@ export const POST = route(async (request: Request) => {
   let chat = chatId ? await getChat(chatId) : null;
   if (chatId && !chat) return Response.json({ error: "Conversa não encontrada." }, { status: 404 });
   const shown = text || (files.length === 1 ? `(arquivo anexado: ${files[0].name})` : `(${files.length} arquivos anexados)`);
+  // Criativo automático: o título vem do "O que anunciar" do formulário, não do cabeçalho do bloco.
+  const titleFrom = /O que anunciar: (.+)/.exec(text.startsWith("[CRIATIVO AUTOMÁTICO]") ? text : "")?.[1].trim() || shown;
   if (!chat) {
     // agentId (só na criação): conversa com um agente; o prompt dele fica congelado na conversa.
     const agentId = getAgentProfile(String(form.get("agentId") ?? ""))?.id;
-    chat = newChat(shown.replace(/\s+/g, " ").slice(0, 60), await buildSystemPrompt(agentId), TOOL_NAMES, agentId);
+    chat = newChat(titleFrom.replace(/\s+/g, " ").slice(0, 60), await buildSystemPrompt(agentId), TOOL_NAMES, agentId);
   } else if (chat.messages.length === 0 && !chat.titleRenamedAt) {
     // Conversa criada pelo botão "Nova conversa": ganha o título da primeira mensagem.
-    chat.title = shown.replace(/\s+/g, " ").slice(0, 60);
+    chat.title = titleFrom.replace(/\s+/g, " ").slice(0, 60);
   }
 
   const prepared = await Promise.all(files.map(prepare));
