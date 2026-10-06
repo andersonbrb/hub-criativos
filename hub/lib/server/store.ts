@@ -74,7 +74,9 @@ export function updateGeneration(id: string, patch: Partial<Generation>): Promis
   return withDb((db) => {
     const gen = db.generations.find((g) => g.id === id);
     if (gen) {
+      const wasBusy = gen.status === "pending" || gen.status === "running";
       Object.assign(gen, patch);
+      if (wasBusy && (gen.status === "done" || gen.status === "failed")) gen.finishedAt = new Date().toISOString();
       autoSave(gen);
     }
     return gen;

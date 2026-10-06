@@ -243,7 +243,7 @@ export function MontageStudio() {
                 <div key={id} className="flex items-center gap-1.5">
                   <span className="flex size-5 shrink-0 items-center justify-center bg-rec font-mono text-[0.625rem] font-semibold text-white">{i + 1}</span>
                   <span className="w-24 shrink-0 truncate text-muted-foreground" title={v?.prompt}>
-                    {v?.prompt ?? "b-roll"}
+                    {v?.name || v?.prompt || "b-roll"}
                   </span>
                   <Input
                     value={cues[id] ?? ""}
@@ -328,7 +328,7 @@ function VideoTile({ g, active, badge, onClick }: { g: Generation; active: boole
     >
       <video src={mediaUrl(g)} muted playsInline preload="metadata" className="aspect-[9/16] w-full bg-muted object-cover" />
       <span className="flex items-center justify-between gap-1 px-2 py-1.5 text-[0.6875rem]">
-        <span className="truncate">{g.prompt}</span>
+        <span className="truncate">{g.name || g.prompt}</span>
         <span className="shrink-0 font-mono text-muted-foreground">{SOURCE[g.tool] ?? g.tool}</span>
       </span>
       {active && (

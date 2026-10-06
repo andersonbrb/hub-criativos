@@ -63,7 +63,7 @@ function LinkGenerationsDialog({
   const [query, setQuery] = useState("");
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? generations.filter((g) => `${g.prompt} ${g.tool} ${g.kind}`.toLowerCase().includes(q)) : generations;
+    return q ? generations.filter((g) => `${g.name ?? ""} ${g.prompt} ${g.tool} ${g.kind}`.toLowerCase().includes(q)) : generations;
   }, [generations, query]);
 
   return (
@@ -105,7 +105,7 @@ function LinkGenerationsDialog({
                     >
                       <GenerationThumb g={g} className="h-14 w-8" />
                       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <span className="line-clamp-2 text-sm">{g.prompt || "(sem prompt)"}</span>
+                        <span className="line-clamp-2 text-sm">{g.name || g.prompt || "(sem prompt)"}</span>
                         <span className="text-xs text-muted-foreground">
                           {toolLabel(g.tool)} · {g.kind === "video" ? "vídeo" : g.kind === "image" ? "imagem" : "áudio"} · {formatDate(g.createdAt)}
                         </span>

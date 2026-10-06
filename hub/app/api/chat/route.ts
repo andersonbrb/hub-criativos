@@ -126,7 +126,7 @@ export const POST = route(async (request: Request) => {
     // agentId (só na criação): conversa com um agente; o prompt dele fica congelado na conversa.
     const agentId = getAgentProfile(String(form.get("agentId") ?? ""))?.id;
     chat = newChat(shown.replace(/\s+/g, " ").slice(0, 60), await buildSystemPrompt(agentId), TOOL_NAMES, agentId);
-  } else if (chat.messages.length === 0) {
+  } else if (chat.messages.length === 0 && !chat.titleRenamedAt) {
     // Conversa criada pelo botão "Nova conversa": ganha o título da primeira mensagem.
     chat.title = shown.replace(/\s+/g, " ").slice(0, 60);
   }

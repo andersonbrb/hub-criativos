@@ -32,6 +32,8 @@ export type Chat = ChatSummary & {
   // `messages` ela já conhece; as que vierem depois (ex.: Modo Black) entram como contexto no próximo turno.
   claudeSessionId?: string;
   claudeSynced?: number;
+  // Quando o usuário renomeou a conversa: o título dele vale sobre o da 1ª mensagem e sobre um turno em andamento.
+  titleRenamedAt?: string;
 };
 
 const file = (id: string) => path.join(CHATS_DIR, `${id}.json`);
@@ -48,6 +50,12 @@ export async function getChat(id: string): Promise<Chat | null> {
 
 export async function saveChat(chat: Chat) {
   await mkdir(CHATS_DIR, { recursive: true });
+  // Um turno guarda a conversa que carregou no início: se ela foi renomeada no meio, mantém o nome novo.
+  const disk = await getChat(chat.id);
+  if (disk?.titleRenamedAt && (!chat.titleRenamedAt || disk.titleRenamedAt > chat.titleRenamedAt)) {
+    chat.title = disk.title;
+    chat.titleRenamedAt = disk.titleRenamedAt;
+  }
   chat.updatedAt = new Date().toISOString();
   const tmp = `${file(chat.id)}.tmp`;
   await writeFile(tmp, JSON.stringify(chat));
@@ -86,6 +94,18 @@ export async function listFullChats(): Promise<Chat[]> {
   const names = await readdir(CHATS_DIR).catch(() => [] as string[]);
   const chats = await Promise.all(names.filter((n) => n.endsWith(".json")).map((n) => getChat(n.slice(0, -5))));
   return chats.filter((c): c is Chat => Boolean(c)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export async function renameChat(id: string, title: string): Promise<Chat | null> {
+  const chat = await getChat(id);
+  if (!chat) return null;
+  chat.title = title;
+  chat.titleRenamedAt = new Date().toISOString();
+  // Grava sem mexer em updatedAt: renomear não deve mudar a ordem da lista.
+  const tmp = `${file(id)}.tmp`;
+  await writeFile(tmp, JSON.stringify(chat));
+  await rename(tmp, file(id));
+  return chat;
 }
 
 export async function deleteChat(id: string) {

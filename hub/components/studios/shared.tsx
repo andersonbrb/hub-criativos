@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bookmark, BookmarkCheck, Clapperboard, Download, Eraser, Eye, KeyRound, Loader2, Trash2 } from "lucide-react";
+import { Bookmark, BookmarkCheck, Clapperboard, Download, Eraser, Eye, KeyRound, Loader2, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { TextShimmer } from "@/components/motion-primitives/text-shimmer";
@@ -19,7 +19,16 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Slider } from "@/components/ui/slider";
-import { apiFetch, mediaUrl, type Generation, type GenerationTool } from "@/lib/generations";
+import {
+  apiFetch,
+  downloadName,
+  estimateProgress,
+  formatRemaining,
+  generationTitle,
+  mediaUrl,
+  type Generation,
+  type GenerationTool,
+} from "@/lib/generations";
 import type { Status } from "@/lib/data";
 import { cn } from "@/lib/utils";
 
@@ -149,6 +158,29 @@ export function useGenerations(tool: GenerationTool, poll?: (g: Generation) => P
   return { items, loaded, add, remove, clear, refresh };
 }
 
+// Barra fina com % e tempo restante, estimados pelo tempo médio de cada tipo de geração (lib/generations.ts).
+// Sem previsão para o tipo, não mostra nada (fica só o "Gerando…").
+export function GenerationProgress({ g, className }: { g: Generation; className?: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const p = estimateProgress(g, now);
+  if (!p) return null;
+  return (
+    <div className={cn("flex w-full flex-col gap-1", className)} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={p.pct} aria-label="Progresso estimado">
+      <div className="h-1 w-full overflow-hidden bg-muted-foreground/20">
+        <div className="h-full bg-rec transition-[width] duration-1000 ease-linear" style={{ width: `${p.pct}%` }} />
+      </div>
+      <div className="flex justify-between font-mono text-[0.6875rem] text-muted-foreground tabular-nums">
+        <span>{p.pct}%</span>
+        <span>{p.late ? "quase lá…" : `${formatRemaining(p.remaining)} restantes`}</span>
+      </div>
+    </div>
+  );
+}
+
 const statusMap: Record<Generation["status"], Status> = { pending: "idle", running: "run", done: "ok", failed: "warn" };
 const statusLabel: Record<Generation["status"], string> = { pending: "Na fila", running: "Gerando", done: "Pronto", failed: "Falhou" };
 
@@ -172,6 +204,27 @@ export function GenerationCard({
   const busy = g.status === "pending" || g.status === "running";
   const [saved, setSaved] = useState(Boolean(g.saved));
   const [saving, setSaving] = useState(false);
+  // Renomear: o nome novo vale na hora (o card pode estar numa lista que só recarrega depois).
+  const [renamed, setRenamed] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const shownTitle = renamed ?? generationTitle(g, title);
+  const named = { ...g, name: renamed ?? g.name };
+
+  async function commitName() {
+    const value = editing?.replace(/\s+/g, " ").trim() ?? "";
+    setEditing(null);
+    if (value === shownTitle) return;
+    try {
+      const { generation } = await apiFetch<{ generation: Generation }>(`/api/generations/${g.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: value }),
+      });
+      setRenamed(generationTitle(generation, title));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Não consegui renomear.");
+    }
+  }
 
   async function toggleSaved() {
     setSaving(true);
@@ -203,9 +256,12 @@ export function GenerationCard({
               <img src={url} alt={g.prompt} className="size-full object-contain" />
             )
           ) : busy ? (
-            <TextShimmer className="px-4 text-center text-sm" duration={1.6}>
-              Gerando…
-            </TextShimmer>
+            <div className="flex w-full flex-col items-center gap-3 px-5">
+              <TextShimmer className="text-center text-sm" duration={1.6}>
+                {g.status === "pending" ? "Na fila…" : "Gerando…"}
+              </TextShimmer>
+              <GenerationProgress g={g} />
+            </div>
           ) : (
             <p className="px-4 text-center text-xs text-destructive">{g.error ?? "Falhou"}</p>
           )}
@@ -213,9 +269,30 @@ export function GenerationCard({
       )}
       <div className="flex flex-col gap-2 p-3">
         <div className="flex items-start justify-between gap-2">
-          <p className="line-clamp-2 text-sm">{title ?? g.prompt}</p>
+          {editing !== null ? (
+            <input
+              autoFocus
+              value={editing}
+              maxLength={100}
+              aria-label="Novo nome"
+              placeholder="Vazio = nome automático"
+              onChange={(e) => setEditing(e.target.value)}
+              onFocus={(e) => e.currentTarget.select()}
+              onBlur={commitName}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                if (e.key === "Escape") setEditing(null);
+              }}
+              className="min-w-0 flex-1 border border-rec bg-background px-1.5 py-0.5 text-sm outline-none"
+            />
+          ) : (
+            <p className="line-clamp-2 text-sm" title={g.prompt} onDoubleClick={() => setEditing(shownTitle)}>
+              {shownTitle}
+            </p>
+          )}
           <StatusBadge status={statusMap[g.status]} label={statusLabel[g.status]} />
         </div>
+        {g.kind === "audio" && busy && <GenerationProgress g={g} />}
         {g.kind === "audio" && g.status === "done" && url && <audio src={url} controls className="h-9 w-full" />}
         {g.kind === "audio" && g.status === "failed" && <p className="text-xs text-destructive">{g.error}</p>}
         {g.kind === "video" && g.status === "done" && url && (
@@ -251,9 +328,12 @@ export function GenerationCard({
                 {saved ? <BookmarkCheck /> : <Bookmark />}
               </Button>
             )}
+            <Button variant="ghost" size="icon-xs" aria-label="Renomear" title="Renomear" onClick={() => setEditing(shownTitle)}>
+              <Pencil />
+            </Button>
             {url && g.status === "done" && (
               <Button variant="ghost" size="icon-xs" asChild aria-label="Baixar">
-                <a href={url} download>
+                <a href={url} download={downloadName(named)}>
                   <Download />
                 </a>
               </Button>

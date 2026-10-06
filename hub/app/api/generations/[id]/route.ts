@@ -14,12 +14,15 @@ export const DELETE = route(async (_request: Request, { params }: { params: Prom
   return Response.json({ ok: true });
 });
 
-// Salvar ou tirar da Biblioteca: { saved: boolean }
+// Salvar ou tirar da Biblioteca: { saved: boolean }. Renomear: { name: string } ("" volta ao nome automático).
 export const PATCH = route(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
-  const body = (await request.json().catch(() => ({}))) as { saved?: unknown };
-  if (typeof body.saved !== "boolean") throw new InputError("Envie { saved: true | false }.");
-  const gen = await updateGeneration(id, { saved: body.saved });
+  const body = (await request.json().catch(() => ({}))) as { saved?: unknown; name?: unknown };
+  const patch: { saved?: boolean; name?: string } = {};
+  if (typeof body.saved === "boolean") patch.saved = body.saved;
+  if (typeof body.name === "string") patch.name = body.name.replace(/\s+/g, " ").trim().slice(0, 100) || undefined;
+  if (!("saved" in patch) && !("name" in patch)) throw new InputError("Envie { saved: true | false } ou { name }.");
+  const gen = await updateGeneration(id, patch);
   if (!gen) return Response.json({ error: "Geração não encontrada." }, { status: 404 });
   return Response.json({ generation: gen });
 });

@@ -176,7 +176,7 @@ export function FloraStudio({ configured }: { configured: boolean }) {
             <RefChip key={imagePreviews[i]} src={imagePreviews[i]} label={f.name} onRemove={() => setImages((cur) => cur.filter((_, j) => j !== i))} />
           ))}
           {refItems.map((g) => (
-            <RefChip key={g.id} src={mediaUrl(g)} label={g.prompt} onRemove={() => setRefIds((cur) => cur.filter((id) => id !== g.id))} />
+            <RefChip key={g.id} src={mediaUrl(g)} label={g.name || g.prompt} onRemove={() => setRefIds((cur) => cur.filter((id) => id !== g.id))} />
           ))}
           <span className="flex-1" />
           {refCount > 0 && (

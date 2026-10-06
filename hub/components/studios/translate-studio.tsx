@@ -340,7 +340,7 @@ export function TranslateStudio() {
                 >
                   <video src={mediaUrl(v)} muted playsInline preload="metadata" className="aspect-[9/16] w-full bg-muted object-cover" />
                   <span className="flex items-center justify-between gap-1 px-2 py-1.5 text-[0.6875rem]">
-                    <span className="truncate">{v.prompt}</span>
+                    <span className="truncate">{v.name || v.prompt}</span>
                     <span className="shrink-0 font-mono text-muted-foreground">{SOURCE[v.tool] ?? v.tool}</span>
                   </span>
                   {active && (
@@ -580,7 +580,7 @@ export function TranslateStudio() {
                     <SelectItem value="none">Nenhum (voz clonada do HeyGen)</SelectItem>
                     {audios.map((a) => (
                       <SelectItem key={a.id} value={a.id}>
-                        <span className="max-w-56 truncate">{a.prompt}</span>
+                        <span className="max-w-56 truncate">{a.name || a.prompt}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -608,7 +608,7 @@ export function TranslateStudio() {
         </div>
         <div className="sticky bottom-0 flex flex-col items-stretch gap-2 border-t bg-background p-4">
           <p className="truncate text-xs text-muted-foreground">
-            Vídeo: <span className="text-foreground">{source?.prompt ?? "nenhum"}</span>
+            Vídeo: <span className="text-foreground">{source?.name || source?.prompt || "nenhum"}</span>
           </p>
           <Button className="bg-rec text-white hover:bg-rec/85" disabled={!ready || busy} onClick={translate}>
             {busy ? <Loader2 className="animate-spin" /> : <Languages />}

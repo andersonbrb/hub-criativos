@@ -14,6 +14,7 @@ import {
   MessageSquare,
   MessageSquarePlus,
   Paperclip,
+  Pencil,
   Square,
   Trash2,
   Wrench,
@@ -239,6 +240,23 @@ export function ChatView({
     }
   }
 
+  // Renomear conversa (lista da esquerda): lápis ou duplo clique; Enter salva, Esc cancela.
+  const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
+  async function commitRename() {
+    const target = renaming;
+    setRenaming(null);
+    const title = target?.title.replace(/\s+/g, " ").trim();
+    const current = chats.find((c) => c.id === target?.id);
+    if (!target || !title || !current || title === current.title) return;
+    setChats((prev) => prev.map((c) => (c.id === target.id ? { ...c, title } : c)));
+    try {
+      await apiFetch(`/api/chat/${target.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }) });
+    } catch (err) {
+      setChats((prev) => prev.map((c) => (c.id === target.id ? { ...c, title: current.title } : c)));
+      toast.error(err instanceof Error ? err.message : "Não consegui renomear.");
+    }
+  }
+
   async function removeChat(id: string) {
     await apiFetch(`/api/chat/${id}`, { method: "DELETE" }).catch(() => undefined);
     setChats((prev) => prev.filter((c) => c.id !== id));
@@ -366,9 +384,41 @@ export function ChatView({
           {chats.length === 0 && <p className="px-2 py-4 text-xs text-muted-foreground">Nenhuma conversa ainda.</p>}
           {chats.map((c) => (
             <div key={c.id} className={cn("group flex items-center gap-1 rounded-md pr-1 text-sm hover:bg-muted", c.id === activeId && "bg-muted font-medium")}>
-              <button type="button" onClick={() => open(c.id)} className="min-w-0 flex-1 truncate px-2 py-1.5 text-left">
-                {c.title}
-              </button>
+              {renaming?.id === c.id ? (
+                <input
+                  autoFocus
+                  value={renaming.title}
+                  maxLength={80}
+                  aria-label="Novo nome da conversa"
+                  onChange={(e) => setRenaming({ id: c.id, title: e.target.value })}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onBlur={commitRename}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur();
+                    if (e.key === "Escape") setRenaming(null);
+                  }}
+                  className="min-w-0 flex-1 border border-rec bg-background px-2 py-1 text-sm outline-none"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => open(c.id)}
+                  onDoubleClick={() => setRenaming({ id: c.id, title: c.title })}
+                  title="Clique duas vezes para renomear"
+                  className="min-w-0 flex-1 truncate px-2 py-1.5 text-left"
+                >
+                  {c.title}
+                </button>
+              )}
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`Renomear conversa ${c.title}`}
+                className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                onClick={() => setRenaming({ id: c.id, title: c.title })}
+              >
+                <Pencil />
+              </Button>
               <Button
                 variant="ghost"
                 size="icon-xs"

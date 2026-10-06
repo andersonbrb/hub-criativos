@@ -288,7 +288,7 @@ export function AvatarStudio({ configured }: { configured: boolean }) {
                 <SelectContent>
                   {audios.map((a) => (
                     <SelectItem key={a.id} value={a.id}>
-                      <span className="max-w-56 truncate">{a.prompt}</span>
+                      <span className="max-w-56 truncate">{a.name || a.prompt}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>

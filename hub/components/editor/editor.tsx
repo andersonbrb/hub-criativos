@@ -611,7 +611,7 @@ function Library({
             <div key={v.id} className="flex flex-col overflow-hidden rounded-md border bg-card">
               <video src={mediaUrl(v)} preload="metadata" muted playsInline className="aspect-[3/4] w-full bg-black object-contain" />
               <p className="line-clamp-2 px-1.5 pt-1 text-[0.6875rem]" title={v.prompt}>
-                {v.prompt}
+                {v.name || v.prompt}
               </p>
               <div className="flex gap-1 p-1.5">
                 <Button variant="outline" size="xs" className="flex-1" onClick={() => onOpenVideo(v.id)}>

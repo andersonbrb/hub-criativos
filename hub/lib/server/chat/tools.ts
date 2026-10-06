@@ -71,6 +71,7 @@ function brief(g: Generation) {
   );
   return {
     id: g.id,
+    ...(g.name ? { nome: g.name } : {}),
     tool: g.tool,
     kind: g.kind,
     status: g.status,
@@ -606,7 +607,7 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
     const words = str(input.search).toLowerCase().split(/\s+/).filter(Boolean);
     const matches = words.length
       ? filtered.filter((g) => {
-          const hay = `${g.prompt} ${JSON.stringify(g.params)} ${notes.get(g.id)}`.toLowerCase();
+          const hay = `${g.name ?? ""} ${g.prompt} ${JSON.stringify(g.params)} ${notes.get(g.id)}`.toLowerCase();
           return words.some((w) => hay.includes(w));
         })
       : filtered;

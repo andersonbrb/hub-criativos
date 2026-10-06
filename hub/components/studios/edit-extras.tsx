@@ -104,7 +104,7 @@ export function EffectsPanel({ fx, onChange, audios }: { fx: Fx; onChange: (f: F
           label="Música de fundo"
           value={fx.musicId || "none"}
           onChange={(v) => set("musicId", v === "none" ? "" : v)}
-          options={[{ value: "none", label: "Nenhuma" }, ...audios.map((a) => ({ value: a.id, label: a.prompt.slice(0, 28) || "Áudio" }))]}
+          options={[{ value: "none", label: "Nenhuma" }, ...audios.map((a) => ({ value: a.id, label: (a.name || a.prompt).slice(0, 28) || "Áudio" }))]}
         />
         {fx.musicId && (
           <Mini
