@@ -3,7 +3,8 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { AGENT_PROFILES, getAgentProfile } from "@/lib/agent-profiles";
 import { mcpToken } from "@/lib/server/chat/claude-code";
 import { buildSystemPrompt } from "@/lib/server/chat/system";
-import { publicOrigin, verifyAccess } from "@/lib/server/mcp-access";
+import { logActivity } from "@/lib/server/chat/activity";
+import { publicOrigin, verifyAccess, type PersonView } from "@/lib/server/mcp-access";
 import { hydrateMessages } from "@/lib/server/chat/images";
 import { turnSignal } from "@/lib/server/chat/running";
 import { getChat, saveChat } from "@/lib/server/chat/store";
@@ -29,7 +30,7 @@ type McpContent = { type: "text"; text: string } | { type: "image"; data: string
 // Quem chama: o Claude Code do próprio hub (chat da tela) ou o Claude Code/Codex de uma pessoa conectada pelo
 // "Conectar pelo chat" (token pessoal, lib/server/mcp-access.ts). Para a pessoa, os agentes viram prompts
 // (/mcp__hub-criativos__copy…) e o resultado traz links das mídias em vez da tag interna <hub_result>.
-type Caller = { kind: "hub" } | { kind: "person"; name: string; origin: string };
+type Caller = { kind: "hub" } | { kind: "person"; person: PersonView; origin: string };
 
 const INSTRUCTIONS = `Hub de Criativos: produção de criativos de anúncio (UGC, VSL, estáticos) para Meta/TikTok, com FLORA (imagem e vídeo), ElevenLabs (voz), HeyGen (avatar, tradução), Higgsfield (edição), editor e montagem locais, quadro Kanban e histórico de tudo que foi gerado.
 Os agentes do hub (Estrategista, Copy, VSL, Voz, Avatar UGC, B-rolls, Estáticos, Transcrição) estão disponíveis como prompts deste servidor: use o prompt do agente para trabalhar como ele.
@@ -89,6 +90,8 @@ async function handle(req: RpcRequest, chatId: string, signal: AbortSignal, call
       // Para junto com o turno (botão Parar), não só quando a conexão da MCP cai.
       const turn = chatId ? turnSignal(chatId) : undefined;
       const outcome = await runTool(name, args, { signal: turn ? AbortSignal.any([signal, turn]) : signal, chat: chat ?? undefined });
+      // Pessoa conectada: o que ela fez aparece na conversa "Claude Code · Nome" do hub.
+      if (caller.kind === "person") await logActivity(caller.person, name, args, outcome);
 
       // A ferramenta pode ter escolhido o projeto do FLORA da conversa: grava na hora.
       if (chat && JSON.stringify(chat.floraProject ?? null) !== flora) {
@@ -116,14 +119,18 @@ async function handle(req: RpcRequest, chatId: string, signal: AbortSignal, call
       if (caller.kind === "hub") {
         const ids = gens.map((g) => g.id).join(",");
         content.push({ type: "text", text: `\n<hub_result summary="${escapeAttr(outcome.summary)}" generations="${ids}" />` });
-      } else if (gens.length) {
-        // Pessoa conectada de fora: links para ver/baixar no hub (pedem a senha do hub no navegador).
+      } else {
+        // Pessoa conectada de fora: caminhos do hub viram links completos (abrem no navegador com a senha do hub).
+        for (const c of content) if (c.type === "text") c.text = c.text.replace(/(["(\s])(\/(?:editor\?p=|ver\/|api\/media\/|estudios\/|chat))/g, `$1${caller.origin}$2`);
+        const where = caller.person.chatId ? `${caller.origin}/chat?c=${caller.person.chatId}` : `${caller.origin}/chat`;
         const links = gens.map((g) =>
           g.status === "done" && g.file
             ? `- ${g.kind} ${g.id}: ${caller.origin}/ver/${g.id} (arquivo: ${caller.origin}/api/media/${g.file})`
-            : `- ${g.kind} ${g.id}: ${g.status === "failed" ? `falhou (${g.error ?? "erro"})` : "gerando; acompanhe com hub_check_generations"}`,
+            : g.status === "failed"
+              ? `- ${g.kind} ${g.id}: falhou (${g.error ?? "erro"})`
+              : `- ${g.kind} ${g.id}: gerando; acompanhe com hub_check_generations. Quando ficar pronto: ${caller.origin}/ver/${g.id}`,
         );
-        content.push({ type: "text", text: `\nNo hub:\n${links.join("\n")}` });
+        if (gens.length) content.push({ type: "text", text: `\nNo hub:\n${links.join("\n")}\nTudo também aparece em ${where} (conversa "Claude Code · ${caller.person.name}").` });
       }
       return ok(req.id, { content, isError: outcome.error });
     }
@@ -140,7 +147,7 @@ export async function POST(request: Request) {
   else {
     const person = auth.startsWith("Bearer ") ? await verifyAccess(auth.slice(7).trim()) : null;
     if (!person) return Response.json(fail(null, -32001, "Não autorizado: gere um token novo em \"Conectar pelo chat\" no hub."), { status: 401 });
-    caller = { kind: "person", name: person.name, origin: publicOrigin(request) };
+    caller = { kind: "person", person, origin: publicOrigin(request) };
   }
   // ?chat= só vale para o chat do próprio hub.
   const chatId = caller.kind === "hub" ? (new URL(request.url).searchParams.get("chat") ?? "") : "";

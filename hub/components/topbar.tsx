@@ -1,6 +1,7 @@
 import { Upload } from "lucide-react";
 
 import { Breadcrumb } from "@/components/breadcrumb";
+import { ConnectChatButton } from "@/components/connect-chat";
 import { LayoutModeToggle } from "@/components/layout-mode-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ToastButton } from "@/components/toast-button";
@@ -14,6 +15,8 @@ export function Topbar() {
       <Separator orientation="vertical" className="h-4!" />
       <Breadcrumb />
       <div className="flex-1" />
+      {/* Conectar o Claude Code/Codex da pessoa às ferramentas do hub (pedidos lá, tudo gerado aqui). */}
+      <ConnectChatButton labelClassName="hidden sm:inline [html[data-mobile-frame]_&]:hidden" />
       <LayoutModeToggle />
       <ThemeToggle />
       <ToastButton size="sm" className="bg-rec text-white hover:bg-rec/85" message="Exportação enfileirada: 6 variações, 9:16, 1080×1920">

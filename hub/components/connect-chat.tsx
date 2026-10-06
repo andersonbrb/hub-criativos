@@ -23,12 +23,21 @@ const STEPS = [
   { title: "Gere o prompt de conexão", text: "Um token de acesso novo é criado junto com o prompt." },
   { title: "Cole no chat do Claude Code ou Codex", text: "O agente configura a conexão para todos os projetos do computador dele, usando as próprias ferramentas." },
   {
-    title: "Peça os criativos no seu Claude Code",
-    text: "Depois que o agente confirmar, use as ferramentas do hub direto de lá. Os agentes viram comandos: /mcp__hub-criativos__copy, /mcp__hub-criativos__estrategista…",
+    title: "Peça os criativos pelo Claude Code",
+    text: "Depois que o agente confirmar, peça o que quiser (ex.: \"gere um vídeo de criativo do produto X\"). Tudo é gerado aqui no hub, na nuvem, e aparece na conversa \"Claude Code · seu nome\" do Chat e nos estúdios. Os agentes do hub viram comandos: /mcp__hub-criativos__copy…",
   },
 ];
 
-export function ConnectChatButton({ className, label = "Conectar pelo chat" }: { className?: string; label?: string }) {
+export function ConnectChatButton({
+  className,
+  label = "Conectar com a IA",
+  labelClassName,
+}: {
+  className?: string;
+  label?: string;
+  // Ex.: esconder o texto no celular (fica só o ícone).
+  labelClassName?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [people, setPeople] = useState<Person[] | null>(null);
@@ -97,14 +106,14 @@ export function ConnectChatButton({ className, label = "Conectar pelo chat" }: {
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className={className}>
+        <Button variant="outline" size="sm" className={className} aria-label={label}>
           <PlugZap />
-          {label}
+          <span className={labelClassName}>{label}</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle className="font-heading text-lg">Conectar pelo chat</DialogTitle>
+          <DialogTitle className="font-heading text-lg">Conectar com a IA</DialogTitle>
           <DialogDescription>
             Gere um prompt e cole no Claude Code ou no Codex. O agente conecta o Hub de Criativos em todos os projetos do computador dele, e você usa as
             ferramentas e os agentes do hub com a sua própria assinatura.

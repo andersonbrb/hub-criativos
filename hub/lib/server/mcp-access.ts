@@ -13,7 +13,8 @@ import { DATA_DIR } from "@/lib/server/store";
 
 const FILE = path.join(DATA_DIR, "mcp-access.json");
 
-export type Person = { id: string; name: string; hash: string; createdAt: string; lastUsedAt: string | null };
+// chatId: conversa "Claude Code · Nome" do hub onde aparece o que o Claude Code da pessoa fez (lib/server/chat/activity.ts).
+export type Person = { id: string; name: string; hash: string; createdAt: string; lastUsedAt: string | null; chatId?: string | null };
 export type PersonView = Omit<Person, "hash">;
 
 const hashOf = (token: string) => createHash("sha256").update(token).digest("hex");
@@ -31,7 +32,16 @@ async function save(people: Person[]) {
   await writeFile(FILE, JSON.stringify({ people }, null, 1));
 }
 
-const view = (p: Person): PersonView => ({ id: p.id, name: p.name, createdAt: p.createdAt, lastUsedAt: p.lastUsedAt });
+const view = (p: Person): PersonView => ({ id: p.id, name: p.name, createdAt: p.createdAt, lastUsedAt: p.lastUsedAt, chatId: p.chatId ?? null });
+
+// Liga a pessoa à conversa de atividade dela (criada no primeiro pedido).
+export async function setActivityChat(personId: string, chatId: string) {
+  const people = await load();
+  const person = people.find((p) => p.id === personId);
+  if (!person) return;
+  person.chatId = chatId;
+  await save(people);
+}
 
 export async function listPeople(): Promise<PersonView[]> {
   return (await load()).map(view).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -42,8 +52,11 @@ export async function createAccess(name: string): Promise<{ person: PersonView; 
   const clean = name.trim().replace(/\s+/g, " ").slice(0, 60);
   if (!clean) throw new InputError("Diga quem vai usar (ex.: Anderson, Darlan).");
   const token = `hub_${randomBytes(24).toString("base64url")}`;
-  const people = (await load()).filter((p) => p.name.toLowerCase() !== clean.toLowerCase());
-  const person: Person = { id: randomUUID(), name: clean, hash: hashOf(token), createdAt: new Date().toISOString(), lastUsedAt: null };
+  const all = await load();
+  const previous = all.find((p) => p.name.toLowerCase() === clean.toLowerCase());
+  const people = all.filter((p) => p !== previous);
+  // Token novo da mesma pessoa continua na mesma conversa de atividade.
+  const person: Person = { id: randomUUID(), name: clean, hash: hashOf(token), createdAt: new Date().toISOString(), lastUsedAt: null, chatId: previous?.chatId ?? null };
   await save([...people, person]);
   return { person: view(person), token };
 }
