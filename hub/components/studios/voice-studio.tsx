@@ -12,31 +12,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Workspace, WorkspacePanel } from "@/components/workspace";
+import { DEFAULT_ELEVEN_MODEL, ELEVEN_MODELS, V3_STABILITY } from "@/lib/elevenlabs-models";
 import { apiFetch, type Generation } from "@/lib/generations";
+import { cn } from "@/lib/utils";
 
 const DESCRIPTION =
   "Texto para fala com as vozes da sua conta ElevenLabs. As narrações ficam salvas no hub e vão para o Avatar e o Editor.";
 
 type Voice = PickerVoice;
 
-const MODELS = [
-  { id: "eleven_v4", label: "Eleven v4", note: "Melhor qualidade, mais natural" },
-  { id: "eleven_v4_turbo", label: "Eleven v4 Turbo", note: "Quase a mesma qualidade, bem mais rápido" },
-  { id: "eleven_v3", label: "Eleven v3", note: "Expressivo, aceita tags como [risos]" },
-  { id: "eleven_multilingual_v2", label: "Multilingual v2", note: "O mais estável para textos longos" },
-  { id: "eleven_flash_v2_5", label: "Flash v2.5", note: "O mais barato e rápido" },
-];
+// Modelos e ajustes de cada um vêm de lib/elevenlabs-models.ts (o mesmo que o servidor usa).
+const MODELS = ELEVEN_MODELS;
 
 const DEFAULTS = { stability: 0.5, similarity: 0.75, style: 0, speed: 1 };
 
-const SAMPLE =
-  "Eu parei de tomar café por 7 dias… e olha o que aconteceu. Na primeira noite eu já senti diferença. Comecei a usar o SonoLeve 30 minutos antes de deitar e acordei descansada pela primeira vez em meses.";
-
 export function VoiceStudio({ configured }: { configured: boolean }) {
-  const [text, setText] = useState(SAMPLE);
+  const [text, setText] = useState("");
   const [voices, setVoices] = useState<Voice[]>([]);
   const [voiceId, setVoiceId] = useState("");
-  const [modelId, setModelId] = useState("eleven_multilingual_v2");
+  // Sempre começa no modelo mais avançado.
+  const [modelId, setModelId] = useState(DEFAULT_ELEVEN_MODEL);
   const [settings, setSettings] = useState(DEFAULTS);
   const [busy, setBusy] = useState(false);
   const [voicesLoaded, setVoicesLoaded] = useState(false);
@@ -135,7 +130,6 @@ export function VoiceStudio({ configured }: { configured: boolean }) {
           ) : (
             <p className="text-xs text-muted-foreground">Conecte a chave do ElevenLabs para ver suas vozes.</p>
           )}
-          {voice?.description && <p className="line-clamp-2 text-xs text-muted-foreground">{voice.description}</p>}
         </Field>
 
         <Field label="Modelo" id="tts-model">
@@ -154,37 +148,68 @@ export function VoiceStudio({ configured }: { configured: boolean }) {
           <p className="text-xs text-muted-foreground">{model.note}</p>
         </Field>
 
-        <SliderField
-          label="Velocidade"
-          min={0.7}
-          max={1.2}
-          value={settings.speed}
-          onChange={(speed) => setSettings((s) => ({ ...s, speed }))}
-          format={(v) => `${v.toFixed(2)}×`}
-          left="Mais lenta"
-          right="Mais rápida"
-        />
-        <SliderField
-          label="Estabilidade"
-          value={settings.stability}
-          onChange={(stability) => setSettings((s) => ({ ...s, stability }))}
-          left="Mais variável"
-          right="Mais estável"
-        />
-        <SliderField
-          label="Similaridade"
-          value={settings.similarity}
-          onChange={(similarity) => setSettings((s) => ({ ...s, similarity }))}
-          left="Baixa"
-          right="Alta"
-        />
-        <SliderField
-          label="Exagero de estilo"
-          value={settings.style}
-          onChange={(style) => setSettings((s) => ({ ...s, style }))}
-          left="Nenhum"
-          right="Exagerado"
-        />
+        {/* Só os ajustes que o modelo escolhido aceita, como no ElevenLabs. */}
+        {model.settings.includes("speed") && (
+          <SliderField
+            label="Velocidade"
+            min={0.7}
+            max={1.2}
+            value={settings.speed}
+            onChange={(speed) => setSettings((s) => ({ ...s, speed }))}
+            format={(v) => `${v.toFixed(2)}×`}
+            left="Mais lenta"
+            right="Mais rápida"
+          />
+        )}
+        {model.settings.includes("stability") &&
+          (model.stabilityPresets ? (
+            <Field label="Estabilidade">
+              <div className="grid grid-cols-3 gap-1 rounded-lg border bg-card p-1" role="radiogroup" aria-label="Estabilidade">
+                {V3_STABILITY.map((p) => {
+                  const active = Math.abs(settings.stability - p.value) < 0.26;
+                  return (
+                    <button
+                      key={p.label}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      title={p.note}
+                      onClick={() => setSettings((s) => ({ ...s, stability: p.value }))}
+                      className={cn("rounded-md py-1.5 text-xs font-medium transition-colors", active ? "bg-rec text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground")}
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+          ) : (
+            <SliderField
+              label="Estabilidade"
+              value={settings.stability}
+              onChange={(stability) => setSettings((s) => ({ ...s, stability }))}
+              left="Mais variável"
+              right="Mais estável"
+            />
+          ))}
+        {model.settings.includes("similarity") && (
+          <SliderField
+            label="Similaridade"
+            value={settings.similarity}
+            onChange={(similarity) => setSettings((s) => ({ ...s, similarity }))}
+            left="Baixa"
+            right="Alta"
+          />
+        )}
+        {model.settings.includes("style") && (
+          <SliderField
+            label="Exagero de estilo"
+            value={settings.style}
+            onChange={(style) => setSettings((s) => ({ ...s, style }))}
+            left="Nenhum"
+            right="Exagerado"
+          />
+        )}
         <Button variant="ghost" size="sm" className="self-start" onClick={() => setSettings(DEFAULTS)}>
           <RotateCcw />
           Restaurar padrão

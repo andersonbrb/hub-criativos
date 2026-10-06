@@ -279,23 +279,33 @@ export const paramsFor = (family: FloraFamily, withImage: boolean) =>
   family.params.filter((p) => !p.only || p.only === (withImage ? "image" : "text"));
 
 // Regras do playbook de dropshipping COD (hub/playbooks/dropshipping-cod-criativos.md) aplicadas no prompt.
+// Mercado = país + idioma da fala. Com COD aplica as regras do playbook; sem COD, só fixa o idioma da fala do vídeo.
 export const MARKETS = [
-  { id: "cl", label: "Chile", speech: "Chilean Spanish" },
-  { id: "co", label: "Colômbia", speech: "Colombian Spanish" },
-  { id: "mx", label: "México", speech: "Mexican Spanish" },
-  { id: "gt", label: "Guatemala", speech: "Guatemalan Spanish" },
-  { id: "ro", label: "Romênia", speech: "Romanian" },
+  { id: "cl", label: "Chile (espanhol)", speech: "Chilean Spanish" },
+  { id: "co", label: "Colômbia (espanhol)", speech: "Colombian Spanish" },
+  { id: "mx", label: "México (espanhol)", speech: "Mexican Spanish" },
+  { id: "gt", label: "Guatemala (espanhol)", speech: "Guatemalan Spanish" },
+  { id: "es", label: "América Latina (espanhol neutro)", speech: "neutral Latin American Spanish" },
+  { id: "br", label: "Brasil (português)", speech: "Brazilian Portuguese" },
+  { id: "pt", label: "Portugal (português)", speech: "European Portuguese" },
+  { id: "fr", label: "França (francês)", speech: "French" },
+  { id: "us", label: "EUA (inglês)", speech: "American English" },
+  { id: "ro", label: "Romênia (romeno)", speech: "Romanian" },
 ] as const;
 
 export type Operation = "none" | "cod";
 
 export function applyRules(prompt: string, kind: FloraKind, operation: Operation, marketId?: string): string {
   const base = prompt.trim();
-  if (operation !== "cod") return base;
+  if (operation !== "cod") {
+    // Sem regras: só o idioma da fala, quando escolhido (vídeo).
+    const market = kind === "video" ? MARKETS.find((m) => m.id === marketId) : undefined;
+    return market ? `${base}\nAll speech in ${market.speech} only.` : base;
+  }
   const lines = [base];
   if (kind === "video") {
     const market = MARKETS.find((m) => m.id === marketId) ?? MARKETS[0];
-    lines.push(`Continuous energetic speech, no silence. All speech in ${market.speech} only, no English.`);
+    lines.push(`Continuous energetic speech, no silence. All speech in ${market.speech} only, no other language.`);
     lines.push("Adults only, no children anywhere. No on-screen text, no subtitles.");
   } else {
     lines.push("Adults only, no children anywhere. No added text, no watermark.");

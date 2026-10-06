@@ -21,7 +21,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { AgentEditorButton } from "@/components/agent-editor";
 import { BlackModeBanner, BlackModeButton, blackComposerClass, useBlackMode } from "@/components/black-mode";
+import { LanguagePicker, useCreativeLanguage } from "@/components/chat/language-picker";
 import { Markdown } from "@/components/chat/markdown";
 import { TextShimmer } from "@/components/motion-primitives/text-shimmer";
 import { GenerationCard } from "@/components/studios/shared";
@@ -125,7 +127,10 @@ export function ChatView({
   const [dragging, setDragging] = useState(false);
   // Modo Black: o mesmo agente, com as mesmas ferramentas, no modelo sem censura da Venice. Estado único do hub.
   const [black, toggleBlack] = useBlackMode();
+  const [lang, setLang] = useCreativeLanguage(activeId);
   const abortRef = useRef<AbortController | null>(null);
+  // Conversa do turno em andamento (chega no 1º evento "chat"; numa conversa nova ainda não há activeId).
+  const turnChatRef = useRef<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -199,18 +204,45 @@ export function ChatView({
     return () => clearInterval(timer);
   }, [pendingKey]);
 
-  function newConversation() {
+  // Limpa a tela sem criar conversa (ex.: ao apagar a conversa aberta).
+  function clearConversation() {
     abortRef.current?.abort();
     setActiveId(null);
     setItems([]);
     selectUrl(null);
-    inputRef.current?.focus();
+  }
+
+  // "Nova conversa": cria na hora (já aparece selecionada na lista; o título vem da 1ª mensagem).
+  // Se a conversa aberta ainda está vazia, só volta o foco para o campo.
+  const [creating, setCreating] = useState(false);
+  async function newConversation() {
+    if (activeId && items.length === 0 && !running) return inputRef.current?.focus();
+    abortRef.current?.abort();
+    setCreating(true);
+    try {
+      const { chat } = await apiFetch<{ chat: ChatSummary }>("/api/chat/new", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId: agent?.id }),
+      });
+      // O servidor apagou as outras conversas vazias: recarrega a lista com a nova no topo.
+      setChats((prev) => [chat, ...prev.filter((c) => c.id !== chat.id && c.title !== "Nova conversa")]);
+      loadChats();
+      setActiveId(chat.id);
+      setItems([]);
+      selectUrl(chat.id);
+      setTimeout(() => inputRef.current?.focus(), 0);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Não consegui criar a conversa.");
+    } finally {
+      setCreating(false);
+    }
   }
 
   async function removeChat(id: string) {
     await apiFetch(`/api/chat/${id}`, { method: "DELETE" }).catch(() => undefined);
     setChats((prev) => prev.filter((c) => c.id !== id));
-    if (id === activeId) newConversation();
+    if (id === activeId) clearConversation();
   }
 
   async function removeGeneration(id: string) {
@@ -234,6 +266,16 @@ export function ChatView({
     });
   }
 
+  // Parar: avisa o servidor (mata o Claude Code / Venice e as ferramentas em andamento) e para de ler a resposta.
+  function stop() {
+    const chatId = turnChatRef.current;
+    if (chatId) {
+      fetch("/api/chat/stop", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chatId }) }).catch(() => undefined);
+    }
+    abortRef.current?.abort();
+    setItems((prev) => [...prev, { kind: "error", text: "Parado por você." }]);
+  }
+
   async function send(text = draft) {
     const message = text.trim();
     if ((!message && !files.length) || running) return;
@@ -241,11 +283,13 @@ export function ChatView({
     form.set("text", message);
     if (activeId) form.set("chatId", activeId);
     if (black) form.set("mode", "black");
+    if (lang !== "auto") form.set("lang", lang);
     if (agent && !activeId) form.set("agentId", agent.id);
     files.forEach((f) => form.append("files", f.file));
 
     const controller = new AbortController();
     abortRef.current = controller;
+    turnChatRef.current = activeId;
     setRunning(true);
     setDraft("");
     setFiles([]);
@@ -269,6 +313,8 @@ export function ChatView({
           if (!line.trim()) continue;
           const event = JSON.parse(line) as ChatEvent;
           if (event.type === "chat") {
+            if (!activeId) setLang(lang, event.chat.id); // conversa nova guarda o idioma escolhido
+            turnChatRef.current = event.chat.id;
             setActiveId(event.chat.id);
             selectUrl(event.chat.id);
             setChats((prev) => [event.chat, ...prev.filter((c) => c.id !== event.chat.id)]);
@@ -298,6 +344,7 @@ export function ChatView({
     <>
       <MessageSquare className="size-4 shrink-0 text-muted-foreground" aria-hidden />
       <span className="shrink-0 font-heading font-bold">{agent ? `Agente de ${agent.name}` : "Chat principal"}</span>
+      {agent && <AgentEditorButton agentId={agent.id} agentName={agent.name} />}
       {active && <span className="min-w-0 truncate text-sm text-muted-foreground">· {active.title}</span>}
       {active && active.costUsd > 0 && (
         <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums" title="Gasto estimado com o Claude nesta conversa">
@@ -305,8 +352,8 @@ export function ChatView({
         </span>
       )}
       {black && <BlackModeButton on onToggle={toggleBlack} />}
-      <Button variant="outline" size="xs" className="shrink-0" onClick={newConversation}>
-        <MessageSquarePlus />
+      <Button variant="outline" size="xs" className="shrink-0" disabled={creating} onClick={newConversation}>
+        {creating ? <Loader2 className="animate-spin" /> : <MessageSquarePlus />}
         Nova conversa
       </Button>
     </>
@@ -336,7 +383,8 @@ export function ChatView({
         </nav>
       </WorkspacePanel>
 
-      <WorkspacePanel id="conversa" title="Conversa" defaultSize={84} fill minSize={30} collapsible={false} bodyClassName="overflow-hidden">
+      {/* revealKey: no celular, abrir uma conversa na lista leva para a aba da conversa. */}
+      <WorkspacePanel id="conversa" title="Conversa" defaultSize={84} fill minSize={30} collapsible={false} revealKey={activeId} bodyClassName="overflow-hidden">
         <div
           className="relative flex h-full flex-col"
           onDragEnter={(e) => {
@@ -481,7 +529,8 @@ export function ChatView({
                   rows={1}
                   className="max-h-56 min-h-10 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 dark:bg-transparent"
                 />
-                <div className="flex items-center gap-2">
+                {/* Quebra em telas estreitas (celular); o enviar fica sempre à direita. */}
+                <div className="flex flex-wrap items-center gap-2">
                   <input
                     ref={fileRef}
                     type="file"
@@ -497,14 +546,14 @@ export function ChatView({
                     Anexar
                   </Button>
                   <BlackModeButton on={black} onToggle={toggleBlack} />
-                  <span className="hidden text-[11px] text-muted-foreground sm:inline">imagem, vídeo, áudio, PDF ou texto · arraste ou cole</span>
-                  <span className="flex-1" />
+                  <LanguagePicker value={lang} onChange={(v) => setLang(v)} />
+                  <span className="hidden text-[11px] text-muted-foreground sm:inline [html[data-mobile-frame]_&]:hidden">imagem, vídeo, áudio, PDF ou texto · arraste ou cole</span>
                   {running ? (
-                    <Button type="button" size="icon" variant="outline" aria-label="Parar" onClick={() => abortRef.current?.abort()}>
+                    <Button type="button" size="icon" variant="outline" aria-label="Parar" className="ml-auto" onClick={stop}>
                       <Square className="fill-current" />
                     </Button>
                   ) : (
-                    <Button type="submit" size="icon" aria-label="Enviar" disabled={(!configured && !black) || (!draft.trim() && !files.length)}>
+                    <Button type="submit" size="icon" aria-label="Enviar" className="ml-auto" disabled={(!configured && !black) || (!draft.trim() && !files.length)}>
                       <ArrowUp />
                     </Button>
                   )}

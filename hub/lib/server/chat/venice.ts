@@ -207,7 +207,8 @@ async function step(system: string, messages: OaiMessage[], tools: unknown[], em
 }
 
 export async function runVeniceTurn(chat: Chat, emit: Emit, signal: AbortSignal) {
-  const defs = toolsFor(chat.toolNames);
+  // Todas as ferramentas atuais, também em conversas antigas (a lista congelada em chat.toolNames só importa no modo HUB_BRAIN=api).
+  const defs = toolsFor();
   const tools = defs.map((d) => ({ type: "function", function: { name: d.name, description: d.description ?? "", parameters: d.input_schema } }));
   const system = chat.system + BLACK_NOTE;
   const vision = await supportsVision(veniceModel());

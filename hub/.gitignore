@@ -43,3 +43,6 @@ next-env.d.ts
 # dados locais do hub (banco e mídias geradas)
 /.data/
 !.env.example
+
+# bases de conhecimento de terceiros (ex.: ad-writer-light, sem licenca): so locais, nao vao para o GitHub publico
+/knowledge/

@@ -27,6 +27,7 @@ const TOOL_NAMES: Record<Generation["tool"], string> = {
   upload: "Anexo do chat",
   editor: "Editor de vídeo",
   montagem: "Montagem",
+  "heygen-traducao": "Tradução",
 };
 
 async function pollJob(g: Generation): Promise<Generation | null> {

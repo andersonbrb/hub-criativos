@@ -1,14 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clapperboard, Film, LayoutGrid, Library, MessageSquare, Mic, Plug, Scissors, Sparkles, UserRound } from "lucide-react";
+import { Clapperboard, Film, Languages, LayoutGrid, Library, MessageSquare, Mic, Plug, Scissors, Sparkles, UserRound } from "lucide-react";
 
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -19,7 +17,6 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { agents } from "@/lib/data";
-import { apiFetch } from "@/lib/generations";
 
 const production = [
   { href: "/chat", label: "Chat principal", icon: MessageSquare },
@@ -33,6 +30,7 @@ const studios = [
   { href: "/estudios/geracao", label: "Geração", tool: "FLORA", icon: Sparkles },
   { href: "/estudios/voz", label: "Voz", tool: "ElevenLabs", icon: Mic },
   { href: "/estudios/avatar", label: "Avatar", tool: "HeyGen", icon: UserRound },
+  { href: "/estudios/traducao", label: "Tradução", tool: "HeyGen", icon: Languages },
   { href: "/estudios/edicao", label: "Edição", tool: "Higgsfield", icon: Scissors },
   { href: "/estudios/montagem", label: "Montagem", tool: "Local", icon: Clapperboard },
 ];
@@ -121,44 +119,6 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-
-      <SidebarFooter className="group-data-[collapsible=icon]:hidden">
-        <UsageFooter />
-      </SidebarFooter>
     </Sidebar>
-  );
-}
-
-type Usage = { floraSpent: number; floraCount: number; higgsfieldCredits: number | null };
-
-const usd = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "USD" }).replace("US$", "US$ ");
-
-// Valores reais: gasto somado das gerações FLORA do hub e saldo da conta Higgsfield (CLI).
-function UsageFooter() {
-  const [usage, setUsage] = useState<Usage | null>(null);
-  const pathname = usePathname();
-
-  useEffect(() => {
-    apiFetch<Usage>("/api/usage")
-      .then(setUsage)
-      .catch(() => setUsage(null));
-  }, [pathname]);
-
-  const rows: { label: string; value: string }[] = usage
-    ? [
-        { label: "Gasto FLORA no hub", value: usd(usage.floraSpent) },
-        { label: "Créditos Higgsfield", value: usage.higgsfieldCredits === null ? "—" : usage.higgsfieldCredits.toLocaleString("pt-BR") },
-      ]
-    : [];
-
-  return (
-    <dl className="grid min-h-9 gap-1 px-2 pb-1 text-xs text-muted-foreground">
-      {rows.map((r) => (
-        <div key={r.label} className="flex justify-between">
-          <dt>{r.label}</dt>
-          <dd className="font-mono tabular-nums">{r.value}</dd>
-        </div>
-      ))}
-    </dl>
   );
 }

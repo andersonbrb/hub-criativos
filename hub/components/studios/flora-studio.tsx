@@ -26,19 +26,28 @@ const DESCRIPTION =
 
 const usd = (n: number) => `US$ ${n.toFixed(n < 0.1 ? 3 : 2).replace(".", ",")}`;
 
+// Padrões do estúdio (escolha do usuário): qualidade média quando o modelo tem essa opção.
+const STUDIO_DEFAULTS: Record<string, string> = { quality: "medium" };
+
 const defaultsFor = (familyId: string) =>
-  Object.fromEntries(FLORA_FAMILIES.find((f) => f.id === familyId)!.params.map((p) => [p.name, p.default]));
+  Object.fromEntries(
+    FLORA_FAMILIES.find((f) => f.id === familyId)!.params.map((p) => {
+      const preferred = STUDIO_DEFAULTS[p.name];
+      return [p.name, preferred && p.options.some((o) => o.value === preferred) ? preferred : p.default];
+    }),
+  );
 
 export function FloraStudio({ configured }: { configured: boolean }) {
   const [kind, setKind] = useState<FloraKind>("image");
   const [familyId, setFamilyId] = useState(DEFAULT_FAMILY.image);
   const [values, setValues] = useState<Record<string, string>>(() => defaultsFor(DEFAULT_FAMILY.image));
-  const [prompt, setPrompt] = useState(
-    "Use the EXACT product from the reference image. Scene: amateur vertical smartphone photo, a woman in her 40s holds the product at waist height in her backyard, natural daylight, realistic candid phone photo.",
-  );
-  const [count, setCount] = useState(2);
-  const [operation, setOperation] = useState<Operation>("cod");
+  const [prompt, setPrompt] = useState("");
+  const [count, setCount] = useState(1);
+  const [operation, setOperation] = useState<Operation>("none");
   const [market, setMarket] = useState<string>("cl");
+  // Sem regras COD: idioma da fala do vídeo (opcional).
+  const [speech, setSpeech] = useState<string>("auto");
+  const marketSent = operation === "cod" ? market : speech === "auto" ? "" : speech;
   // Uma referência só: foto enviada OU uma imagem já gerada no hub.
   const [refId, setRefId] = useState<string | null>(null);
   const [image, setImage] = useState<File | null>(null);
@@ -51,7 +60,7 @@ export function FloraStudio({ configured }: { configured: boolean }) {
   const imagePreview = useMemo(() => (image ? URL.createObjectURL(image) : null), [image]);
   const refItem = items.find((g) => g.id === refId);
   const hasReference = Boolean(image || refItem);
-  const finalPrompt = applyRules(prompt, kind, operation, market);
+  const finalPrompt = applyRules(prompt, kind, operation, marketSent);
 
   useEffect(() => {
     if (!configured) return;
@@ -93,7 +102,7 @@ export function FloraStudio({ configured }: { configured: boolean }) {
       form.set("params", JSON.stringify(values));
       form.set("count", String(count));
       form.set("operation", operation);
-      form.set("market", market);
+      form.set("market", marketSent);
       if (image) form.set("image", image);
       else if (refId) form.set("referenceId", refId);
       const { generations } = await apiFetch<{ generations: Generation[] }>("/api/flora/generate", { method: "POST", body: form });
@@ -191,9 +200,9 @@ export function FloraStudio({ configured }: { configured: boolean }) {
             placeholder="Descreva a cena…"
           />
         </div>
-        {operation === "cod" && finalPrompt !== prompt.trim() && (
+        {prompt.trim() && finalPrompt !== prompt.trim() && (
           <details className="text-xs text-muted-foreground">
-            <summary className="cursor-pointer">Linhas adicionadas pelas regras do COD</summary>
+            <summary className="cursor-pointer">{operation === "cod" ? "Linhas adicionadas pelas regras do COD" : "Linha adicionada (idioma da fala)"}</summary>
             <pre className="mt-1 font-mono text-[11px] whitespace-pre-wrap">{finalPrompt.slice(prompt.trim().length).trim()}</pre>
           </details>
         )}
@@ -271,6 +280,23 @@ export function FloraStudio({ configured }: { configured: boolean }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  {MARKETS.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
+          {operation === "none" && kind === "video" && (
+            <Field label="Idioma da fala" id="fl-speech">
+              <Select value={speech} onValueChange={setSpeech}>
+                <SelectTrigger id="fl-speech" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Automático</SelectItem>
                   {MARKETS.map((m) => (
                     <SelectItem key={m.id} value={m.id}>
                       {m.label}

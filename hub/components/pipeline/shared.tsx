@@ -18,6 +18,7 @@ const TOOL_LABELS: Partial<Record<GenerationTool, string>> = {
   upload: "Upload",
   editor: "Editor",
   montagem: "Montagem",
+  "heygen-traducao": "Tradução",
 };
 
 export const toolLabel = (tool: GenerationTool) => TOOL_LABELS[tool] ?? tool;

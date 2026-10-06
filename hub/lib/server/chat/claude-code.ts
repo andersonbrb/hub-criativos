@@ -1,6 +1,6 @@
 import "server-only";
 
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -151,7 +151,13 @@ export async function runClaudeCodeTurn(chat: Chat, emit: Emit, signal: AbortSig
   ];
 
   const child = spawn(bin, args, { cwd: WORKDIR, windowsHide: true, env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: "hub" } });
-  const kill = () => child.kill();
+  // Parar: no Windows mata a árvore inteira (o Claude Code pode ter subprocessos); child.kill() sozinho às vezes não basta.
+  const kill = () => {
+    if (child.exitCode !== null) return;
+    if (process.platform === "win32" && child.pid) {
+      execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }, () => undefined);
+    } else child.kill();
+  };
   signal.addEventListener("abort", kill, { once: true });
   child.stdin.end(`${JSON.stringify({ type: "user", message: { role: "user", content: userContent } })}\n`);
 

@@ -102,7 +102,8 @@ export async function listProjectMedia(projectId: string): Promise<FloraNode[]> 
   return out;
 }
 
-export type FloraReference = { nodeId: string | null; url: string };
+// fresh: nó criado agora pelo upload (o organizador pode posicioná-lo junto das gerações).
+export type FloraReference = { nodeId: string | null; url: string; fresh?: boolean };
 
 // Sobe uma imagem (foto do produto, frame…) e coloca no canvas do projeto.
 // Devolve a URL (vai em params.image_url) e o node_id do canvas (vai em reference_node_ids nos frames).
@@ -124,7 +125,7 @@ export async function uploadReference(file: File, project?: string | null): Prom
     `/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/attach`,
     { method: "POST" },
   ).catch(() => ({ node_id: undefined })); // sem nó no canvas o frame ainda funciona via image_url
-  return { nodeId: attached.node_id ?? null, url };
+  return { nodeId: attached.node_id ?? null, url, fresh: true };
 }
 
 export type FloraGenerateInput = {
@@ -182,4 +183,63 @@ export type FloraRun = {
 
 export function getRun(runId: string) {
   return call<FloraRun>(`/runs/${encodeURIComponent(runId)}`);
+}
+
+// ---------- Organização do canvas ----------
+// Cada envio vira uma fileira nova abaixo do que já existe no canvas: a referência (quando foi enviada agora)
+// na primeira coluna, as variações ao lado, todas com nome, e a referência ligada a cada uma por uma seta.
+
+type GraphNode = { id: string; node_id: string; type: string; position?: { x: number; y: number }; size?: { width: number; height: number } | null };
+type Graph = { nodes: GraphNode[]; edges: { from: string; to: string }[] };
+
+const ROW_GAP = 160;
+const COL_GAP = 60;
+const DEFAULT_SIZE = { width: 320, height: 420 };
+
+export async function organizeCanvas(input: {
+  projectId: string;
+  nodeIds: string[];
+  labels: string[];
+  reference?: FloraReference | null;
+  referenceLabel?: string;
+}) {
+  const { workspaceId } = await getTarget();
+  const base = `/workspaces/${encodeURIComponent(workspaceId)}/projects/${encodeURIComponent(input.projectId)}`;
+  const graph = await call<Graph>(`${base}/graph`);
+  const find = (id: string | null | undefined) => (id ? graph.nodes.find((n) => n.node_id === id || n.id === id) : undefined);
+
+  const batch = input.nodeIds.map((id, i) => ({ node: find(id), label: input.labels[i] })).filter((b): b is { node: GraphNode; label: string } => Boolean(b.node));
+  if (!batch.length) return;
+  const ref = find(input.reference?.nodeId);
+  const moveRef = Boolean(ref && input.reference?.fresh);
+
+  const moving = new Set([...batch.map((b) => b.node.id), ...(moveRef && ref ? [ref.id] : [])]);
+  const others = graph.nodes.filter((n) => !moving.has(n.id) && n.position);
+  const size = (n: GraphNode) => n.size ?? DEFAULT_SIZE;
+  const top = others.length ? Math.max(...others.map((n) => n.position!.y + size(n).height)) + ROW_GAP : 0;
+  const left = others.length ? Math.min(...others.map((n) => n.position!.x)) : 0;
+  const step = Math.max(...batch.map((b) => size(b.node).width), DEFAULT_SIZE.width) + COL_GAP;
+
+  const update: { id: string; label?: string; position: { x: number; y: number } }[] = [];
+  let x = left;
+  if (moveRef && ref) {
+    update.push({ id: ref.id, ...(input.referenceLabel ? { label: input.referenceLabel } : {}), position: { x, y: top } });
+    x += size(ref).width + COL_GAP;
+  }
+  for (const b of batch) {
+    update.push({ id: b.node.id, label: b.label, position: { x, y: top } });
+    x += step;
+  }
+  const connect = ref
+    ? batch.filter((b) => !graph.edges.some((e) => e.from === ref.id && e.to === b.node.id)).map((b) => ({ from: ref.id, to: b.node.id }))
+    : [];
+
+  const apply = (changes: object) => call(`${base}/canvas/changeset`, { method: "POST", body: JSON.stringify(changes) });
+  try {
+    await apply({ update, ...(connect.length ? { connect } : {}) });
+  } catch (err) {
+    // Algum modelo pode recusar a seta da referência; nome e posição continuam valendo.
+    if (!connect.length) throw err;
+    await apply({ update });
+  }
 }

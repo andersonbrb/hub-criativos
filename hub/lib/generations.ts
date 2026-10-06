@@ -2,7 +2,8 @@
 
 // "upload" = arquivo anexado no chat (foto do produto, vídeo, áudio). "editor" = vídeo exportado pelo editor do hub.
 // "montagem" = montagem automática local do infoproduto (cortes de silêncio + legendas + b-rolls, scripts/montagem.py).
-export type GenerationTool = "elevenlabs" | "heygen" | "higgsfield" | "flora" | "upload" | "editor" | "montagem";
+// "heygen-traducao" = vídeo traduzido pelo HeyGen (pelo MCP, créditos do plano; lib/server/video-translation.ts).
+export type GenerationTool = "elevenlabs" | "heygen" | "heygen-traducao" | "higgsfield" | "flora" | "upload" | "editor" | "montagem";
 export type MediaKind = "audio" | "video" | "image";
 export type GenerationStatus = "pending" | "running" | "done" | "failed";
 

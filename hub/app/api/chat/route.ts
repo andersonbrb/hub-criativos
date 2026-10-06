@@ -8,11 +8,14 @@ import { documentRef, imageRef } from "@/lib/server/chat/images";
 import { findClaude, runClaudeCodeTurn } from "@/lib/server/chat/claude-code";
 import { runChatTurn } from "@/lib/server/chat/run";
 import { runVeniceTurn } from "@/lib/server/chat/venice";
+import { endTurn, startTurn } from "@/lib/server/chat/running";
 import { getChat, listChats, newChat, saveChat, summary } from "@/lib/server/chat/store";
 import { buildSystemPrompt } from "@/lib/server/chat/system";
 import { TOOL_NAMES } from "@/lib/server/chat/tools";
 import { hasKey } from "@/lib/server/env";
 import { getAgentProfile } from "@/lib/agent-profiles";
+import { languageNote } from "@/lib/languages";
+import { agentReferenceBlocks } from "@/lib/server/agent-settings";
 import { route } from "@/lib/server/http";
 import { saveMedia } from "@/lib/server/media";
 import { createGeneration } from "@/lib/server/store";
@@ -123,13 +126,21 @@ export const POST = route(async (request: Request) => {
     // agentId (só na criação): conversa com um agente; o prompt dele fica congelado na conversa.
     const agentId = getAgentProfile(String(form.get("agentId") ?? ""))?.id;
     chat = newChat(shown.replace(/\s+/g, " ").slice(0, 60), await buildSystemPrompt(agentId), TOOL_NAMES, agentId);
+  } else if (chat.messages.length === 0) {
+    // Conversa criada pelo botão "Nova conversa": ganha o título da primeira mensagem.
+    chat.title = shown.replace(/\s+/g, " ").slice(0, 60);
   }
 
   const prepared = await Promise.all(files.map(prepare));
   const notes = prepared.map((p) => p.note).filter(Boolean);
+  // 1ª mensagem de uma conversa de agente: imagens/PDFs de referência configurados em "Editar agente"
+  // (só referências "@file:", hidratadas no envio; não entram em chat.attachments, então não viram chips do usuário).
+  const references = chat.agentId && chat.messages.length === 0 ? await agentReferenceBlocks(chat.agentId) : [];
   const content: Anthropic.Beta.BetaContentBlockParam[] = [
+    ...references,
     ...prepared.flatMap((p) => p.blocks),
-    { type: "text", text: `${shown}${notes.length ? `${ATTACHMENTS_NOTE}${notes.join("; ")}]` : ""}` },
+    // Idioma do criativo escolhido no chat (lib/languages.ts): nota escondida da bolha, lida pelo agente.
+    { type: "text", text: `${shown}${notes.length ? `${ATTACHMENTS_NOTE}${notes.join("; ")}]` : ""}${languageNote(form.get("lang"))}` },
   ];
   const attachments = prepared.map((p) => p.attachment);
   if (attachments.length) chat.attachments = { ...chat.attachments, [chat.messages.length]: attachments };
@@ -137,6 +148,9 @@ export const POST = route(async (request: Request) => {
   await saveChat(chat);
 
   const current = chat;
+  // Só o botão Parar (/api/chat/stop) encerra o turno. Trocar de conversa ou recarregar a página
+  // não interrompe: o agente termina e a resposta fica salva na conversa.
+  const turn = startTurn(current.id);
   const encoder = new TextEncoder();
   const body = new ReadableStream({
     async start(controller) {
@@ -145,16 +159,20 @@ export const POST = route(async (request: Request) => {
           controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
         } catch {} // o navegador já fechou a conexão
       };
-      emit({ type: "chat", chat: summary(current) });
-      emit({ type: "user", item: { kind: "user", text: shown, attachments } });
-      if (black) await runVeniceTurn(current, emit, request.signal);
-      else if (useApi) await runChatTurn(current, emit, request.signal);
-      else await runClaudeCodeTurn(current, emit, request.signal, new URL(request.url).origin);
-      emit({ type: "chat", chat: summary(current) });
-      emit({ type: "done" });
       try {
-        controller.close();
-      } catch {}
+        emit({ type: "chat", chat: summary(current) });
+        emit({ type: "user", item: { kind: "user", text: shown, attachments } });
+        if (black) await runVeniceTurn(current, emit, turn.signal);
+        else if (useApi) await runChatTurn(current, emit, turn.signal);
+        else await runClaudeCodeTurn(current, emit, turn.signal, new URL(request.url).origin);
+        emit({ type: "chat", chat: summary(current) });
+        emit({ type: "done" });
+      } finally {
+        endTurn(current.id, turn);
+        try {
+          controller.close();
+        } catch {}
+      }
     },
   });
   return new Response(body, {

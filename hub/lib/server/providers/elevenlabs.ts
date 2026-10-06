@@ -1,5 +1,6 @@
 import "server-only";
 
+import { voiceSettingsFor } from "@/lib/elevenlabs-models";
 import { requireKey } from "@/lib/server/env";
 import { ProviderError } from "@/lib/server/http";
 
@@ -131,13 +132,8 @@ export async function textToSpeech(input: TtsInput): Promise<ArrayBuffer> {
     body: JSON.stringify({
       text: input.text,
       model_id: input.modelId,
-      voice_settings: {
-        stability: input.stability,
-        similarity_boost: input.similarity,
-        style: input.style,
-        speed: input.speed,
-        use_speaker_boost: true,
-      },
+      // Só os ajustes que o modelo aceita (v4 não tem velocidade/estilo; v3 só estabilidade em 3 níveis).
+      voice_settings: voiceSettingsFor(input.modelId, input),
     }),
   });
   return res.arrayBuffer();

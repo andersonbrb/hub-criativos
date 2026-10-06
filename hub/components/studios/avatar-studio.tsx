@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Workspace, WorkspacePanel } from "@/components/workspace";
 import { apiFetch, type Generation } from "@/lib/generations";
+import { CREATIVE_LANGUAGES } from "@/lib/languages";
 import { cn } from "@/lib/utils";
 
 const DESCRIPTION =
@@ -23,9 +24,7 @@ type Look = { id: string; name: string; type: string; image: string | null; orie
 type Voice = { id: string; name: string; language: string; gender: string; preview: string | null; own: boolean };
 
 const LANGUAGES = [
-  { value: "Spanish", label: "Espanhol" },
-  { value: "Portuguese", label: "Português" },
-  { value: "English", label: "Inglês" },
+  ...CREATIVE_LANGUAGES.map((l) => ({ value: l.heygen, label: l.label })),
   { value: "Romanian", label: "Romeno" },
 ];
 
@@ -40,7 +39,7 @@ export function AvatarStudio({ configured }: { configured: boolean }) {
   const [query, setQuery] = useState("");
   const [look, setLook] = useState<Look | null>(null);
   const [mode, setMode] = useState<"script" | "audio">("script");
-  const [script, setScript] = useState("Dejé de tomar café por 7 días… y mira lo que pasó.");
+  const [script, setScript] = useState("");
   const [voices, setVoices] = useState<Voice[]>([]);
   // Operações atuais anunciam na LATAM: padrão espanhol (ver hub/playbooks).
   const [language, setLanguage] = useState("Spanish");
@@ -230,7 +229,7 @@ export function AvatarStudio({ configured }: { configured: boolean }) {
           {mode === "script" ? (
             <>
               <Field label="Roteiro" id="hg-script" hint={`${script.length} car.`}>
-                <Textarea id="hg-script" rows={6} value={script} onChange={(e) => setScript(e.target.value)} />
+                <Textarea id="hg-script" rows={6} placeholder="Cole aqui o roteiro que o avatar vai falar…" value={script} onChange={(e) => setScript(e.target.value)} />
               </Field>
               <div className="grid grid-cols-2 gap-2">
                 <Field label="Idioma" id="hg-lang">

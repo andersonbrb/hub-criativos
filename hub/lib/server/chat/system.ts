@@ -4,6 +4,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { getAgentProfile } from "@/lib/agent-profiles";
+import { agentPromptSection } from "@/lib/server/agent-settings";
 
 // Prompt de sistema do chat principal. É montado uma vez por conversa (fica salvo nela),
 // então editar um playbook vale para as próximas conversas.
@@ -25,7 +26,9 @@ export async function buildSystemPrompt(agentId?: string | null): Promise<string
   const agentSection = agent
     ? `\n\n# Seu papel nesta conversa: agente de ${agent.name}\nNesta conversa você atua como o agente de ${agent.name} do hub (${agent.role}). Mantenha o foco nessa etapa, mas use qualquer ferramenta do hub quando ajudar o usuário.\n\n${agent.instructions}`
     : "";
-  return `${await basePrompt()}${agentSection}`;
+  // Personalização do usuário ("Editar agente") vem por último: acrescenta, nunca substitui as regras gerais.
+  const custom = agent ? await agentPromptSection(agent.id) : "";
+  return `${await basePrompt()}${agentSection}${custom}`;
 }
 
 async function basePrompt(): Promise<string> {
@@ -43,6 +46,7 @@ Pelas ferramentas você opera tudo que está conectado ao hub:
 - web_search e web_fetch para pesquisar e ler páginas (página de vendas, referências).
 - Editor de vídeo do hub: editor_open abre um vídeo (com legendas automáticas e estilo, se pedido) e editor_render exporta. Quando o usuário pedir legenda, cortes ou ajustes num vídeo, use o editor: ele pode corrigir legendas e cortes à mão depois, sem precisar pedir de novo aqui. Ao terminar, avise que o card do vídeo tem os botões Visualizar e Editor.
 - Montagem automática do infoproduto: hub_montage (local, sem custo). O playbook fala em sandbox do Higgsfield, mas no hub a montagem é essa ferramenta.
+- Juntar vídeos (gancho + body, variações de gancho, cortes em sequência): editor_join (local, ffmpeg, sem custo). O sandbox do Higgsfield NÃO existe no hub; o Higgsfield aqui só faz as edições de higgsfield_edit (prompt, reenquadrar, upscale etc.).
 - Quadro Kanban do Fluxo (a tela que o usuário chama de Fluxo): pipeline_get e pipeline_save_card. Quando o trabalho for de um card, registre nele as gerações aprovadas e mova de etapa quando fizer sentido.
 
 O usuário pode anexar arquivos: imagens e PDFs você vê direto; arquivos de texto chegam no conteúdo da mensagem; vídeos e áudios viram gerações do hub (o id vem na nota de anexos). Você ASSISTE vídeos com hub_view_video e os usa nas ferramentas (editor, Higgsfield, lipsync do HeyGen, montagem).
@@ -69,6 +73,7 @@ Mostre ao usuário o que vai reaproveitar (por cena) e gere só o que falta, com
 
 ## Projeto do FLORA
 Antes da primeira geração no FLORA de uma conversa, pergunte ao usuário se quer criar um projeto novo lá dentro (e com que nome) ou se quer se ligar a um projeto existente (mostre a lista de flora_projects action=list). Registre a resposta com flora_projects e só então gere. Não pergunte de novo na mesma conversa. Orçar (flora_quote) e buscar mídia não precisam de projeto escolhido.
+Mantenha o canvas do FLORA o mais organizado possível: um projeto por produto ou campanha (nunca espalhe a mesma campanha em vários), e em toda geração passe label com um nome curto e descritivo (cena, ângulo ou gancho e número, ex.: "B-roll 03 · xícara às 16h"). O hub dá esse nome ao nó, coloca cada envio numa fileira nova com a referência na frente e liga a referência ao que foi gerado.
 
 ## Trabalho entre agentes
 Você e os agentes (Estrategista, Copy, VSL, Voz, Avatar UGC, B-rolls, Estáticos, Transcrição) compartilham tudo: gerações, decupagens, o quadro do Fluxo e as conversas. Quando o trabalho de outro agente ajudar (ângulos e avatar do Estrategista, copy ou roteiro aprovado, decupagem de um criativo), procure com hub_list_chats e leia com hub_read_chat em vez de pedir para o usuário repetir. Leia só o trecho necessário.

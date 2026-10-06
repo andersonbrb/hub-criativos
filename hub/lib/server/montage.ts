@@ -16,7 +16,7 @@ import { createGeneration, DATA_DIR, getGeneration, updateGeneration } from "@/l
 const SCRIPT = path.join(process.cwd(), "scripts", "montagem.py");
 const FONTS = path.join(process.cwd(), "scripts", "fonts");
 const LOG_DIR = path.join(DATA_DIR, "montagem");
-export const LANGS = ["es", "pt", "en"] as const;
+export const LANGS = ["es", "pt", "fr", "en"] as const;
 
 export const logPath = (id: string) => path.join(LOG_DIR, `${id}.log`);
 

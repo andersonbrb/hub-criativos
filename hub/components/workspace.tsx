@@ -62,6 +62,8 @@ type Ctx = {
   register: (id: string, entry: PanelEntry) => void;
   maximize: (id: string) => void;
   maximized: string | null;
+  // Versão celular: as abas viram botões e só a aba ativa aparece.
+  tabs?: { active: string; reveal: (id: string) => void };
 };
 
 const WorkspaceContext = createContext<Ctx | null>(null);
@@ -120,6 +122,7 @@ export function Workspace({
   const panels = useRef(new Map<string, PanelEntry>());
   const [maximized, setMaximized] = useState<string | null>(null);
   const beforeMaximize = useRef<Layout | null>(null);
+  const [activeTab, setActiveTab] = useState<string | null>(null);
 
   const items = Children.toArray(children).filter(isValidElement);
 
@@ -226,19 +229,50 @@ export function Workspace({
     [orientation, register, maximize, maximized],
   );
 
-  // No celular as abas viram uma coluna rolável, sem divisórias.
-  if (isMobile) {
+  // Versão celular: uma aba por vez, escolhida numa fileira de botões (áreas verticais continuam divididas).
+  if (isMobile && orientation === "horizontal") {
+    const tabList = items.map((child) => child.props as MobileTabProps);
+    const current = tabList.some((t) => t.id === activeTab) ? activeTab! : defaultTab(tabList);
     return (
-      <WorkspaceContext.Provider value={{ ...ctx, orientation: "vertical" }}>
-        <div className={cn("flex flex-col", className)}>
-          {toolbar && (
-            <div className="flex items-center gap-2 border-b px-4 py-2">
-              {toolbar}
-            </div>
-          )}
-          <div className="flex flex-col divide-y">{items}</div>
-        </div>
-      </WorkspaceContext.Provider>
+      <RegistryContext.Provider value={registry}>
+        <WorkspaceContext.Provider value={{ ...ctx, tabs: { active: current, reveal: setActiveTab } }}>
+          <div className={cn("flex min-h-0 min-w-0 flex-col overflow-hidden", className)}>
+            {toolbar && (
+              <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-2 border-b px-3 py-1.5">
+                {toolbar}
+              </div>
+            )}
+            {tabList.length > 1 && (
+              <div role="tablist" aria-label="Abas da tela" className="flex shrink-0 gap-1 overflow-x-auto border-b bg-muted/30 px-2 py-1.5">
+                {tabList.map((t) => {
+                  const selected = t.id === current;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={selected}
+                      onClick={() => setActiveTab(t.id)}
+                      className={cn(
+                        "flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors",
+                        selected ? "bg-background text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {t.title}
+                      {t.badge ? (
+                        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-rec px-1 font-mono text-[10px] leading-none font-bold text-white tabular-nums">
+                          {t.badge > 99 ? "99+" : t.badge}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="relative min-h-0 flex-1">{items}</div>
+          </div>
+        </WorkspaceContext.Provider>
+      </RegistryContext.Provider>
     );
   }
 
@@ -322,6 +356,13 @@ export function Workspace({
   );
 }
 
+type MobileTabProps = { id: string; title: string; badge?: number; collapsible?: boolean; defaultCollapsed?: boolean };
+
+// Aba inicial no celular: a principal (não pode ser ocultada) ou a primeira que não nasce fechada.
+function defaultTab(tabs: MobileTabProps[]) {
+  return (tabs.find((t) => t.collapsible === false) ?? tabs.find((t) => !t.defaultCollapsed) ?? tabs[0])?.id ?? "";
+}
+
 export function WorkspacePanel({
   id,
   title,
@@ -363,7 +404,7 @@ export function WorkspacePanel({
 }) {
   const ctx = useContext(WorkspaceContext);
   if (!ctx) throw new Error("WorkspacePanel precisa estar dentro de Workspace");
-  const { orientation, register, maximize, maximized } = ctx;
+  const { orientation, register, maximize, maximized, tabs } = ctx;
   const panelRef = useRef<PanelImperativeHandle | null>(null);
   const startsCollapsed = defaultCollapsed && collapsible;
   // Já nasce no estado certo para não piscar o conteúdo antes de fechar.
@@ -386,7 +427,9 @@ export function WorkspacePanel({
   useEffect(() => {
     if (revealKey === lastReveal.current) return;
     lastReveal.current = revealKey;
-    if (revealKey != null && revealKey !== "" && panelRef.current?.isCollapsed()) open();
+    if (revealKey == null || revealKey === "") return;
+    if (tabs) tabs.reveal(id);
+    else if (panelRef.current?.isCollapsed()) open();
     // open só lê refs e props estáveis; reabrir só quando a chave muda.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealKey]);
@@ -450,11 +493,12 @@ export function WorkspacePanel({
     </div>
   );
 
-  if (isMobile) {
+  if (tabs) {
+    // O título já está no botão da aba; a barra só aparece se a aba tiver ações próprias.
     return (
-      <section className={cn("flex flex-col", className)}>
-        {header}
-        <div className={bodyClassName}>{children}</div>
+      <section role="tabpanel" aria-label={title} className={cn("absolute inset-0 flex-col", tabs.active === id ? "flex" : "hidden", className)}>
+        {actions && !bare && header}
+        <div className={cn("min-h-0 flex-1", bare ? "flex flex-col" : "overflow-auto", bodyClassName)}>{children}</div>
       </section>
     );
   }

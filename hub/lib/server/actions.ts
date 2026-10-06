@@ -10,10 +10,11 @@ import { InputError } from "@/lib/server/http";
 import { CONTENT_TYPES, downloadMedia, MEDIA_DIR, saveMedia } from "@/lib/server/media";
 import { montageStatus } from "@/lib/server/montage";
 import { textToSpeech } from "@/lib/server/providers/elevenlabs";
-import { generate, getRun, getTarget, quote, uploadReference, type FloraReference } from "@/lib/server/providers/flora";
+import { generate, getRun, getTarget, organizeCanvas, quote, uploadReference, type FloraReference } from "@/lib/server/providers/flora";
 import { createVideo, getVideo, uploadAudio } from "@/lib/server/providers/heygen";
 import { createEdit, DONE, FAILED, getJob } from "@/lib/server/providers/higgsfield";
 import { createGeneration, getGeneration, updateGeneration } from "@/lib/server/store";
+import { refreshTranslation } from "@/lib/server/video-translation";
 
 // Ações dos estúdios, compartilhadas entre as rotas da interface e as ferramentas do chat principal.
 // Entrada inválida lança InputError (vira 400 na rota e erro legível para o agente).
@@ -134,7 +135,15 @@ export type FloraRequest = {
   image?: File | null;
   // Projeto do FLORA escolhido na conversa do chat; sem ele, o projeto padrão "Hub de Criativos".
   projectId?: string | null;
+  // Nome curto do que está sendo gerado (ex.: "B-roll 03 · xícara às 16h"); vira o nome do nó no canvas.
+  label?: string;
 };
+
+// Nome do nó no canvas do FLORA: tipo + nome dado (ou o começo do prompt) + número da variação.
+function canvasLabel(kind: "image" | "video", name: string, i: number, count: number) {
+  const short = name.length > 48 ? `${name.slice(0, 48).replace(/\s+\S*$/, "")}…` : name;
+  return `${kind === "image" ? "Frame" : "Vídeo"} · ${short}${count > 1 ? ` · ${i + 1}/${count}` : ""}`;
+}
 
 // Uma geração do hub vira referência: imagem do FLORA usa a URL dela; imagem local (anexo, outra ferramenta) é enviada ao FLORA.
 // O nó do canvas só vale dentro do mesmo projeto; em outro projeto a imagem entra só pela URL.
@@ -175,6 +184,8 @@ export async function runFlora(req: FloraRequest): Promise<Generation[]> {
   const prompt = applyRules(rawPrompt, family.kind, operation, String(req.market ?? ""));
   const model = reference ? family.fromImage : family.fromText;
 
+  const name = String(req.label ?? "").trim() || rawPrompt;
+  const labels = Array.from({ length: count }, (_, i) => canvasLabel(family.kind, name, i, count));
   const generations: Generation[] = [];
   for (let i = 0; i < count; i++) {
     const run = await generate({ type: family.kind, prompt, model, params, reference, imageField: family.imageField, projectId });
@@ -188,6 +199,7 @@ export async function runFlora(req: FloraRequest): Promise<Generation[]> {
         params: {
           nodeId: run.node_id,
           floraProjectId: projectId,
+          label: labels[i],
           family: family.id,
           modelName: family.label,
           model,
@@ -200,6 +212,15 @@ export async function runFlora(req: FloraRequest): Promise<Generation[]> {
       }),
     );
   }
+
+  // Organiza o canvas (nome, fileira, seta da referência). Falhar aqui não pode perder a geração já paga.
+  await organizeCanvas({
+    projectId,
+    nodeIds: generations.map((g) => String(g.params.nodeId)),
+    labels,
+    reference,
+    referenceLabel: req.image instanceof File ? `Referência · ${req.image.name.replace(/\.[^.]+$/, "")}` : "Referência",
+  }).catch((err) => console.error("[hub] FLORA: não consegui organizar o canvas:", err instanceof Error ? err.message : err));
   return generations;
 }
 
@@ -290,6 +311,7 @@ export async function runEdit(req: EditRequest): Promise<Generation> {
 // Consulta a ferramenta; quando o job termina, baixa o resultado para hub/.data/media.
 export async function refreshGeneration(gen: Generation): Promise<Generation> {
   if (gen.tool === "montagem") return montageStatus(gen); // processo local, atualiza o próprio status
+  if (gen.tool === "heygen-traducao") return refreshTranslation(gen); // pelo MCP do HeyGen
   if (!gen.jobId || gen.status === "done" || gen.status === "failed") return gen;
   const fail = async (error: string) => (await updateGeneration(gen.id, { status: "failed", error })) ?? gen;
 

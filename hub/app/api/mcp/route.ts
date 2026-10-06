@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 
 import { mcpToken } from "@/lib/server/chat/claude-code";
 import { hydrateMessages } from "@/lib/server/chat/images";
+import { turnSignal } from "@/lib/server/chat/running";
 import { getChat, saveChat } from "@/lib/server/chat/store";
 import { runTool, toolsFor } from "@/lib/server/chat/tools";
 
@@ -35,8 +36,9 @@ async function handle(req: RpcRequest, chatId: string, signal: AbortSignal): Pro
     case "ping":
       return ok(req.id, {});
     case "tools/list": {
-      const chat = chatId ? await getChat(chatId) : null;
-      const tools = toolsFor(chat?.toolNames).map((d) => ({ name: d.name, description: d.description ?? "", inputSchema: d.input_schema }));
+      // Claude Code relista as ferramentas a cada turno (não há prefixo cacheado a proteger):
+      // conversas antigas também recebem as ferramentas novas. A lista congelada vale só no modo HUB_BRAIN=api.
+      const tools = toolsFor().map((d) => ({ name: d.name, description: d.description ?? "", inputSchema: d.input_schema }));
       return ok(req.id, { tools });
     }
     case "tools/call": {
@@ -44,7 +46,9 @@ async function handle(req: RpcRequest, chatId: string, signal: AbortSignal): Pro
       const args = (req.params?.arguments ?? {}) as Record<string, unknown>;
       const chat = chatId ? await getChat(chatId) : null;
       const flora = JSON.stringify(chat?.floraProject ?? null);
-      const outcome = await runTool(name, args, { signal, chat: chat ?? undefined });
+      // Para junto com o turno (botão Parar), não só quando a conexão da MCP cai.
+      const turn = chatId ? turnSignal(chatId) : undefined;
+      const outcome = await runTool(name, args, { signal: turn ? AbortSignal.any([signal, turn]) : signal, chat: chat ?? undefined });
 
       // A ferramenta pode ter escolhido o projeto do FLORA da conversa: grava na hora.
       if (chat && JSON.stringify(chat.floraProject ?? null) !== flora) {

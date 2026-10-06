@@ -132,6 +132,43 @@ export async function openProject(generationId: string): Promise<EditorProject> 
   });
 }
 
+// Junta vários vídeos do hub, na ordem, num projeto novo do editor (ex.: gancho + body). Cada trecho pode ter corte (in/out em segundos).
+// O tamanho da saída vem do primeiro vídeo; os outros entram com barras pretas se a proporção for diferente.
+export async function joinProject(items: { generationId: string; in?: number; out?: number }[], title?: string): Promise<EditorProject> {
+  if (items.length < 2) throw new InputError("Informe pelo menos 2 vídeos para juntar.");
+  const sources: Record<string, EditorSource> = {};
+  const clips: EditorProject["clips"] = [];
+  for (const item of items) {
+    const gen = await getGeneration(item.generationId);
+    if (!gen) throw new InputError(`Vídeo não encontrado: ${item.generationId}.`);
+    const source = sources[gen.id] ?? (await probe(gen));
+    sources[source.id] = source;
+    const start = clampNum(item.in, 0, source.duration, 0);
+    const end = clampNum(item.out, start + 0.05, source.duration, source.duration);
+    clips.push({ id: newId(), sourceId: source.id, in: start, out: end });
+  }
+  const first = sources[clips[0].sourceId];
+  const scale = Math.min(1, 1080 / Math.min(first.width, first.height));
+  const now = new Date().toISOString();
+  return write({
+    id: randomUUID(),
+    title: (title?.trim() || Object.values(sources).map((s) => s.label.slice(0, 25)).join(" + ")).slice(0, 60),
+    // Sem origem: abrir um dos vídeos sozinho no editor não deve cair neste projeto.
+    originId: "",
+    width: even(first.width * scale),
+    height: even(first.height * scale),
+    fps: 30,
+    sources,
+    clips,
+    captions: [],
+    captionsEnabled: true,
+    style: DEFAULT_STYLE,
+    exports: [],
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
 export async function addSource(projectId: string, generationId: string): Promise<EditorProject> {
   const project = await getProject(projectId);
   if (!project) throw new InputError("Projeto não encontrado.");

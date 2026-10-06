@@ -9,6 +9,15 @@
   height: calc(100svh - 3rem);
 }
 
+/* Versão celular forçada pelo botão do topo numa tela larga: o hub vira uma coluna do tamanho de um celular. */
+html[data-mobile-frame] [data-slot="sidebar-inset"] {
+  max-width: 430px;
+  margin-inline: auto;
+  border-inline: 1px solid var(--border);
+  box-shadow: 0 0 0 100vmax color-mix(in oklab, var(--background) 60%, black);
+  overflow-x: clip;
+}
+
 /* Botão do Modo Black ativo: brilho vermelho pulsando. */
 @keyframes black-mode-glow {
   0%, 100% { box-shadow: 0 0 6px 0 var(--rec); }

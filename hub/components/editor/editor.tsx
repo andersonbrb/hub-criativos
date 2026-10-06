@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
-import { Check, Clapperboard, Download, Film, FolderOpen, Loader2, Pause, Play, Plus, Redo2, Scissors, SkipBack, Trash2, Undo2 } from "lucide-react";
+import { Check, Clapperboard, Download, Film, FolderOpen, Loader2, Pause, Play, Plus, Redo2, Scissors, SkipBack, Trash2, Undo2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import { CreativeComposition } from "@/components/editor/creative-composition";
@@ -360,6 +360,28 @@ export function Editor({ initialProjectId, initialGenerationId }: { initialProje
     }
   };
 
+  // Enviar vídeo do computador: com projeto aberto entra no fim da timeline; sem projeto, abre um projeto novo.
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const pickUpload = () => uploadRef.current?.click();
+  const uploadVideo = async (file: File) => {
+    if (!file.type.startsWith("video/")) return toast.error("Escolha um arquivo de vídeo (mp4, mov, webm…).");
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const { generation } = await apiFetch<{ generation: Generation }>("/api/uploads", { method: "POST", body: form });
+      toast.success(`“${file.name}” enviado`);
+      if (project) await addToTimeline(generation.id);
+      else await openVideo(generation.id);
+      loadLibrary();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Não consegui enviar o vídeo.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const deleteProject = async (id: string) => {
     if (!window.confirm("Apagar este projeto do editor? Os vídeos exportados continuam no hub.")) return;
     await apiFetch(`/api/editor/projects/${id}`, { method: "DELETE" }).catch(() => undefined);
@@ -418,7 +440,29 @@ export function Editor({ initialProjectId, initialGenerationId }: { initialProje
   return (
     <Workspace id="editor" className="h-full" toolbar={toolbar} presets={PRESETS}>
       <WorkspacePanel id="biblioteca" title="Biblioteca" defaultSize={18} minSize={12} icon={<FolderOpen className="size-3.5 text-muted-foreground" />}>
-        <Library projects={projects} videos={videos} activeId={project?.id ?? null} hasProject={Boolean(project)} onOpenProject={openProject} onOpenVideo={openVideo} onAdd={addToTimeline} onDeleteProject={deleteProject} />
+        <input
+          ref={uploadRef}
+          type="file"
+          accept="video/*"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) uploadVideo(file);
+          }}
+        />
+        <Library
+          projects={projects}
+          videos={videos}
+          activeId={project?.id ?? null}
+          hasProject={Boolean(project)}
+          uploading={uploading}
+          onUpload={pickUpload}
+          onOpenProject={openProject}
+          onOpenVideo={openVideo}
+          onAdd={addToTimeline}
+          onDeleteProject={deleteProject}
+        />
       </WorkspacePanel>
 
       <WorkspacePanel id="centro" title="Edição" bare collapsible={false} defaultSize={54} minSize={30}>
@@ -431,7 +475,11 @@ export function Editor({ initialProjectId, initialGenerationId }: { initialProje
                 ) : !project ? (
                   <div className="max-w-sm text-center text-sm text-muted-foreground">
                     <p className="font-heading text-lg font-bold text-foreground">Nenhum vídeo aberto</p>
-                    <p className="mt-1">Abra um vídeo da Biblioteca, ou use o botão “Editor” em qualquer vídeo do chat e dos estúdios.</p>
+                    <p className="mt-1">Envie um vídeo do seu computador, abra um da Biblioteca, ou use o botão “Editor” em qualquer vídeo do chat e dos estúdios.</p>
+                    <Button className="mt-4 bg-rec text-white hover:bg-rec/85" disabled={uploading} onClick={pickUpload}>
+                      {uploading ? <Loader2 className="animate-spin" /> : <Upload />}
+                      {uploading ? "Enviando…" : "Enviar vídeo"}
+                    </Button>
                   </div>
                 ) : (
                   fit.w > 0 && (
@@ -517,6 +565,8 @@ function Library({
   videos,
   activeId,
   hasProject,
+  uploading,
+  onUpload,
   onOpenProject,
   onOpenVideo,
   onAdd,
@@ -526,6 +576,8 @@ function Library({
   videos: Generation[];
   activeId: string | null;
   hasProject: boolean;
+  uploading: boolean;
+  onUpload: () => void;
   onOpenProject: (id: string) => void;
   onOpenVideo: (id: string) => void;
   onAdd: (id: string) => void;
@@ -533,6 +585,10 @@ function Library({
 }) {
   return (
     <div className="flex flex-col gap-4 p-3">
+      <Button className="w-full bg-rec text-white hover:bg-rec/85" disabled={uploading} onClick={onUpload} title="Enviar um vídeo do seu computador">
+        {uploading ? <Loader2 className="animate-spin" /> : <Upload />}
+        {uploading ? "Enviando…" : hasProject ? "Enviar vídeo para a timeline" : "Enviar vídeo"}
+      </Button>
       <section className="flex flex-col gap-1">
         <h3 className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">Projetos</h3>
         {projects.length === 0 && <p className="text-xs text-muted-foreground">Nenhum projeto ainda.</p>}

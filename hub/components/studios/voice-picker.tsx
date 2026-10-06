@@ -1,15 +1,15 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { ArrowUpRight, Check, Library, Pause, Play, Search } from "lucide-react";
+import { ArrowUpRight, Check, ChevronDown, Pause, Play, Search } from "lucide-react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-// Seletor de vozes do ElevenLabs organizado como a biblioteca deles: por gênero e faixa de idade.
-// gender/age vêm dos labels da voz; nas clonadas sem labels, são deduzidos pelo nome (marcados com "~").
+// Seletor de vozes do ElevenLabs, enxuto: mostra a voz escolhida e os gêneros; a lista só abre ao clicar num
+// gênero, já organizada por faixa de idade (como na biblioteca do ElevenLabs). Escolher uma voz fecha a lista.
+// gender/age vêm dos labels da voz; nas clonadas sem labels, são deduzidos pelo nome.
 
 export type PickerVoice = {
   id: string;
@@ -26,31 +26,26 @@ export type PickerVoice = {
 
 export const VOICE_LIBRARY_URL = "https://elevenlabs.io/app/voice-library";
 
-const GENDERS = [
-  { id: "all", label: "Todas" },
+type GenderTab = "female" | "male" | "other";
+
+const GENDERS: { id: GenderTab; label: string }[] = [
   { id: "female", label: "Feminino" },
   { id: "male", label: "Masculino" },
-  { id: "neutral", label: "Neutro" },
-] as const;
+  { id: "other", label: "Outras" },
+];
 
 const AGES = [
-  { id: "all", label: "Todas as idades" },
+  { id: "all", label: "Todas" },
   { id: "young", label: "Jovem" },
   { id: "middle_aged", label: "Meia-idade" },
-  { id: "old", label: "Idoso(a)" },
+  { id: "old", label: "Idosa(o)" },
 ] as const;
 
-const GENDER_LABEL: Record<string, string> = { female: "Feminino", male: "Masculino", neutral: "Neutro", "": "Sem classificação" };
-const AGE_LABEL: Record<string, Record<string, string>> = {
-  female: { young: "Jovem", middle_aged: "Meia-idade", old: "Idosa", "": "Idade não informada" },
-  male: { young: "Jovem", middle_aged: "Meia-idade", old: "Idoso", "": "Idade não informada" },
-  neutral: { young: "Jovem", middle_aged: "Meia-idade", old: "Idoso(a)", "": "Idade não informada" },
-  "": { young: "Jovem", middle_aged: "Meia-idade", old: "Idoso(a)", "": "" },
-};
-const GENDER_ORDER = ["female", "male", "neutral", ""];
 const AGE_ORDER = ["young", "middle_aged", "old", ""];
+const AGE_TITLE: Record<string, string> = { young: "Jovem", middle_aged: "Meia-idade", old: "Idosa(o)", "": "Idade não informada" };
+const GENDER_SHORT: Record<string, string> = { female: "Feminino", male: "Masculino", neutral: "Neutro", "": "" };
 
-const CATEGORY: Record<string, string> = { cloned: "clonada", generated: "criada", professional: "profissional", premade: "padrão" };
+const tabOf = (v: PickerVoice): GenderTab => (v.gender === "female" ? "female" : v.gender === "male" ? "male" : "other");
 
 export function VoicePicker({
   voices,
@@ -63,36 +58,21 @@ export function VoicePicker({
   onChange: (id: string) => void;
   loading?: boolean;
 }) {
-  const [gender, setGender] = useState<(typeof GENDERS)[number]["id"]>("all");
+  const [open, setOpen] = useState<GenderTab | null>(null);
   const [age, setAge] = useState<(typeof AGES)[number]["id"]>("all");
   const [query, setQuery] = useState("");
   const [playing, setPlaying] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const q = query.trim().toLowerCase();
-  const filtered = voices.filter(
-    (v) =>
-      (gender === "all" || v.gender === gender) &&
-      (age === "all" || v.age === age) &&
-      (!q || `${v.name} ${v.description} ${v.accent ?? ""} ${v.useCase ?? ""}`.toLowerCase().includes(q)),
-  );
+  const selected = voices.find((v) => v.id === value);
+  const count = (tab: GenderTab) => voices.filter((v) => tabOf(v) === tab).length;
 
-  // Grupos na ordem gênero → idade, como na biblioteca do ElevenLabs.
   const groups = useMemo(() => {
-    const map = new Map<string, PickerVoice[]>();
-    for (const v of filtered) {
-      const key = `${v.gender}|${v.gender ? v.age : ""}`;
-      map.set(key, [...(map.get(key) ?? []), v]);
-    }
-    return [...map.entries()]
-      .map(([key, list]) => {
-        const [g, a] = key.split("|");
-        return { key, g, a, list: list.sort((x, y) => x.name.localeCompare(y.name, "pt-BR")) };
-      })
-      .sort((x, y) => GENDER_ORDER.indexOf(x.g) - GENDER_ORDER.indexOf(y.g) || AGE_ORDER.indexOf(x.a) - AGE_ORDER.indexOf(y.a));
-  }, [filtered]);
-
-  const countBy = (id: string) => (id === "all" ? voices.length : voices.filter((v) => v.gender === id).length);
+    if (!open) return [];
+    const q = query.trim().toLowerCase();
+    const list = voices.filter((v) => tabOf(v) === open && (age === "all" || v.age === age) && (!q || `${v.name} ${v.accent ?? ""}`.toLowerCase().includes(q)));
+    return AGE_ORDER.map((a) => ({ age: a, list: list.filter((v) => v.age === a).sort((x, y) => x.name.localeCompare(y.name, "pt-BR")) })).filter((g) => g.list.length);
+  }, [voices, open, age, query]);
 
   function togglePreview(v: PickerVoice) {
     audioRef.current?.pause();
@@ -103,132 +83,137 @@ export function VoicePicker({
     a.play().then(() => setPlaying(v.id)).catch(() => toast.error("Não consegui tocar a prévia."));
   }
 
-  const selected = voices.find((v) => v.id === value);
+  function toggleGender(tab: GenderTab) {
+    setOpen((cur) => (cur === tab ? null : tab));
+    setAge("all");
+    setQuery("");
+  }
+
+  const playButton = (v: PickerVoice) => (
+    <button
+      type="button"
+      aria-label={playing === v.id ? `Parar prévia de ${v.name}` : `Ouvir ${v.name}`}
+      disabled={!v.previewUrl}
+      onClick={() => togglePreview(v)}
+      className="flex size-7 shrink-0 items-center justify-center rounded-full hover:bg-muted disabled:opacity-30"
+    >
+      {playing === v.id ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
+    </button>
+  );
 
   return (
     <div className="flex flex-col gap-2">
-      {selected && (
-        <div className="flex items-center gap-2 rounded-lg border border-rec/50 bg-rec/10 px-3 py-2 text-sm">
-          <Check className="size-4 shrink-0 text-rec" />
-          <span className="min-w-0 flex-1 truncate font-medium">{selected.name}</span>
-          <span className="shrink-0 text-xs text-muted-foreground">
-            {[GENDER_LABEL[selected.gender], selected.gender && AGE_LABEL[selected.gender][selected.age]].filter(Boolean).join(" · ")}
-          </span>
-        </div>
-      )}
-
-      <div className="flex gap-1.5">
-        <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar voz, sotaque, uso…" className="pl-8" aria-label="Buscar voz" />
-        </div>
-        <Button variant="outline" size="sm" asChild title="Abrir a biblioteca de vozes do ElevenLabs em uma nova guia">
-          <a href={VOICE_LIBRARY_URL} target="_blank" rel="noreferrer">
-            <Library />
-            Biblioteca
-            <ArrowUpRight />
-          </a>
-        </Button>
-      </div>
-
-      <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Gênero">
-        {GENDERS.map((g) => (
-          <button
-            key={g.id}
-            type="button"
-            role="radio"
-            aria-checked={gender === g.id}
-            onClick={() => setGender(g.id)}
-            className={cn(
-              "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
-              gender === g.id ? "border-rec bg-rec/15 text-foreground" : "text-muted-foreground hover:border-foreground/30 hover:text-foreground",
-            )}
-          >
-            {g.label} <span className="font-mono tabular-nums opacity-70">{countBy(g.id)}</span>
-          </button>
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Faixa de idade">
-        {AGES.map((a) => (
-          <button
-            key={a.id}
-            type="button"
-            role="radio"
-            aria-checked={age === a.id}
-            onClick={() => setAge(a.id)}
-            className={cn(
-              "rounded-full px-2.5 py-0.5 text-xs transition-colors",
-              age === a.id ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {a.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="max-h-80 overflow-y-auto rounded-lg border bg-card">
-        {loading ? (
-          <p className="p-4 text-center text-xs text-muted-foreground">Carregando vozes…</p>
-        ) : groups.length === 0 ? (
-          <p className="p-4 text-center text-xs text-muted-foreground">
-            Nenhuma voz com esse filtro. Adicione vozes à sua conta pela{" "}
-            <a href={VOICE_LIBRARY_URL} target="_blank" rel="noreferrer" className="underline">
-              biblioteca do ElevenLabs
-            </a>
-            .
-          </p>
+      {/* Voz escolhida */}
+      <div className="flex items-center gap-1 rounded-lg border border-rec/50 bg-rec/10 py-1 pr-3 pl-1">
+        {selected ? (
+          <>
+            {playButton(selected)}
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold">{selected.name}</span>
+            <span className="shrink-0 text-[11px] text-muted-foreground">
+              {[GENDER_SHORT[selected.gender], selected.age ? AGE_TITLE[selected.age] : ""].filter(Boolean).join(" · ")}
+            </span>
+          </>
         ) : (
-          groups.map((grp) => (
-            <section key={grp.key}>
-              <h3 className="sticky top-0 z-10 flex items-center justify-between border-b bg-muted/90 px-3 py-1 text-[11px] font-semibold tracking-wider text-foreground/80 uppercase backdrop-blur">
-                <span>{[GENDER_LABEL[grp.g], grp.g ? AGE_LABEL[grp.g][grp.a] : ""].filter(Boolean).join(" · ")}</span>
-                <span className="font-mono tabular-nums">{grp.list.length}</span>
-              </h3>
-              <ul>
-                {grp.list.map((v) => {
-                  const active = v.id === value;
-                  const tags = [v.accent, v.useCase, v.category !== "premade" ? CATEGORY[v.category] : ""].filter(Boolean);
-                  return (
-                    <li key={v.id} className={cn("flex items-center gap-1 border-b last:border-b-0", active && "bg-rec/10")}>
-                      <button
-                        type="button"
-                        aria-label={playing === v.id ? `Parar prévia de ${v.name}` : `Ouvir ${v.name}`}
-                        disabled={!v.previewUrl}
-                        onClick={() => togglePreview(v)}
-                        className="ml-1.5 flex size-7 shrink-0 items-center justify-center rounded-full hover:bg-muted disabled:opacity-30"
-                      >
-                        {playing === v.id ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onChange(v.id)}
-                        aria-pressed={active}
-                        className="flex min-w-0 flex-1 items-center gap-2 py-2 pr-3 text-left"
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium">
-                            {v.name}
-                            {v.guessed && (
-                              <span className="ml-1 text-[10px] text-muted-foreground" title="Gênero/idade deduzidos pelo nome (a voz não tem essa informação no ElevenLabs)">
-                                ~
-                              </span>
-                            )}
-                          </span>
-                          {tags.length > 0 && <span className="block truncate text-[11px] text-muted-foreground">{tags.join(" · ")}</span>}
-                        </span>
-                        {active && <Check className="size-4 shrink-0 text-rec" />}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          ))
+          <span className="px-2 py-1 text-sm text-muted-foreground">{loading ? "Carregando vozes…" : "Escolha uma voz abaixo"}</span>
         )}
       </div>
-      <p className="text-[11px] text-muted-foreground">
-        Aparecem as vozes da sua conta. Para usar uma voz da biblioteca, adicione-a à conta no ElevenLabs e recarregue esta página.
-      </p>
+
+      {/* Gêneros: cada um abre/fecha a sua lista */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {GENDERS.map((g) => {
+          const n = count(g.id);
+          if (!n && g.id === "other") return null;
+          const active = open === g.id;
+          return (
+            <button
+              key={g.id}
+              type="button"
+              aria-expanded={active}
+              onClick={() => toggleGender(g.id)}
+              disabled={loading || !n}
+              className={cn(
+                "flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition-colors disabled:opacity-40",
+                active ? "border-rec bg-rec/15 text-foreground" : "text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+              )}
+            >
+              {g.label}
+              <span className="font-mono tabular-nums opacity-60">{n}</span>
+              <ChevronDown className={cn("size-3 transition-transform", active && "rotate-180")} />
+            </button>
+          );
+        })}
+        <a
+          href={VOICE_LIBRARY_URL}
+          target="_blank"
+          rel="noreferrer"
+          title="Abrir a biblioteca de vozes do ElevenLabs em uma nova guia. Vozes adicionadas à sua conta aparecem aqui ao recarregar."
+          className="ml-auto flex items-center gap-0.5 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+        >
+          Biblioteca
+          <ArrowUpRight className="size-3" />
+        </a>
+      </div>
+
+      {/* Lista do gênero escolhido */}
+      {open && (
+        <div className="flex flex-col gap-2 rounded-lg border bg-card p-2">
+          <div className="flex flex-wrap items-center gap-1">
+            {AGES.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                aria-pressed={age === a.id}
+                onClick={() => setAge(a.id)}
+                className={cn(
+                  "rounded-full px-2.5 py-0.5 text-[11px] transition-colors",
+                  age === a.id ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {a.label}
+              </button>
+            ))}
+          </div>
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar pelo nome" className="h-7 pl-8 text-xs" aria-label="Buscar voz" />
+          </div>
+          <div className="max-h-72 overflow-y-auto">
+            {groups.length === 0 ? (
+              <p className="p-3 text-center text-xs text-muted-foreground">Nenhuma voz com esse filtro.</p>
+            ) : (
+              groups.map((g) => (
+                <section key={g.age}>
+                  <h3 className="sticky top-0 z-10 bg-card px-1 pt-1.5 pb-0.5 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
+                    {AGE_TITLE[g.age]} · {g.list.length}
+                  </h3>
+                  <ul>
+                    {g.list.map((v) => {
+                      const active = v.id === value;
+                      return (
+                        <li key={v.id} className={cn("flex items-center rounded-md", active ? "bg-rec/10" : "hover:bg-muted/60")}>
+                          {playButton(v)}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onChange(v.id);
+                              setOpen(null);
+                            }}
+                            aria-pressed={active}
+                            className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-2 text-left text-sm"
+                          >
+                            <span className="min-w-0 flex-1 truncate">{v.name}</span>
+                            {active && <Check className="size-3.5 shrink-0 text-rec" />}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              ))
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -14,6 +14,7 @@ const TOOL_NAMES: Record<string, string> = {
   upload: "Anexo",
   editor: "Editor de vídeo",
   montagem: "Montagem",
+  "heygen-traducao": "Tradução HeyGen",
 };
 
 // Visualização de uma geração em tela cheia (link aberto a partir dos cards do chat, estúdios e quadro).

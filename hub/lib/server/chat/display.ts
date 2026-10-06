@@ -2,6 +2,7 @@ import "server-only";
 
 import type { ChatItem } from "@/lib/chat";
 import type { Generation } from "@/lib/generations";
+import { LANG_NOTE } from "@/lib/languages";
 import type { Chat } from "@/lib/server/chat/store";
 import { toolDetail } from "@/lib/server/chat/tools";
 import { getGeneration } from "@/lib/server/store";
@@ -38,7 +39,9 @@ export async function toItems(chat: Chat): Promise<ChatItem[]> {
       // O texto digitado é o último bloco de texto; os anteriores são arquivos de texto anexados.
       const texts = m.content.filter((b) => b.type === "text");
       const text = texts.at(-1)?.type === "text" ? texts.at(-1)!.text : "";
-      const cut = text.indexOf(ATTACHMENTS_NOTE);
+      // Notas para o agente (anexos, idioma do criativo) não aparecem na bolha.
+      const cuts = [text.indexOf(ATTACHMENTS_NOTE), text.indexOf(LANG_NOTE)].filter((i) => i >= 0);
+      const cut = cuts.length ? Math.min(...cuts) : -1;
       items.push({ kind: "user", text: cut >= 0 ? text.slice(0, cut) : text, attachments: chat.attachments?.[index] ?? [] });
       continue;
     }

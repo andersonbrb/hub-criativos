@@ -12,10 +12,12 @@ import { quoteFlora, refreshGeneration, runAvatar, runEdit, runFlora, runTts } f
 import { imageRef } from "@/lib/server/chat/images";
 import { listFullChats, type Chat } from "@/lib/server/chat/store";
 import { createCard, getBoard, moveCard, updateCard } from "@/lib/server/board";
-import { autoCaptions, openProject, renderProject, saveProject } from "@/lib/server/editor";
+import { autoCaptions, joinProject, openProject, renderProject, saveProject } from "@/lib/server/editor";
 import { InputError } from "@/lib/server/http";
 import { runMontage } from "@/lib/server/montage";
 import { timeline, type Engine } from "@/lib/server/transcription";
+import { runTranslation } from "@/lib/server/video-translation";
+import { addReferences, drawReferences, kbFiles, kbRead, kbSearch, listNiches, readNiche, saveNiche } from "@/lib/server/ad-writer";
 import {
   contactSheet,
   FRAME_SIZES,
@@ -109,7 +111,8 @@ const objectSchema = (properties: Record<string, unknown>, required: string[] = 
   additionalProperties: false,
 });
 
-const GEN_TOOLS = ["elevenlabs", "heygen", "flora", "higgsfield", "upload", "editor", "montagem"];
+// Enum de hub_list_generations. Mudar a lista invalida o cache só no modo HUB_BRAIN=api (Claude Code e Venice relistam a cada turno).
+const GEN_TOOLS = ["elevenlabs", "heygen", "heygen-traducao", "flora", "higgsfield", "upload", "editor", "montagem"];
 
 const definitions: Anthropic.Beta.BetaTool[] = [
   {
@@ -118,7 +121,7 @@ const definitions: Anthropic.Beta.BetaTool[] = [
       "Lista o que já foi produzido no hub (narrações, avatares, frames, vídeos, edições, b-rolls importados do FLORA e arquivos anexados pelo usuário), do mais recente ao mais antigo, com a decupagem salva de cada um (quando houver). Use para saber o contexto do trabalho, achar o id de uma geração e procurar b-roll que já existe (search) antes de gerar outro.",
     input_schema: objectSchema({
       search: { type: "string", description: "Palavras para procurar no prompt, nos parâmetros e na decupagem salva (ex.: cozinha, mãos, produto na mesa)." },
-      tool: { type: "string", enum: GEN_TOOLS, description: "Filtrar por ferramenta. upload = arquivos anexados no chat." },
+      tool: { type: "string", enum: GEN_TOOLS, description: "Filtrar por ferramenta. upload = arquivos anexados no chat. heygen-traducao = vídeos traduzidos." },
       kind: { type: "string", enum: ["audio", "video", "image"] },
       status: { type: "string", enum: ["pending", "running", "done", "failed"] },
       limit: { type: "integer", minimum: 1, maximum: 100, description: "Padrão 20." },
@@ -236,7 +239,15 @@ const definitions: Anthropic.Beta.BetaTool[] = [
         count: { type: "integer", minimum: 1, maximum: 4, description: "Variações (padrão 1)." },
         reference_generation_id: { type: "string" },
         operation: { type: "string", enum: ["none", "cod"], description: "Padrão none." },
-        market: { type: "string", enum: MARKETS.map((m) => m.id), description: "Mercado COD (só com operation=cod)." },
+        market: {
+          type: "string",
+          enum: MARKETS.map((m) => m.id),
+          description: "Mercado e idioma da fala (vídeo). Com operation=cod aplica as regras do COD; sem COD só fixa o idioma da fala. br=português BR, pt=Portugal, es=espanhol neutro, fr=francês, us=inglês EUA.",
+        },
+        label: {
+          type: "string",
+          description: "Nome curto do que está sendo gerado, para o canvas do FLORA ficar organizado (ex.: \"B-roll 03 · xícara às 16h\", \"Frame produto · cozinha\"). O hub acrescenta o tipo e o número da variação.",
+        },
       },
       ["family", "prompt"],
     ),
@@ -268,7 +279,7 @@ const definitions: Anthropic.Beta.BetaTool[] = [
       {
         avatar_generation_id: { type: "string", description: "Vídeo pronto do avatar falando (HeyGen)." },
         broll_generation_ids: { type: "array", items: { type: "string" }, maxItems: 12, description: "Vídeos prontos de b-roll, na ordem em que entram." },
-        lang: { type: "string", enum: ["es", "pt", "en"], description: "Idioma da fala. Padrão es." },
+        lang: { type: "string", enum: ["es", "pt", "fr", "en"], description: "Idioma da fala. Padrão es." },
         name: { type: "string", description: "Nome do projeto, ex.: AD01." },
       },
       ["avatar_generation_id"],
@@ -414,6 +425,85 @@ const definitions: Anthropic.Beta.BetaTool[] = [
         max_chars: { type: "integer", minimum: 1000, maximum: 40000, description: "Padrão 12000." },
       },
       ["chat_id"],
+    ),
+  },
+  {
+    name: "heygen_translate_video",
+    description:
+      "Traduz um vídeo do hub para outros idiomas no HeyGen (Video Translate: voz da pessoa clonada + lipsync), pelo MCP do HeyGen com os créditos do plano. Um idioma = uma geração 'running' (tool heygen-traducao); acompanhe com hub_check_generations. Cobra créditos premium do HeyGen por minuto e por idioma: confirme idiomas e trecho com o usuário antes. Se o HeyGen não estiver conectado, peça para o usuário clicar em \"Conectar HeyGen\" no estúdio de Tradução.",
+    input_schema: objectSchema(
+      {
+        video_generation_id: { type: "string", description: "Vídeo pronto do hub (gerado, editado ou anexado)." },
+        output_languages: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 1,
+          maxItems: 10,
+          description: "Nomes do HeyGen, ex.: Spanish (Latin America), Spanish (Mexico), Portuguese (Brazil), English (United States), Romanian (Romania).",
+        },
+        mode: { type: "string", enum: ["speed", "precision"], description: "speed (padrão): mais rápido. precision: lipsync melhor." },
+        translate_audio_only: { type: "boolean", description: "Só dubla o áudio, sem lipsync. Padrão false." },
+        input_language: { type: "string", description: "Idioma original (nome do HeyGen). Vazio = detectar." },
+        speaker_num: { type: "integer", minimum: 1, maximum: 10, description: "Quantas pessoas falam. Vazio = automático." },
+        enable_dynamic_duration: { type: "boolean", description: "Padrão true." },
+        disable_music_track: { type: "boolean", description: "Remove a música de fundo." },
+        enable_speech_enhancement: { type: "boolean", description: "Melhora a voz." },
+        keep_the_same_format: { type: "boolean", description: "Mantém resolução e bitrate do original." },
+        start_time: { type: "number", minimum: 0, description: "Traduzir só a partir deste segundo." },
+        end_time: { type: "number", minimum: 0, description: "Traduzir só até este segundo." },
+        brand_glossary_id: { type: "string" },
+        audio_generation_id: { type: "string", description: "Áudio do hub para usar como dublagem no lugar da voz clonada." },
+        title: { type: "string" },
+      },
+      ["video_generation_id", "output_languages"],
+    ),
+  },
+  {
+    name: "editor_join",
+    description:
+      "Junta vídeos do hub em sequência num projeto novo do editor (ex.: gancho + body, variações de gancho com o mesmo body), com corte opcional de cada trecho. Local, com ffmpeg, sem custo: é ASSIM que se juntam vídeos no hub (não existe sandbox do Higgsfield aqui). Com render=true já exporta o MP4 (acompanhe com hub_check_generations); senão devolve o projeto para legendar com editor_open/ajustar e exportar com editor_render. Para N ganchos com o mesmo body, chame uma vez por gancho.",
+    input_schema: objectSchema(
+      {
+        clips: {
+          type: "array",
+          minItems: 2,
+          maxItems: 20,
+          description: "Na ordem em que entram.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              generation_id: { type: "string", description: "Vídeo pronto do hub." },
+              in: { type: "number", minimum: 0, description: "Início do trecho em segundos. Padrão 0." },
+              out: { type: "number", minimum: 0, description: "Fim do trecho em segundos. Padrão: até o fim." },
+            },
+            required: ["generation_id"],
+          },
+        },
+        title: { type: "string", description: "Nome do projeto, ex.: AD01 gancho 2." },
+        render: { type: "boolean", description: "Exportar o MP4 já. Padrão false." },
+      },
+      ["clips"],
+    ),
+  },
+  {
+    name: "ad_writer",
+    description:
+      "Método ad-writer-light (squad de copy de direct response): base de conhecimento + pool de anúncios campeões por nicho. files/read/search: consultar agentes, tasks (revise-hook, revise-body, inject-loops...), data (hook-patterns, emotional-triggers, sexy-canvas-kb, viral-headline-formulas...) e checklists; leia só o trecho necessário (offset). niches/niche_read/niche_save: referências (reference-ads.md) e análises do nicho (pattern-analysis.yaml, synthesis-brief.md, sexy-canvas-analysis.yaml, sexy-synthesis-brief.md, sub-personas.yaml, notes.md), compartilhadas entre Estrategista e Copy; análise salva antes de mudar as referências aparece como VELHA. add_refs: acrescenta anúncios campeões ao pool. draw: sorteio real de referências (nunca escolha de cabeça).",
+    input_schema: objectSchema(
+      {
+        action: { type: "string", enum: ["files", "read", "search", "niches", "niche_read", "niche_save", "add_refs", "draw"] },
+        path: { type: "string", description: "read: caminho da base, ex.: tasks/revise-hook.md." },
+        offset: { type: "integer", minimum: 0, description: "read: a partir de qual caractere (use next_offset). Padrão 0." },
+        max_chars: { type: "integer", minimum: 1000, maximum: 25000, description: "read: padrão 25000." },
+        query: { type: "string", description: "search: palavras (todas na mesma linha)." },
+        niche: { type: "string", description: "Nicho, ex.: garrafa-termica-cl, emagrecimento-infoproduto." },
+        file: { type: "string", description: "niche_read/niche_save: nome do arquivo do nicho." },
+        content: { type: "string", description: "niche_save: conteúdo completo do arquivo." },
+        ads: { type: "array", items: { type: "string" }, maxItems: 50, description: "add_refs: um anúncio por item (texto falado completo)." },
+        count: { type: "integer", minimum: 1, maximum: 30, description: "draw: quantas referências sortear. Padrão 3." },
+      },
+      ["action"],
     ),
   },
 ];
@@ -582,6 +672,7 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
       operation: str(input.operation),
       market: str(input.market),
       referenceId: str(input.reference_generation_id) || undefined,
+      label: str(input.label) || undefined,
     });
     return {
       content: json({ flora_project: chat?.floraProject?.name, items: gens.map(brief) }),
@@ -876,6 +967,93 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
     const text = chatText(c);
     const body = text.length > max ? `(início cortado)\n…${text.slice(-max)}` : text;
     return { content: `Conversa "${c.title}" (${agentName(c)}):\n\n${body}`, summary: `${agentName(c)}: ${cut(c.title, 40)}` };
+  },
+
+  async heygen_translate_video(input) {
+    const optBool = (v: unknown) => (typeof v === "boolean" ? v : undefined);
+    const optNum = (v: unknown) => (v === undefined || v === null || v === "" ? null : Number(v));
+    const gens = await runTranslation({
+      videoGenerationId: str(input.video_generation_id),
+      outputLanguages: (Array.isArray(input.output_languages) ? input.output_languages : []).map(str),
+      mode: input.mode === "precision" ? "precision" : "speed",
+      translateAudioOnly: optBool(input.translate_audio_only),
+      inputLanguage: str(input.input_language) || null,
+      speakerNum: optNum(input.speaker_num),
+      enableDynamicDuration: optBool(input.enable_dynamic_duration),
+      disableMusicTrack: optBool(input.disable_music_track),
+      enableSpeechEnhancement: optBool(input.enable_speech_enhancement),
+      keepTheSameFormat: optBool(input.keep_the_same_format),
+      startTime: optNum(input.start_time),
+      endTime: optNum(input.end_time),
+      brandGlossaryId: str(input.brand_glossary_id) || null,
+      audioGenerationId: str(input.audio_generation_id) || null,
+      title: str(input.title),
+    });
+    return {
+      content: json({ items: gens.map(brief), next: "Acompanhe com hub_check_generations (costuma levar alguns minutos por idioma)." }),
+      summary: `${gens.length} ${gens.length === 1 ? "tradução enviada" : "traduções enviadas"}`,
+      generations: gens,
+    };
+  },
+
+  async editor_join(input) {
+    const items = (Array.isArray(input.clips) ? input.clips : []).map((c) => {
+      const clip = (c && typeof c === "object" ? c : {}) as Input;
+      const optNum = (v: unknown) => (v === undefined || v === null || v === "" ? undefined : Number(v));
+      return { generationId: str(clip.generation_id), in: optNum(clip.in), out: optNum(clip.out) };
+    });
+    const project = await joinProject(items, str(input.title));
+    const { clips, total } = placeClips(project);
+    const info = {
+      project_id: project.id,
+      editor_url: `/editor?p=${project.id}`,
+      duration: Number(total.toFixed(2)),
+      size: `${project.width}x${project.height}`,
+      clips: clips.map((c) => ({ generation_id: c.sourceId, in: Number(c.in.toFixed(2)), out: Number(c.out.toFixed(2)), at: Number(c.offset.toFixed(2)) })),
+    };
+    if (!input.render) return { content: json({ ...info, next: "Use editor_open com legendas ou editor_render para exportar." }), summary: `${clips.length} trechos · ${total.toFixed(1)}s` };
+    const g = await renderProject(project.id);
+    return { content: json({ ...info, export: brief(g) }), summary: `juntando ${clips.length} trechos`, generations: [g] };
+  },
+
+  async ad_writer(input) {
+    const niche = str(input.niche);
+    switch (str(input.action)) {
+      case "files": {
+        const files = await kbFiles();
+        return { content: json(files.map((f) => `${f.path} (${Math.round(f.size / 1000)}k)`)), summary: `${files.length} arquivos do método` };
+      }
+      case "read": {
+        const r = await kbRead(str(input.path), num(input.offset, 0, 10_000_000, 0), num(input.max_chars, 1000, 25000, 25000));
+        return { content: `[${r.path} · caracteres ${r.offset}-${r.offset + r.text.length} de ${r.total_chars}${r.next_offset !== null ? ` · continua em offset=${r.next_offset}` : ""}]\n\n${r.text}`, summary: cut(r.path, 60) };
+      }
+      case "search": {
+        const hits = await kbSearch(str(input.query));
+        return { content: json(hits), summary: `${hits.length} trechos` };
+      }
+      case "niches": {
+        const list = await listNiches();
+        return { content: json(list.length ? list : "Nenhum nicho ainda. Use add_refs com os anúncios campeões."), summary: `${list.length} nichos` };
+      }
+      case "niche_read": {
+        const r = await readNiche(niche, str(input.file) || "reference-ads.md");
+        return { content: json(r), summary: `${r.niche}/${r.file}` };
+      }
+      case "niche_save": {
+        const r = await saveNiche(niche, str(input.file), str(input.content));
+        return { content: json(r), summary: `salvo ${r.niche}/${r.file}` };
+      }
+      case "add_refs": {
+        const r = await addReferences(niche, (Array.isArray(input.ads) ? input.ads : []).map(str));
+        return { content: json(r), summary: `${r.added} referências · total ${r.ref_count}` };
+      }
+      case "draw": {
+        const r = await drawReferences(niche, num(input.count, 1, 30, 3));
+        return { content: json(r), summary: `sorteio: #${r.drawn.map((d) => d.position).join(", #")}` };
+      }
+      default:
+        throw new InputError("Ação inválida.");
+    }
   },
 };
 

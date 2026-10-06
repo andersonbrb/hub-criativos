@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Workspace, WorkspacePanel } from "@/components/workspace";
 import { apiFetch, mediaUrl, type Generation } from "@/lib/generations";
+import { CREATIVE_LANGUAGES } from "@/lib/languages";
 import { cn } from "@/lib/utils";
 
 const DESCRIPTION =
@@ -26,13 +27,9 @@ const RULES = [
   ["Saída", "1080×1920, 30 fps"],
 ];
 
-const LANGS = [
-  { value: "es", label: "Espanhol" },
-  { value: "pt", label: "Português" },
-  { value: "en", label: "Inglês" },
-];
+const LANGS = CREATIVE_LANGUAGES.map((l) => ({ value: l.id, label: l.label }));
 
-const SOURCE: Record<string, string> = { heygen: "HeyGen", flora: "FLORA", higgsfield: "Edição", upload: "Anexo", editor: "Editor", montagem: "Montagem" };
+const SOURCE: Record<string, string> = { heygen: "HeyGen", flora: "FLORA", higgsfield: "Edição", upload: "Anexo", editor: "Editor", montagem: "Montagem", "heygen-traducao": "Tradução" };
 
 async function pollMontage(g: Generation): Promise<Generation | null> {
   const { generation } = await apiFetch<{ generation: Generation }>(`/api/montagem/${g.id}`);
