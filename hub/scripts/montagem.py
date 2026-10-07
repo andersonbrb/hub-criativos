@@ -43,7 +43,7 @@ SPACING = 7.0    # intervalo entre B-rolls (sem deixa)
 BR_MIN = 2.0     # b-roll fica na tela até o fim da frase, entre BR_MIN e BR_MAX segundos
 BR_MAX = 4.5
 FADE_DUR = 0.25  # dissolve de entrada e saída (só nas transições dissolve/zoom)
-MAX_CHARS = 18   # caracteres por bloco de legenda
+MAX_CHARS = 16   # caracteres por bloco de legenda (cabe numa linha dentro da área segura)
 MAX_WORDS = 3    # palavras por bloco de legenda
 WHISPER_MODEL = "small"  # NUNCA "tiny" (causa desync)
 
@@ -98,13 +98,15 @@ def ts(t):
     return f"{h}:{m:02d}:{s:02d}.{c:02d}"
 
 
+# Área segura do 9:16 (Reels/TikTok/Shorts cobrem com a interface deles ~260 px do topo, ~460 px de baixo e
+# ~150 px de cada lado): a legenda fica acima de 1450 px e dentro de 150 px das laterais, em uma linha.
 ASS_HEADER = (
-    "[Script Info]\nScriptType: v4.00+\nWrapStyle: 2\nPlayResX: 1080\nPlayResY: 1920\n\n"
+    "[Script Info]\nScriptType: v4.00+\nWrapStyle: 0\nPlayResX: 1080\nPlayResY: 1920\n\n"
     "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
     "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, "
     "MarginL, MarginR, MarginV, Encoding\n"
-    "Style: Default,Montserrat,110,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
-    "-1,0,0,0,100,100,0,0,1,4,2,2,10,10,280,1\n\n"
+    "Style: Default,Montserrat,96,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
+    "-1,0,0,0,100,100,0,0,1,4,2,2,150,150,470,1\n\n"
     "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
 )
 
@@ -112,9 +114,9 @@ NORMALIZE = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920
 
 # ---------- Efeitos (job["fx"]). Padrão: aproximação lenta nos cortes e b-roll em corte seco; o resto desligado ----------
 FX_DEFAULTS = {
-    "legenda": "padrao",        # "padrao" (branca) | "destaque" (palavra-chave do bloco em cor)
+    "legenda": "padrao",        # "padrao" (acompanha a fala, palavra atual em cor) | "destaque" (bloco inteiro, palavra-chave em cor)
     "cor_destaque": "#22FF66",  # cor da palavra-chave
-    "zoom_cortes": True,        # aproximação lenta e contínua em cada trecho, alternando o enquadramento (esconde o jump cut)
+    "zoom_cortes": True,        # zoom de ritmo: alterna aberto/fechado a cada frase (esconde o jump cut, dá ritmo de UGC editado)
     "transicao": "corte",       # entrada do b-roll: "corte" (seco, padrão) | "dissolve" | "zoom" | "slide"
     "musica": None,             # caminho de um áudio do hub para fundo (abaixa sozinho quando há fala)
     "musica_volume": 0.18,
@@ -180,16 +182,60 @@ def keyword_index(ws):
 
 
 def caption_events(groups, fx):
-    """Eventos ASS, um bloco curto por vez. Destaque: só a palavra-chave do bloco em cor (fixa, sem piscar palavra por palavra)."""
+    """Eventos ASS, um bloco curto por vez (layout fixo: as palavras não pulam de lugar).
+    padrao: acompanha a fala, cada palavra aparece quando é dita e a palavra atual fica em cor.
+    destaque: o bloco inteiro de uma vez, com só a palavra-chave em cor."""
     hl = ass_color(fx.get("cor_destaque"))
     out = []
     for a, b, ws in groups:
-        key = keyword_index(ws) if fx["legenda"] == "destaque" else None
         words_txt = [clean_word(w).upper() for w, _s, _e in ws]
-        text = " ".join(f"{{\\c{hl}}}{x}{{\\c&H00FFFFFF&}}" if k == key else x for k, x in enumerate(words_txt))
-        pop = "{\\fscx94\\fscy94\\t(0,90,\\fscx100\\fscy100)}"
-        out.append(f"Dialogue: 0,{ts(a)},{ts(b)},Default,,0,0,0,,{pop}{text}\n")
+        if fx["legenda"] == "destaque":
+            key = keyword_index(ws)
+            text = " ".join(f"{{\\c{hl}}}{x}{{\\c&H00FFFFFF&}}" if k == key else x for k, x in enumerate(words_txt))
+            out.append(f"Dialogue: 0,{ts(a)},{ts(b)},Default,,0,0,0,,{{\\fscx94\\fscy94\\t(0,90,\\fscx100\\fscy100)}}{text}\n")
+            continue
+        for j in range(len(ws)):
+            start = a if j == 0 else ws[j][1]
+            end = ws[j + 1][1] if j + 1 < len(ws) else b
+            if end <= start:
+                continue
+            parts = []
+            for k, x in enumerate(words_txt):
+                if k < j:
+                    parts.append(x)
+                elif k == j:
+                    parts.append(f"{{\\c{hl}}}{x}{{\\c&H00FFFFFF&}}")
+                else:
+                    parts.append(f"{{\\alpha&HFF&}}{x}{{\\alpha&H00&}}")
+            out.append(f"Dialogue: 0,{ts(start)},{ts(end)},Default,,0,0,0,,{' '.join(parts)}\n")
     return "".join(out)
+
+
+def sentence_starts(ws, jd):
+    """Pontos de troca de enquadramento (depois dos cortes): início de frase ou de trecho (depois de . , ! ? ; :
+    ou de uma pausa > 0,3s), com 2s no mínimo entre trocas e no máximo 4s sem troca (ritmo de UGC editado)."""
+    starts = [0.0]
+    for k in range(1, len(ws)):
+        s = max(0.0, ws[k][1] - 0.05)
+        if s >= jd - 0.8 or s - starts[-1] < 2.0:
+            continue
+        boundary = re.search(r"[.,!?;:…]$", ws[k - 1][0]) or ws[k][1] - ws[k - 1][2] > 0.3
+        if boundary or s - starts[-1] > 4.0:
+            starts.append(round(s, 3))
+    return starts
+
+
+def rhythm_zoom(starts, jd):
+    """Zoom de ritmo: a cada frase o enquadramento alterna entre aberto (100%) e fechado (118%), com uma aproximação
+    lenta dentro da frase. Enquadra um pouco acima do centro para não cortar a cabeça."""
+    ends = starts[1:] + [jd]
+    expr = "1"
+    for k in range(len(starts) - 1, -1, -1):
+        z0 = 1.0 if k % 2 == 0 else 1.18
+        dur = max(0.5, ends[k] - starts[k])
+        expr = f"if(lt(t,{ends[k]:.3f}),{z0}+0.04*(t-{starts[k]:.3f})/{dur:.3f},{expr})"
+    return (f"scale=w='trunc(1080*({expr})/2)*2':h=-2:eval=frame,"
+            "crop=1080:1920:(iw-1080)/2:(ih-1920)*0.3")
 
 
 def norm(s):
@@ -370,12 +416,7 @@ def process(job):
         for i, (a, b) in enumerate(merged):
             p = os.path.join(w, f"c{i}.mp4")
             seg = b - a
-            # Aproximação lenta e contínua (Ken Burns) em cada trecho, alternando o ponto de partida (100% e 107%):
-            # o enquadramento muda a cada corte sem o "pulo" seco de zoom.
             vf = NORMALIZE
-            if fx["zoom_cortes"]:
-                z0 = 1.0 if i % 2 == 0 else 1.07
-                vf += f",scale=w='trunc(1080*({z0}+0.035*t/{max(seg, 0.5):.3f})/2)*2':h=-2:eval=frame,crop=1080:1920"
             # Micro fade no áudio de cada corte: sem estalo na emenda.
             af = f"afade=t=in:d=0.015,afade=t=out:st={max(0.0, seg - 0.025):.3f}:d=0.025"
             run(["ffmpeg", "-y", "-ss", f"{a:.3f}", "-to", f"{b:.3f}", "-i", av, "-vf", vf, "-af", af, *ENC,
@@ -416,9 +457,11 @@ def process(job):
             groups.append((cs, ce, cur)); cur = []
     if cur:
         groups.append((cs, ce, cur))
-    # Cada bloco fica até o próximo começar (sem piscar entre blocos), no máximo 0,6s depois da última palavra.
-    groups = [(a, min(groups[k + 1][0], b + 0.6) if k + 1 < len(groups) else b + 0.3, g)
+    # Cada bloco fica até o próximo começar (sem piscar entre blocos), no máximo 0,6s depois da última palavra,
+    # e a última palavra fica legível por pelo menos 0,3s.
+    groups = [(a, max(g[-1][1] + 0.3, min(groups[k + 1][0], b + 0.6)) if k + 1 < len(groups) else b + 0.3, g)
               for k, (a, b, g) in enumerate(groups)]
+    groups = [(a, min(b, groups[k + 1][0]) if k + 1 < len(groups) else b, g) for k, (a, b, g) in enumerate(groups)]
 
     with open(os.path.join(w, "s.ass"), "w", encoding="utf-8") as f:
         f.write(ASS_HEADER + caption_events(groups, fx))
@@ -431,7 +474,13 @@ def process(job):
     plan = plan_brolls(len(brolls), cues, ws2, jd, cuts, [duration(b) for b in brolls])
     vs = os.path.join(w, "vs.mp4")
     inputs = ["-i", jc]
-    flt = f"[0:v]{NORMALIZE}[base];"
+    # Zoom de ritmo na pessoa (padrão): alterna aberto/fechado a cada frase.
+    if fx["zoom_cortes"]:
+        starts = sentence_starts(ws2, jd)
+        flt = f"[0:v]{NORMALIZE},{rhythm_zoom(starts, jd)}[base];"
+        log(f"zoom de ritmo: {len(starts)} frases")
+    else:
+        flt = f"[0:v]{NORMALIZE}[base];"
     prev = "[base]"
     trans = fx["transicao"] if fx["transicao"] in ("corte", "dissolve", "zoom", "slide") else "corte"
     for k, (i, t, d) in enumerate(plan):

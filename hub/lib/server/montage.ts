@@ -15,6 +15,7 @@ import { createGeneration, DATA_DIR, getGeneration, updateGeneration } from "@/l
 // Python + faster-whisper + ffmpeg (scripts/montagem.py). Não gasta créditos de nenhuma ferramenta.
 
 const SCRIPT = path.join(process.cwd(), "scripts", "montagem.py");
+const BEAT_SCRIPT = path.join(process.cwd(), "scripts", "batida.py");
 const FONTS = path.join(process.cwd(), "scripts", "fonts");
 const LOG_DIR = path.join(DATA_DIR, "montagem");
 export const LANGS = ["es", "pt", "fr", "en"] as const;
@@ -143,43 +144,130 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
     }),
   );
 
-  // Roda em segundo plano; o log fica em .data/montagem/<id>.log e o status é atualizado ao terminar.
+  launch(gen.id, SCRIPT, jobFile, outName, "Montagem", async (line) => {
+    // Gráficos animados (opcionais) depois da edição; se falharem, o vídeo sai sem eles e o log explica.
+    if (!graphics.length) return;
+    try {
+      await applyGraphics({ video: path.join(MEDIA_DIR, outName), timelineFile, graphics, workdir: path.join(DATA_DIR, "tmp", `${gen.id}-gfx`), log: line });
+    } catch (err) {
+      line(`gráficos animados falharam (${err instanceof Error ? err.message.slice(0, 200) : "erro"}); vídeo entregue sem eles`);
+    }
+  });
+
+  return gen;
+}
+
+// Roda um script Python da edição em segundo plano: o log fica em .data/montagem/<id>.log e o status da geração é
+// atualizado ao terminar. `after` roda depois de um DONE (ex.: gráficos animados), antes de marcar como pronta.
+function launch(id: string, script: string, jobFile: string, outName: string, label: string, after?: (line: (m: string) => void) => Promise<void>) {
   const log: string[] = [];
   const python = process.env.PYTHON_BIN || "python";
-  const child = spawn(python, ["-W", "ignore", SCRIPT, jobFile], { windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
+  const child = spawn(python, ["-W", "ignore", script, jobFile], { windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
   child.stdin.end();
-  running.add(gen.id);
+  running.add(id);
   const collect = (chunk: Buffer) => {
     log.push(chunk.toString("utf8"));
-    writeFile(logPath(gen.id), log.join("")).catch(() => {});
+    writeFile(logPath(id), log.join("")).catch(() => {});
   };
   child.stdout.on("data", collect);
   child.stderr.on("data", collect);
   child.on("error", (err) => {
-    running.delete(gen.id);
-    updateGeneration(gen.id, { status: "failed", error: `Não consegui rodar o Python (${err.message}). Defina PYTHON_BIN no .env.local.` });
+    running.delete(id);
+    updateGeneration(id, { status: "failed", error: `Não consegui rodar o Python (${err.message}). Defina PYTHON_BIN no .env.local.` });
   });
   child.on("close", async (code) => {
     const text = log.join("");
     if (code === 0 && text.includes("DONE")) {
-      // Gráficos animados (opcionais) depois da edição; se falharem, o vídeo sai sem eles e o log explica.
-      if (graphics.length) {
-        const line = (m: string) => collect(Buffer.from(`[${new Date().toLocaleTimeString("pt-BR")}] ${m}\n`));
-        try {
-          await applyGraphics({ video: path.join(MEDIA_DIR, outName), timelineFile, graphics, workdir: path.join(DATA_DIR, "tmp", `${gen.id}-gfx`), log: line });
-        } catch (err) {
-          line(`gráficos animados falharam (${err instanceof Error ? err.message.slice(0, 200) : "erro"}); vídeo entregue sem eles`);
-        }
-      }
-      running.delete(gen.id);
-      await updateGeneration(gen.id, { status: "done", file: outName });
+      if (after) await after((m: string) => collect(Buffer.from(`[${new Date().toLocaleTimeString("pt-BR")}] ${m}\n`)));
+      running.delete(id);
+      await updateGeneration(id, { status: "done", file: outName });
     } else {
-      running.delete(gen.id);
+      running.delete(id);
       const err = text.match(/ERROR (.+)/)?.[1] ?? text.trim().split("\n").slice(-2).join(" ");
-      await updateGeneration(gen.id, { status: "failed", error: `Montagem: ${err.slice(0, 300) || `saiu com código ${code}`}` });
+      await updateGeneration(id, { status: "failed", error: `${label}: ${err.slice(0, 300) || `saiu com código ${code}`}` });
     }
   });
+}
 
+// ---------- Edição na batida (scripts/batida.py) ----------
+// Vídeo curto guiado pela música: uma cena por batida, palavras gigantes, efeitos de movimento, tudo em tela cheia.
+// clipIds: vídeos (ou imagens) do hub usados como cenas. songId: áudio do hub; sem ele, uma batida própria sintetizada.
+// words: frases curtas em ordem (topo, baixo em cor, índice opcional do clipe que combina). cta: chamada final.
+export type BeatRequest = {
+  clipIds: string[];
+  songId?: string;
+  songStart?: number;
+  duration?: number;
+  bpm?: number;
+  words?: { top?: string; bottom?: string; clip?: number }[];
+  cta?: { top?: string; bottom?: string; clip?: number };
+  accent?: string;
+  name?: string;
+};
+
+const MAX_BEAT_CLIPS = 16;
+
+export async function runBeatEdit(req: BeatRequest): Promise<Generation> {
+  const ids = [...new Set((req.clipIds ?? []).map(String).filter(Boolean))].slice(0, MAX_BEAT_CLIPS);
+  if (!ids.length) throw new InputError("Escolha pelo menos um vídeo de cena.");
+  const clips = await Promise.all(ids.map((id, i) => videoFile(id, `A cena ${i + 1}`)));
+  let song: string | null = null;
+  if (req.songId) {
+    const m = await getGeneration(String(req.songId));
+    if (!m?.file || m.kind !== "audio") throw new InputError("A música precisa ser um áudio pronto do hub.");
+    song = path.join(MEDIA_DIR, m.file);
+  }
+  const cut = (s: unknown, n = 18) => String(s ?? "").replace(/[{}\\]/g, "").trim().slice(0, n);
+  const clipIdx = (c: unknown) => (Number.isInteger(c) && (c as number) >= 0 && (c as number) < clips.length ? (c as number) : null);
+  const words = (req.words ?? [])
+    .map((w) => [cut(w?.top), cut(w?.bottom), clipIdx(w?.clip)] as const)
+    .filter(([a, b]) => a || b)
+    .slice(0, 40);
+  const cta = [cut(req.cta?.top, 24), cut(req.cta?.bottom, 24)];
+  const duration = Math.min(60, Math.max(6, Number(req.duration) || 15));
+  const bpm = Math.min(180, Math.max(80, Math.round(Number(req.bpm) || 140)));
+  const accent = typeof req.accent === "string" && /^#[0-9a-f]{6}$/i.test(req.accent) ? req.accent : "#FFB627";
+  const name = (String(req.name ?? "").trim() || "BATIDA").replace(/[^\w-]+/g, "_").slice(0, 40);
+
+  const gen = await createGeneration({
+    tool: "montagem",
+    kind: "video",
+    status: "running",
+    prompt: `Edição na batida ${name}: ${words.map(([a, b]) => [a, b].filter(Boolean).join(" ")).join(" / ") || clips[0].g.prompt}`.slice(0, 600),
+    params: {
+      name,
+      formato: "batida",
+      cenas: clips.length,
+      clipIds: ids.join(","),
+      musica: song ? String(req.songId) : "batida própria",
+      duracao: duration,
+      palavras: words.length,
+    },
+  });
+
+  await mkdir(LOG_DIR, { recursive: true });
+  await mkdir(MEDIA_DIR, { recursive: true });
+  const outName = `${randomUUID()}.mp4`;
+  const jobFile = path.join(LOG_DIR, `${gen.id}.json`);
+  await writeFile(
+    jobFile,
+    JSON.stringify({
+      name,
+      clips: clips.map((c) => c.file),
+      song,
+      song_start: Math.max(0, Number(req.songStart) || 0),
+      dur: duration,
+      bpm,
+      words,
+      cta,
+      cta_clip: clipIdx(req.cta?.clip),
+      accent,
+      out: path.join(MEDIA_DIR, outName),
+      workdir: path.join(DATA_DIR, "tmp", gen.id),
+      fontsdir: FONTS,
+    }),
+  );
+  launch(gen.id, BEAT_SCRIPT, jobFile, outName, "Edição na batida");
   return gen;
 }
 

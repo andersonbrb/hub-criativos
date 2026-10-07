@@ -20,11 +20,12 @@ export type Posicao = "topo" | "meio" | "baixo";
 // Destaque e CTA embaixo para não tapar o rosto do avatar (que fica no terço de cima/meio).
 const POSICAO_PADRAO: Record<Grafico["tipo"], Posicao> = { titulo: "topo", contador: "topo", destaque: "baixo", lista: "meio", cta: "baixo" };
 
-// Área do gráfico na tela 1080×1920. "baixo" para acima da legenda (legenda: rodapé, até ~1640px).
+// Área do gráfico na tela 1080×1920, dentro da área segura do 9:16 (260 px do topo, 150 px dos lados; Reels/TikTok
+// cobrem ~460 px de baixo). "baixo" termina em 1320 px, acima da faixa da legenda (1350–1450 px): nunca se sobrepõem.
 function area(g: Grafico, extra: CSSProperties = {}): CSSProperties {
   const p = g.posicao ?? POSICAO_PADRAO[g.tipo];
   const v: CSSProperties =
-    p === "topo" ? { justifyContent: "flex-start", paddingTop: 230 } : p === "baixo" ? { justifyContent: "flex-end", paddingBottom: 500 } : { justifyContent: "center" };
+    p === "topo" ? { justifyContent: "flex-start", paddingTop: 260 } : p === "baixo" ? { justifyContent: "flex-end", paddingBottom: 600 } : { justifyContent: "center" };
   return { alignItems: "center", ...v, ...extra };
 }
 
@@ -51,7 +52,7 @@ function Titulo({ g }: { g: Grafico }) {
   const palavras = g.texto.toUpperCase().split(/\s+/).filter(Boolean);
   return (
     <AbsoluteFill style={area(g, { opacity: saida })}>
-      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "8px 18px", maxWidth: 900, padding: "0 40px" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "8px 16px", maxWidth: 780 }}>
         {palavras.map((p, i) => {
           const s = spring({ frame: frame - i * 3, fps, config: { damping: 14, stiffness: 180 } });
           return (
@@ -59,7 +60,7 @@ function Titulo({ g }: { g: Grafico }) {
               key={i}
               style={{
                 fontFamily: FONT,
-                fontSize: 92,
+                fontSize: 80,
                 lineHeight: 1.05,
                 color: "white",
                 background: i === palavras.length - 1 ? g.cor ?? "#22FF66" : "rgba(10,10,10,0.82)",
@@ -93,13 +94,13 @@ function Destaque({ g }: { g: Grafico }) {
           color: "#0A0A0A",
           fontFamily: FONT,
           padding: "26px 54px",
-          maxWidth: 900,
+          maxWidth: 780,
           textAlign: "center",
           boxShadow: sombra,
           border: "6px solid #0A0A0A",
         }}
       >
-        <div style={{ fontSize: g.texto.length > 12 ? 92 : g.texto.length > 8 ? 112 : 130, lineHeight: 1 }}>{semQuebra(g.texto).toUpperCase()}</div>
+        <div style={{ fontSize: g.texto.length > 12 ? 76 : g.texto.length > 8 ? 96 : 116, lineHeight: 1 }}>{semQuebra(g.texto).toUpperCase()}</div>
         {g.sub && <div style={{ fontSize: 44, marginTop: 10, letterSpacing: 1 }}>{g.sub.toUpperCase()}</div>}
       </div>
     </AbsoluteFill>
@@ -113,7 +114,7 @@ function Lista({ g }: { g: Grafico }) {
   const itens = g.itens?.length ? g.itens : g.texto.split(/\s*[;|]\s*/).filter(Boolean);
   const passo = Math.max(6, Math.floor((g.duracao * fps * 0.6) / Math.max(1, itens.length)));
   return (
-    <AbsoluteFill style={area(g, { alignItems: "flex-start", paddingLeft: 80, opacity: saida })}>
+    <AbsoluteFill style={area(g, { alignItems: "flex-start", paddingLeft: 150, paddingRight: 150, opacity: saida })}>
       <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
         {itens.map((t, i) => {
           const s = spring({ frame: frame - i * passo, fps, config: { damping: 15, stiffness: 170 } });
@@ -137,7 +138,7 @@ function Lista({ g }: { g: Grafico }) {
                   <path d="M4 12.5l5 5L20 6.5" fill="none" stroke="#0A0A0A" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </span>
-              <span style={{ fontFamily: FONT, fontSize: 62, color: "white", background: "rgba(10,10,10,0.82)", padding: "6px 18px", boxShadow: sombra }}>
+              <span style={{ fontFamily: FONT, fontSize: 54, color: "white", background: "rgba(10,10,10,0.82)", padding: "6px 18px", boxShadow: sombra }}>
                 {t.toUpperCase()}
               </span>
             </div>
@@ -186,10 +187,10 @@ function Cta({ g }: { g: Grafico }) {
             background: g.cor ?? "#22FF66",
             color: "#0A0A0A",
             fontFamily: FONT,
-            fontSize: 58,
+            fontSize: 50,
             lineHeight: 1.1,
             textAlign: "center",
-            maxWidth: 880,
+            maxWidth: 780,
             padding: "22px 50px",
             borderRadius: 60,
             boxShadow: sombra,

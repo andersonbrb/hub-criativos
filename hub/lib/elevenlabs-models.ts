@@ -31,7 +31,8 @@ export const DEFAULT_ELEVEN_MODEL = ELEVEN_MODELS[0].id;
 export const getElevenModel = (id: string) => ELEVEN_MODELS.find((m) => m.id === id);
 
 // Ajustes padrão para narração de anúncio: estabilidade mais baixa deixa as tags e a entonação variarem mais.
-export const NARRATION_DEFAULTS = { stability: 0.4, similarity: 0.75, style: 0.3, speed: 1 };
+// Receita aprovada em vídeos reais (skill motion-designer): estabilidade 0.3, similaridade 0.8.
+export const NARRATION_DEFAULTS = { stability: 0.3, similarity: 0.8, style: 0.3, speed: 1 };
 
 // Tags de emoção mais úteis em anúncio (o ElevenLabs entende melhor em inglês; o rótulo é para a tela).
 export const AUDIO_TAGS: { tag: string; label: string }[] = [

@@ -21,6 +21,7 @@ const FORMATS = [
   { value: "auto", label: "A IA escolhe", hint: "Recomendado", text: "a IA escolhe" },
   { value: "pessoa", label: "Pessoa falando", hint: "Uma pessoa apresenta o produto, com cenas extras", text: "pessoa falando (avatar UGC + cenas extras)" },
   { value: "produto", label: "Produto em cena", hint: "O produto aparecendo em uso, com fala", text: "produto em cena (vídeo do produto com fala)" },
+  { value: "batida", label: "Motion na batida", hint: "Cenas do produto cortadas na música, palavras gigantes, sem pessoa", text: "motion na batida (cenas do produto cortadas na música, palavras gigantes, sem pessoa e sem narração)" },
 ] as const;
 
 const DURATIONS = [15, 30, 45, 60, 90] as const;
@@ -66,6 +67,7 @@ export function AutoCreative({ initialId, configured }: { initialId: string | nu
 function StartForm({ start, configured }: { start: StartChat; configured: boolean }) {
   const [about, setAbout] = useState("");
   const [photos, setPhotos] = useState<{ file: File; url: string }[]>([]);
+  const [music, setMusic] = useState<File | null>(null);
   const [format, setFormat] = useState<(typeof FORMATS)[number]["value"]>("auto");
   const [lang, setLang] = useState("pt");
   const [country, setCountry] = useState("");
@@ -110,10 +112,11 @@ function StartForm({ start, configured }: { start: StartChat; configured: boolea
       `Valor do produto: ${sayPrice ? `${price.trim()} (falar no CTA e mostrar no destaque animado)` : "não falar o valor no anúncio"}`,
       `Chamada final (CTA): ${ctaText}`,
       `Fotos do produto: ${photos.length ? `${photos.length} anexada${photos.length > 1 ? "s" : ""}` : "nenhuma"}`,
+      ...(format === "batida" ? [`Música: ${music ? `anexada (${music.name}); use em music_generation_id` : "nenhuma (use a batida própria do hub)"}`] : []),
       "",
       "Produza o criativo completo até o vídeo final editado.",
     ].join("\n");
-    start(text, photos.map((p) => p.file), lang);
+    start(text, [...photos.map((p) => p.file), ...(format === "batida" && music ? [music] : [])], lang);
   }
 
   return (
@@ -171,12 +174,29 @@ function StartForm({ start, configured }: { start: StartChat; configured: boolea
       </Field>
 
       <Field label="Formato do vídeo">
-        <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Formato do vídeo">
+        <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Formato do vídeo">
           {FORMATS.map((f) => (
             <Choice key={f.value} active={format === f.value} onClick={() => setFormat(f.value)} label={f.label} hint={f.hint} />
           ))}
         </div>
       </Field>
+
+      {format === "batida" && (
+        <Field label="Música (opcional)" hint="mp3, wav ou m4a">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <label className="cursor-pointer border border-dashed px-3 py-2 hover:border-foreground/40 hover:text-foreground">
+              {music ? music.name : "Escolher a música"}
+              <input type="file" accept="audio/*" hidden onChange={(e) => (setMusic(e.target.files?.[0] ?? null), (e.target.value = ""))} />
+            </label>
+            {music && (
+              <button type="button" className="underline-offset-2 hover:underline" onClick={() => setMusic(null)}>
+                tirar
+              </button>
+            )}
+            <span>Os cortes caem nas batidas dela. Sem música, o hub cria uma batida própria. Música de terceiros pode ter direitos autorais em anúncio pago.</span>
+          </div>
+        </Field>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Idioma do anúncio" id="auto-lang">

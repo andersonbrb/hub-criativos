@@ -52,6 +52,7 @@ export const TOOL_LABELS: Record<string, string> = {
   higgsfield_list_edits: "Listando edições do Higgsfield",
   higgsfield_edit: "Editando vídeo no Higgsfield",
   hub_montage: "Edição final",
+  hub_beat_edit: "Edição na batida",
   hub_transcribe: "Transcrevendo e identificando o idioma",
   hub_view_video: "Assistindo ao vídeo",
   hub_save_analysis: "Salvando a decupagem",

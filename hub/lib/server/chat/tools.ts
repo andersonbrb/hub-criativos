@@ -19,7 +19,7 @@ import { createCard, getBoard, moveCard, updateCard } from "@/lib/server/board";
 import { autoCaptions, joinProject, openProject, renderProject, saveProject } from "@/lib/server/editor";
 import { InputError } from "@/lib/server/http";
 import { MEDIA_DIR } from "@/lib/server/media";
-import { runMontage, type MontageFx } from "@/lib/server/montage";
+import { runBeatEdit, runMontage, type MontageFx } from "@/lib/server/montage";
 import type { GraphicRequest } from "@/lib/server/motion";
 import { timeline, type Engine } from "@/lib/server/transcription";
 import { runTranslation } from "@/lib/server/video-translation";
@@ -175,7 +175,7 @@ const definitions: Anthropic.Beta.BetaTool[] = [
     description:
       "Gera uma narração (texto para fala) no ElevenLabs. Síncrono: devolve a geração pronta, que pode ir para o lipsync do HeyGen. Até 5.000 caracteres. Cobra 1 crédito por caractere (Flash: meio).\n" +
       "VOZ REAL E COM EMOÇÃO (obrigatório em narração de anúncio): use eleven_v4 (padrão, mesmo custo do multilingual_v2) e ANOTE o texto com audio tags em inglês entre colchetes, antes do trecho que cada uma colore, de acordo com o sentido da fala. Ex.: dor → [frustrated] ou [sighs]; curiosidade/gancho → [curious] ou [mischievously]; revelação → [surprised] ou [gasps]; benefício/oferta → [excited] ou [happy]; prova/garantia → [confident] ou [sincere]; segredo → [whispers]; humor → [laughs] ou [chuckles]; CTA → [excited] ou [warmly]. Também vale descrever: [said warmly, smiling].\n" +
-      "Dose: uma tag a cada 1 ou 2 frases, no máximo 2 juntas; tags NÃO são faladas nem entram na legenda. O texto deve soar falado: frases que fluem, vírgulas naturais, contrações do idioma ('tá', 'pra'), números e preços por extenso. Evite reticências e pontos demais (criam pausas robóticas); use '...' só para uma pausa dramática intencional e MAIÚSCULA só para ênfase de uma palavra.\n" +
+      "Dose: tags só nos 3 a 5 momentos de virada do roteiro (gancho, dor, revelação, oferta, CTA), nunca em toda frase; tags NÃO são faladas nem entram na legenda. O roteiro INTEIRO vai numa geração só (uma tomada contínua: gerações separadas mudam energia e tom a cada emenda). O texto deve soar falado: frases curtas depois de uma longa, perguntas, contrações do idioma ('tá', 'pra'), números e preços por extenso. Pausa só ENTRE frases: nada de '...' nem vírgula no meio da frase (quebra a fala no meio); ênfase com MAIÚSCULA em uma palavra. Depois de gerar, transcreva (hub_transcribe) e compare com o roteiro: se uma frase saiu lida errado, refaça só ela.\n" +
       "Não use eleven_flash_v2_5 em narração final (soa robótico); só se o usuário pedir rascunho. Não acelere: speed não existe no v4; nos modelos que aceitam, fique entre 0.95 e 1.05.",
     input_schema: objectSchema(
       {
@@ -188,8 +188,8 @@ const definitions: Anthropic.Beta.BetaTool[] = [
           description:
             "eleven_v4 (padrão): o mais natural e emotivo, aceita audio tags. eleven_v4_turbo: quase igual e mais rápido, aceita tags. eleven_v3: expressivo, aceita tags. eleven_multilingual_v2: estável, pouca emoção, ignora tags. eleven_flash_v2_5: mais barato e robótico, só rascunho.",
         },
-        stability: { type: "number", minimum: 0, maximum: 1, description: "Padrão 0.4 (mais baixo = mais emoção e variação; 0.3 em ganchos enérgicos)." },
-        similarity: { type: "number", minimum: 0, maximum: 1, description: "Padrão 0.75." },
+        stability: { type: "number", minimum: 0, maximum: 1, description: "Padrão 0.3 (mais baixo = mais emoção e variação)." },
+        similarity: { type: "number", minimum: 0, maximum: 1, description: "Padrão 0.8." },
         style: { type: "number", minimum: 0, maximum: 1, description: "Só multilingual_v2. Padrão 0.3." },
         speed: { type: "number", minimum: 0.7, maximum: 1.1, description: "Não existe no v4/v3. Padrão 1." },
       },
@@ -595,6 +595,43 @@ const definitions: Anthropic.Beta.BetaTool[] = [
       ["action"],
     ),
   },
+  {
+    name: "hub_beat_edit",
+    description:
+      "EDIÇÃO NA BATIDA (motion na batida): criativo curto guiado pela música, sem narração, local e sem custo. Uma cena por batida do grave depois da \"virada\" da música, tensão em câmera lenta antes dela, palavras gigantes batendo na tela (1 a 3 por vez, a de baixo na cor de destaque), zoom e tremida na batida, chicote, glitch de cor, flash, vinheta, granulado, respiro em câmera lenta e a chamada final pulsando na batida. Tudo em VÍDEO de tela cheia: passe vídeos (b-rolls) do hub como cenas; quanto mais cenas diferentes (6 a 10), melhor. Sem efeito sonoro de transição: o único som é a música.\n" +
+      "Música: music_generation_id = áudio do hub (o usuário manda a faixa; avise que música de terceiros pode ter direitos autorais em anúncio pago); sem música, o hub sintetiza uma batida própria (phonk/trap) no BPM pedido.\n" +
+      "Palavras: escreva uma frase só, quebrada em pedaços curtos e reais sobre o produto (ex.: PASTEL DE FEIRA / SÓ QUE EM CASA / FRITO NA HORA / 4 POR R$ 49,90), no idioma do anúncio; para cada pedaço, clip = índice (0..) da cena que mostra aquilo. Termine com cta (ex.: CHAMA NO / WHATSAPP) e o clip do produto. Assíncrono: acompanhe com hub_check_generations.",
+    input_schema: objectSchema(
+      {
+        clip_generation_ids: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 16, description: "Vídeos do hub usados como cenas, na ordem dos índices (clip 0, 1, 2…)." },
+        music_generation_id: { type: "string", description: "Áudio do hub. Sem ele, batida própria sintetizada." },
+        music_start: { type: "number", minimum: 0, description: "Segundo da música em que o vídeo começa (pegue o trecho com a virada)." },
+        duration: { type: "number", minimum: 6, maximum: 60, description: "Segundos. Padrão 15." },
+        bpm: { type: "integer", minimum: 80, maximum: 180, description: "Só para a batida própria. Padrão 140." },
+        words: {
+          type: "array",
+          maxItems: 40,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              top: { type: "string", description: "Linha de cima (branca), até 18 caracteres." },
+              bottom: { type: "string", description: "Linha de baixo (cor de destaque), a palavra de impacto." },
+              clip: { type: "integer", minimum: 0, description: "Índice da cena que combina com estas palavras." },
+            },
+          },
+        },
+        cta: {
+          type: "object",
+          additionalProperties: false,
+          properties: { top: { type: "string" }, bottom: { type: "string" }, clip: { type: "integer", minimum: 0 } },
+        },
+        accent: { type: "string", description: "#RRGGBB da palavra de destaque. Padrão #FFB627 (dourado)." },
+        name: { type: "string" },
+      },
+      ["clip_generation_ids"],
+    ),
+  },
 ];
 
 const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>> = {
@@ -813,6 +850,28 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
       name: str(input.name),
     });
     return { content: json(brief(g)), summary: "montagem iniciada", generations: [g] };
+  },
+
+  async hub_beat_edit(input) {
+    const obj = (v: unknown) => (v && typeof v === "object" ? (v as Input) : {});
+    const g = await runBeatEdit({
+      clipIds: (Array.isArray(input.clip_generation_ids) ? input.clip_generation_ids : []).map(str),
+      songId: input.music_generation_id ? str(input.music_generation_id) : undefined,
+      songStart: Number(input.music_start) || 0,
+      duration: Number(input.duration) || undefined,
+      bpm: Number(input.bpm) || undefined,
+      words: (Array.isArray(input.words) ? input.words : []).map((w) => {
+        const o = obj(w);
+        return { top: str(o.top), bottom: str(o.bottom), clip: Number.isInteger(o.clip) ? (o.clip as number) : undefined };
+      }),
+      cta: (() => {
+        const o = obj(input.cta);
+        return { top: str(o.top), bottom: str(o.bottom), clip: Number.isInteger(o.clip) ? (o.clip as number) : undefined };
+      })(),
+      accent: str(input.accent) || undefined,
+      name: str(input.name),
+    });
+    return { content: json(brief(g)), summary: "edição na batida iniciada", generations: [g] };
   },
 
   async editor_open(input) {
