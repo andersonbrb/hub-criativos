@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bookmark, BookmarkCheck, Clapperboard, Download, Eraser, Eye, KeyRound, Loader2, Pencil, Trash2 } from "lucide-react";
+import { Bookmark, BookmarkCheck, CaptionsOff, Clapperboard, Download, Eraser, Eye, KeyRound, Loader2, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { TextShimmer } from "@/components/motion-primitives/text-shimmer";
@@ -328,6 +328,7 @@ export function GenerationCard({
                 {saved ? <BookmarkCheck /> : <Bookmark />}
               </Button>
             )}
+            {g.kind === "video" && g.status === "done" && url && <RemoveCaptionsButton g={g} />}
             <Button variant="ghost" size="icon-xs" aria-label="Renomear" title="Renomear" onClick={() => setEditing(shownTitle)}>
               <Pencil />
             </Button>
@@ -345,6 +346,89 @@ export function GenerationCard({
         </div>
       </div>
     </div>
+  );
+}
+
+// Remover a legenda queimada do vídeo (LaMa, local): gera um vídeo novo na aba Edição; o original fica.
+const CAPTION_AREAS = [
+  { value: "baixo", label: "Embaixo" },
+  { value: "meio", label: "No meio" },
+  { value: "topo", label: "Em cima" },
+  { value: "tudo", label: "Em qualquer lugar" },
+] as const;
+
+function RemoveCaptionsButton({ g }: { g: Generation }) {
+  const [open, setOpen] = useState(false);
+  const [region, setRegion] = useState<(typeof CAPTION_AREAS)[number]["value"]>("baixo");
+  const [boxed, setBoxed] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function start() {
+    setBusy(true);
+    try {
+      await apiFetch(`/api/montagem/sem-legenda`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoId: g.id, region, mode: boxed ? "faixa" : "auto" }),
+      });
+      toast.success("Removendo a legenda. O vídeo novo aparece na aba Edição (leva alguns minutos).");
+      setOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Não consegui começar.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon-xs" aria-label="Remover legenda" title="Remover legenda">
+          <CaptionsOff />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Remover a legenda do vídeo</DialogTitle>
+          <DialogDescription>
+            O LaMa apaga o texto quadro a quadro e refaz o fundo no lugar. Sai um vídeo novo, com o mesmo áudio; o original fica. Roda no seu
+            computador, sem custo: cerca de 10 minutos para 30 segundos de vídeo.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium">Onde está a legenda?</span>
+            <div className="grid grid-cols-4 gap-1 border p-1" role="radiogroup" aria-label="Onde está a legenda">
+              {CAPTION_AREAS.map((a) => (
+                <button
+                  key={a.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={region === a.value}
+                  onClick={() => setRegion(a.value)}
+                  className={cn("py-1.5 text-xs transition-colors", region === a.value ? "bg-rec text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground")}
+                >
+                  {a.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <label className="flex items-start gap-2 text-xs">
+            <input type="checkbox" checked={boxed} onChange={(e) => setBoxed(e.target.checked)} className="mt-0.5" />
+            <span>A legenda fica numa tarja ou caixa de fundo (apaga a linha inteira em vez de só as letras)</span>
+          </label>
+        </div>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline">Cancelar</Button>
+          </DialogClose>
+          <Button onClick={start} disabled={busy}>
+            {busy ? <Loader2 className="animate-spin" /> : <CaptionsOff />}
+            Remover legenda
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

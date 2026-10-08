@@ -1,6 +1,6 @@
 import "server-only";
 
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -16,6 +16,8 @@ import { createGeneration, DATA_DIR, getGeneration, updateGeneration } from "@/l
 
 const SCRIPT = path.join(process.cwd(), "scripts", "montagem.py");
 const BEAT_SCRIPT = path.join(process.cwd(), "scripts", "batida.py");
+const CAPTION_SCRIPT = path.join(process.cwd(), "scripts", "remover_legenda.py");
+const LAMA_MODEL = path.join(DATA_DIR, "models", "big-lama.pt");
 const FONTS = path.join(process.cwd(), "scripts", "fonts");
 const LOG_DIR = path.join(DATA_DIR, "montagem");
 export const LANGS = ["es", "pt", "fr", "en"] as const;
@@ -183,7 +185,10 @@ function launch(id: string, script: string, jobFile: string, outName: string, la
       await updateGeneration(id, { status: "done", file: outName });
     } else {
       running.delete(id);
-      const err = text.match(/ERROR (.+)/)?.[1] ?? text.trim().split("\n").slice(-2).join(" ");
+      const missing = /No module named '(torch|cv2)'/.exec(text)?.[1];
+      const err = missing
+        ? `falta instalar ${missing === "cv2" ? "o OpenCV" : "o PyTorch"} neste servidor (pip install torch opencv-python-headless); por enquanto isso roda no PC`
+        : (text.match(/ERROR (.+)/)?.[1] ?? text.trim().split("\n").slice(-2).join(" "));
       await updateGeneration(id, { status: "failed", error: `${label}: ${err.slice(0, 300) || `saiu com código ${code}`}` });
     }
   });
@@ -268,6 +273,45 @@ export async function runBeatEdit(req: BeatRequest): Promise<Generation> {
     }),
   );
   launch(gen.id, BEAT_SCRIPT, jobFile, outName, "Edição na batida");
+  return gen;
+}
+
+// ---------- Remover legenda (scripts/remover_legenda.py, LaMa) ----------
+// Tira a legenda queimada de um vídeo: acha o texto em cada quadro e preenche a área com o LaMa (inpainting).
+// region: onde procurar (baixo, meio, topo, tudo). mode: "auto" (só as letras) ou "faixa" (a faixa inteira do texto).
+export const CAPTION_REGIONS = ["baixo", "meio", "topo", "tudo"] as const;
+export type CaptionRemovalRequest = { videoId: string; region?: (typeof CAPTION_REGIONS)[number]; mode?: "auto" | "faixa"; name?: string };
+
+// Duração do vídeo (para a previsão de tempo da barra de progresso); 0 se o ffprobe falhar.
+function seconds(file: string): Promise<number> {
+  return new Promise((resolve) => {
+    execFile("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file], { windowsHide: true }, (err, out) =>
+      resolve(err ? 0 : Number(String(out).trim()) || 0),
+    );
+  });
+}
+
+export async function runRemoveCaptions(req: CaptionRemovalRequest): Promise<Generation> {
+  const { g, file } = await videoFile(String(req.videoId ?? ""), "O vídeo");
+  const region = CAPTION_REGIONS.includes(req.region as (typeof CAPTION_REGIONS)[number]) ? (req.region as string) : "baixo";
+  const mode = req.mode === "faixa" ? "faixa" : "auto";
+  const name = String(req.name ?? "").trim().slice(0, 80) || `${g.name || g.prompt.slice(0, 50)} · sem legenda`;
+  const gen = await createGeneration({
+    tool: "montagem",
+    kind: "video",
+    status: "running",
+    name,
+    prompt: `Sem legenda: ${g.prompt}`.slice(0, 600),
+    params: { formato: "sem-legenda", origem: g.id, regiao: region, modo: mode, duracao: Math.round((await seconds(file)) || Number(g.params.duration) || 0) || null },
+  });
+  await mkdir(LOG_DIR, { recursive: true });
+  const outName = `${randomUUID()}.mp4`;
+  const jobFile = path.join(LOG_DIR, `${gen.id}.json`);
+  await writeFile(
+    jobFile,
+    JSON.stringify({ input: file, out: path.join(MEDIA_DIR, outName), workdir: path.join(DATA_DIR, "tmp", gen.id), model: LAMA_MODEL, region, mode }),
+  );
+  launch(gen.id, CAPTION_SCRIPT, jobFile, outName, "Remover legenda");
   return gen;
 }
 

@@ -63,6 +63,8 @@ export function expectedSeconds(g: Generation): number | null {
     case "heygen-traducao":
       return 600;
     case "montagem":
+      if (p.formato === "sem-legenda") return Math.max(60, (Number(p.duracao) || 20) * 22); // LaMa na CPU: ~0,6 s por quadro
+      if (p.formato === "batida") return 45;
       return 100 + (p.graficos ? 60 : 0) + (p.efeitos ? 20 : 0);
     case "editor":
       return 60;

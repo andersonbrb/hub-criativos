@@ -19,7 +19,7 @@ import { createCard, getBoard, moveCard, updateCard } from "@/lib/server/board";
 import { autoCaptions, joinProject, openProject, renderProject, saveProject } from "@/lib/server/editor";
 import { InputError } from "@/lib/server/http";
 import { MEDIA_DIR } from "@/lib/server/media";
-import { runBeatEdit, runMontage, type MontageFx } from "@/lib/server/montage";
+import { runBeatEdit, runMontage, runRemoveCaptions, type MontageFx } from "@/lib/server/montage";
 import type { GraphicRequest } from "@/lib/server/motion";
 import { timeline, type Engine } from "@/lib/server/transcription";
 import { runTranslation } from "@/lib/server/video-translation";
@@ -631,6 +631,19 @@ const definitions: Anthropic.Beta.BetaTool[] = [
       },
       ["clip_generation_ids"],
     ),
+  },  {
+    name: "hub_remove_captions",
+    description:
+      "REMOVER LEGENDA queimada de um vídeo do hub com o LaMa (inpainting): acha o texto em cada quadro e refaz o fundo no lugar; o áudio sai igual. Local e sem custo, mas lento na CPU (~0,6 s por quadro: 30 s de vídeo ≈ 10 min). Use antes de traduzir ou reaproveitar um criativo que já tem legenda, ou quando o usuário pedir. O resultado é um vídeo novo (o original fica). Assíncrono: acompanhe com hub_check_generations. Funciona melhor com legenda clara com contorno ou sombra escura; para legenda numa tarja/caixa sólida use mode=faixa.",
+    input_schema: objectSchema(
+      {
+        generation_id: { type: "string", description: "Vídeo pronto do hub." },
+        region: { type: "string", enum: ["baixo", "meio", "topo", "tudo"], description: "Onde está a legenda. Padrão baixo. Olhe os quadros (hub_view_video) se não souber." },
+        mode: { type: "string", enum: ["auto", "faixa"], description: "auto (padrão): só as letras. faixa: o retângulo inteiro de cada linha (legenda em tarja)." },
+        name: { type: "string" },
+      },
+      ["generation_id"],
+    ),
   },
 ];
 
@@ -872,6 +885,17 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
       name: str(input.name),
     });
     return { content: json(brief(g)), summary: "edição na batida iniciada", generations: [g] };
+  },
+
+  async hub_remove_captions(input) {
+    const region = str(input.region);
+    const g = await runRemoveCaptions({
+      videoId: str(input.generation_id),
+      region: (["baixo", "meio", "topo", "tudo"].includes(region) ? region : "baixo") as "baixo",
+      mode: input.mode === "faixa" ? "faixa" : "auto",
+      name: str(input.name),
+    });
+    return { content: json(brief(g)), summary: "removendo a legenda", generations: [g] };
   },
 
   async editor_open(input) {

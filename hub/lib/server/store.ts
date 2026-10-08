@@ -58,7 +58,8 @@ export async function getGeneration(id: string): Promise<Generation | undefined>
 // Só na primeira vez: se você tirar da Biblioteca, `saved` fica false e não volta.
 const FINAL_TOOLS: GenerationTool[] = ["montagem", "editor", "heygen-traducao"];
 function autoSave(gen: Generation) {
-  if (gen.status === "done" && gen.saved === undefined && FINAL_TOOLS.includes(gen.tool)) gen.saved = true;
+  // Vídeo sem legenda é material de trabalho (ex.: para traduzir), não criativo final.
+  if (gen.status === "done" && gen.saved === undefined && FINAL_TOOLS.includes(gen.tool) && gen.params.formato !== "sem-legenda") gen.saved = true;
 }
 
 export function createGeneration(data: Omit<Generation, "id" | "createdAt">): Promise<Generation> {
