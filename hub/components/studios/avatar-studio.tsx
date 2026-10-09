@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Loader2, Pause, Play, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { OpenAppButton } from "@/components/open-app-button";
+import { CreateAvatarDialog, CreationsList, useAvatarCreations } from "@/components/studios/create-avatar-dialog";
 import { Field, GenerationCard, HistoryActions, HistoryPanel, MissingKey, useGenerations } from "@/components/studios/shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +53,13 @@ export function AvatarStudio({ configured }: { configured: boolean }) {
   const [playing, setPlaying] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const { items, loaded, add, remove, clear } = useGenerations("heygen", pollVideo);
+  // Avatar novo pronto: recarrega "Meus avatares".
+  const [looksKey, setLooksKey] = useState(0);
+  const onAvatarReady = useCallback(() => {
+    setOwnership("private");
+    setLooksKey((k) => k + 1);
+  }, []);
+  const avatars = useAvatarCreations(onAvatarReady);
 
   useEffect(() => {
     if (!configured) return;
@@ -65,7 +73,7 @@ export function AvatarStudio({ configured }: { configured: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [configured, ownership]);
+  }, [configured, ownership, looksKey]);
 
   // Vozes buscadas por idioma (a lista geral do HeyGen vem cortada). As suas vozes vêm sempre primeiro.
   useEffect(() => {
@@ -174,14 +182,16 @@ export function AvatarStudio({ configured }: { configured: boolean }) {
             <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input placeholder="Buscar avatar" className="pl-8" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Buscar avatar" />
           </div>
+          <CreateAvatarDialog credits={avatars.credits} onCreated={avatars.add} />
         </div>
+        <CreationsList creations={avatars.creations} onDismiss={avatars.dismiss} />
         {!configured ? (
           <p className="py-10 text-center text-sm text-muted-foreground">Conecte a chave do HeyGen para ver seus avatares.</p>
         ) : looks === null ? (
           <Loader2 className="mx-auto my-10 size-5 animate-spin text-muted-foreground" />
         ) : filteredLooks.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">
-            {ownership === "private" ? "Nenhum avatar seu. Veja os públicos ou crie um no HeyGen." : "Nenhum avatar encontrado."}
+            {ownership === "private" ? "Nenhum avatar seu. Veja os públicos ou clique em Criar avatar." : "Nenhum avatar encontrado."}
           </p>
         ) : (
           <div className="grid grid-cols-2 gap-2 @sm:grid-cols-3 @xl:grid-cols-4 @3xl:grid-cols-5 @5xl:grid-cols-6">
