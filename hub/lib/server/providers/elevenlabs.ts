@@ -1,10 +1,15 @@
 import "server-only";
 
-import { voiceSettingsFor } from "@/lib/elevenlabs-models";
-import { requireKey } from "@/lib/server/env";
-import { ProviderError } from "@/lib/server/http";
+import { resolveElevenModel } from "@/lib/elevenlabs-models";
+import { mcp } from "@/lib/server/mcp-client";
 
-const BASE = "https://api.elevenlabs.io";
+// ElevenLabs pelo MCP remoto (api.elevenlabs.io/v1/mcp) com login OAuth da conta (Integrações → ElevenLabs).
+// Cada geração vira um flow no ElevenLabs e roda em segundo plano: começa, consulta o status até terminar e baixa o resultado.
+
+const el = mcp("elevenlabs");
+
+const ctx = (why: string) => `Hub de Criativos (ferramenta local de criativos de anúncio): ${why}`;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // gender/age normalizados a partir dos labels do ElevenLabs, para agrupar como na biblioteca deles.
 export type VoiceGender = "female" | "male" | "neutral" | "";
@@ -59,16 +64,6 @@ function normAge(v?: string): VoiceAge {
   return "";
 }
 
-async function call(path: string, init?: RequestInit) {
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: { "xi-api-key": requireKey("elevenlabs"), ...init?.headers },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new ProviderError("ElevenLabs", res.status, await res.text());
-  return res;
-}
-
 type RawVoice = {
   voice_id: string;
   name: string;
@@ -76,34 +71,55 @@ type RawVoice = {
   description?: string | null;
   preview_url?: string | null;
   labels?: Record<string, string>;
+  is_library_voice?: boolean;
 };
 
+// creative_list_voices devolve no máximo 25 vozes por busca, sem paginação: as da conta primeiro, depois as da
+// biblioteca. Para cobrir as vozes da conta, juntamos várias buscas (grátis) e tiramos as repetidas.
+const VOICE_QUERIES: Record<string, unknown>[] = [
+  { languages: ["pt"] },
+  { languages: ["es"] },
+  { languages: ["en"] },
+  { search: "narrador" },
+  { search: "narradora" },
+  { search: "clone" },
+  { gender: "female" },
+  { gender: "male" },
+  { age: "old" },
+  { age: "young" },
+];
+
+const LIBRARY_LANGUAGES = ["pt", "es", "en"];
+
+let voiceCache: { at: number; voices: ElevenVoice[] } | null = null;
+
 export async function listVoices(): Promise<ElevenVoice[]> {
-  const voices: RawVoice[] = [];
-  let token: string | undefined;
-  // /v2/voices é paginado; buscamos até 300 vozes da conta.
-  for (let page = 0; page < 3; page++) {
-    const qs = new URLSearchParams({ page_size: "100", ...(token ? { next_page_token: token } : {}) });
-    const data = (await (await call(`/v2/voices?${qs}`)).json()) as {
-      voices: RawVoice[];
-      has_more?: boolean;
-      next_page_token?: string | null;
-    };
-    voices.push(...data.voices);
-    if (!data.has_more || !data.next_page_token) break;
-    token = data.next_page_token;
+  if (voiceCache && Date.now() - voiceCache.at < 120_000) return voiceCache.voices;
+  const search = (args: Record<string, unknown>) =>
+    el.callTool<{ voices?: RawVoice[] }>("creative_list_voices", { context: ctx("listar as vozes da conta para o usuário escolher a da narração"), ...args });
+  // A primeira busca abre a sessão do MCP; as outras vão em paralelo.
+  const first = await search({});
+  const rest = await Promise.allSettled(VOICE_QUERIES.map(search));
+  const seen = new Map<string, RawVoice>();
+  for (const page of [first, ...rest.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []))]) {
+    for (const v of page.voices ?? []) if (v?.voice_id && !seen.has(v.voice_id)) seen.set(v.voice_id, v);
   }
-  return voices.map((v) => {
+  // Vozes da conta primeiro, depois as da biblioteca pública (só nos idiomas das operações, para não poluir a lista).
+  const raw = [...seen.values()]
+    .filter((v) => !v.is_library_voice || LIBRARY_LANGUAGES.includes(v.labels?.language ?? ""))
+    .sort((a, b) => Number(Boolean(a.is_library_voice)) - Number(Boolean(b.is_library_voice)));
+  const voices = raw.map((v): ElevenVoice => {
     const labels = v.labels ?? {};
+    const name = v.name.trim();
     const gender = normGender(labels.gender);
     const age = normAge(labels.age);
     // O nome vale mais que a descrição (ex.: "AD21 narradora" com descrição genérica "Clone do narrador…").
-    const guessedGender = gender ? "" : guessGender(v.name) || guessGender(v.description ?? "");
-    const guessedAge = age ? "" : guessAge(v.name) || guessAge(v.description ?? "");
+    const guessedGender = gender ? "" : guessGender(name) || guessGender(v.description ?? "");
+    const guessedAge = age ? "" : guessAge(name) || guessAge(v.description ?? "");
     return {
       id: v.voice_id,
-      name: v.name,
-      category: v.category ?? "",
+      name,
+      category: v.is_library_voice ? "library" : (v.category ?? ""),
       description: v.description || Object.values(labels).join(" · "),
       previewUrl: v.preview_url ?? null,
       gender: gender || guessedGender,
@@ -113,47 +129,175 @@ export async function listVoices(): Promise<ElevenVoice[]> {
       useCase: labels.use_case ?? labels["use case"] ?? labels.descriptive ?? "",
     };
   });
+  voiceCache = { at: Date.now(), voices };
+  return voices;
 }
+
+// ---------- Execução no flow (começa → consulta o status até terminar) ----------
+
+type Started = { flow_id?: string; node_id?: string; session_ids?: string[]; session_id?: string; poll_after_seconds?: number };
+type RunStatus = { all_completed?: boolean; has_failures?: boolean; poll_after_seconds?: number; generations?: unknown[]; notes?: string } & Record<string, unknown>;
+
+// Percorre o JSON da resposta (os resultados podem vir aninhados) e devolve [chave, valor] de todas as folhas.
+function leaves(node: unknown, key = "", out: [string, unknown][] = []): [string, unknown][] {
+  if (Array.isArray(node)) node.forEach((v) => leaves(v, key, out));
+  else if (node && typeof node === "object") for (const [k, v] of Object.entries(node)) leaves(v, k, out);
+  else out.push([key, node]);
+  return out;
+}
+
+function findKey(node: unknown, key: string): unknown {
+  if (Array.isArray(node)) {
+    for (const v of node) {
+      const hit = findKey(v, key);
+      if (hit !== undefined) return hit;
+    }
+  } else if (node && typeof node === "object") {
+    const obj = node as Record<string, unknown>;
+    if (key in obj) return obj[key];
+    for (const v of Object.values(obj)) {
+      const hit = findKey(v, key);
+      if (hit !== undefined) return hit;
+    }
+  }
+  return undefined;
+}
+
+function failureMessage(status: RunStatus): string {
+  const msg = leaves(status.generations ?? status).find(([k, v]) => /error|fail|reason/i.test(k) && typeof v === "string" && v.trim())?.[1];
+  return typeof msg === "string" ? msg.slice(0, 300) : "a geração falhou";
+}
+
+async function waitRun(start: Started, what: string, timeoutMs: number): Promise<RunStatus> {
+  const flowId = start.flow_id;
+  const sessionIds = start.session_ids?.length ? start.session_ids : start.session_id ? [start.session_id] : [];
+  if (!flowId || !sessionIds.length) throw new Error(`ElevenLabs não devolveu o andamento da ${what}.`);
+  const deadline = Date.now() + timeoutMs;
+  let wait = start.poll_after_seconds ?? 3;
+  for (;;) {
+    await sleep(Math.min(15, Math.max(1, wait)) * 1000);
+    const status = await el.callTool<RunStatus>("creative_get_flow_run_status", {
+      context: ctx(`acompanhar a ${what} até terminar`),
+      flow_id: flowId,
+      session_ids: sessionIds,
+    });
+    if (status.has_failures) throw new Error(`ElevenLabs: ${failureMessage(status)}`);
+    if (status.all_completed) return status;
+    if (Date.now() > deadline) throw new Error(`ElevenLabs demorou mais de ${Math.round(timeoutMs / 60_000)} min na ${what}. Veja o flow no ElevenLabs: ${String(status.url ?? "")}`.trim());
+    wait = status.poll_after_seconds ?? 3;
+  }
+}
+
+// URL do arquivo gerado: prefere chaves de áudio/saída e ignora links do canvas (elevenlabs.io/app/...).
+function outputUrl(status: RunStatus): string | null {
+  const rank = (k: string) => (/audio/i.test(k) ? 0 : /output|download|file|media|asset|result/i.test(k) ? 1 : k === "url" ? 2 : 3);
+  const urls = leaves(status.generations ?? [])
+    .filter((e): e is [string, string] => typeof e[1] === "string" && /^https?:\/\//.test(e[1]) && !/elevenlabs\.io\/app\//.test(e[1]) && !/thumbnail|orb_url|preview_image/i.test(e[0]))
+    .sort((a, b) => rank(a[0]) - rank(b[0]));
+  return urls[0]?.[1] ?? null;
+}
+
+// ---------- Texto para fala ----------
 
 export type TtsInput = {
   text: string;
   voiceId: string;
   modelId: string;
-  stability: number;
-  similarity: number;
-  style: number;
-  speed: number;
 };
 
 export async function textToSpeech(input: TtsInput): Promise<ArrayBuffer> {
-  const res = await call(`/v1/text-to-speech/${encodeURIComponent(input.voiceId)}?output_format=mp3_44100_128`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "audio/mpeg" },
-    body: JSON.stringify({
-      text: input.text,
-      model_id: input.modelId,
-      // Só os ajustes que o modelo aceita (v4 não tem velocidade/estilo; v3 só estabilidade em 3 níveis).
-      voice_settings: voiceSettingsFor(input.modelId, input),
-    }),
+  // Nunca repetir creative_generate_speech para "tentar de novo": cada chamada cobra uma geração nova.
+  const start = await el.callTool<Started>("creative_generate_speech", {
+    context: ctx("gerar a narração de um anúncio com o roteiro e a voz que o usuário escolheu"),
+    prompt: input.text,
+    model_id: resolveElevenModel(input.modelId),
+    voice_id: input.voiceId,
+    generations_count: 1,
   });
+  const status = await waitRun(start, "narração", 180_000);
+  const url = outputUrl(status);
+  if (!url) throw new Error("ElevenLabs terminou a narração, mas não devolveu o endereço do áudio.");
+  const res = await el.download(url);
+  if (!res.ok) throw new Error(`Não consegui baixar a narração do ElevenLabs (${res.status}).`);
+  if ((res.headers.get("content-type") ?? "").includes("text/html")) throw new Error("O ElevenLabs devolveu uma página em vez do áudio da narração.");
   return res.arrayBuffer();
 }
 
-export type SttWord = { text: string; start: number; end: number };
+// ---------- Transcrição (Scribe) ----------
 
-// Transcrição com tempo por palavra (Scribe), usada para gerar as legendas do editor.
-export async function transcribe(audio: Buffer, filename: string): Promise<{ language: string; words: SttWord[] }> {
-  const form = new FormData();
-  form.set("model_id", "scribe_v2");
-  form.set("tag_audio_events", "false");
-  form.set("timestamps_granularity", "word");
-  form.set("file", new Blob([new Uint8Array(audio)], { type: "audio/mpeg" }), filename);
-  const data = (await (await call("/v1/speech-to-text", { method: "POST", body: form })).json()) as {
-    language_code?: string;
-    words?: { text: string; start: number; end: number; type: string }[];
-  };
+export type SttWord = { text: string; start: number; end: number };
+export type SttResult = { language: string; languageProbability: number | null; text: string; words: SttWord[] };
+
+type RawWord = { text?: string; word?: string; start?: number; end?: number; type?: string };
+
+function toWords(list: unknown): SttWord[] {
+  if (!Array.isArray(list)) return [];
+  return (list as RawWord[])
+    .filter((w) => w && (!w.type || w.type === "word") && typeof w.start === "number" && typeof w.end === "number")
+    .map((w) => ({ text: String(w.text ?? w.word ?? "").trim(), start: w.start!, end: w.end! }))
+    .filter((w) => w.text);
+}
+
+const mimeOf = (filename: string) =>
+  ({ wav: "audio/wav", m4a: "audio/mp4", ogg: "audio/ogg", webm: "audio/webm", flac: "audio/flac" })[filename.split(".").pop()?.toLowerCase() ?? ""] ?? "audio/mpeg";
+
+// Sobe o áudio para um flow novo, transcreve com o Scribe e devolve texto, idioma e tempo por palavra.
+export async function transcribeFull(audio: Buffer, filename: string): Promise<SttResult> {
+  const why = ctx("transcrever a fala de um vídeo/áudio do hub com tempo por palavra, para legendas");
+  const flow = await el.callTool<{ flow_id?: string }>("creative_create_flow", { context: why, name: `Hub de Criativos · transcrição ${filename}` });
+  if (!flow.flow_id) throw new Error("ElevenLabs não criou o flow da transcrição.");
+
+  const mime = mimeOf(filename);
+  const up = await el.callTool<{ asset_id?: string; upload_url?: string; upload_headers?: Record<string, string> }>("creative_create_asset_upload", {
+    context: why,
+    name: filename,
+    mime_type: mime,
+    file_size: audio.length,
+  });
+  if (!up.asset_id || !up.upload_url) throw new Error("ElevenLabs não devolveu o endereço de envio do áudio.");
+  const put = await fetch(up.upload_url, { method: "PUT", headers: { ...up.upload_headers, "Content-Type": mime }, body: new Uint8Array(audio) });
+  if (!put.ok) throw new Error(`Falhou o envio do áudio ao ElevenLabs (${put.status}).`);
+  const fin = await el.callTool<Record<string, unknown>>("creative_finalize_asset_upload", { context: why, asset_id: up.asset_id, flow_id: flow.flow_id });
+  const nodeId = findKey(fin, "node_id");
+  if (typeof nodeId !== "string") throw new Error("ElevenLabs não colocou o áudio no flow da transcrição.");
+
+  // Nunca repetir creative_transcribe_audio para "tentar de novo": cada chamada cobra uma transcrição nova.
+  const start = await el.callTool<Started>("creative_transcribe_audio", {
+    context: why,
+    model_id: "eleven_scribe_v1",
+    flow_id: flow.flow_id,
+    connect_from: [nodeId],
+  });
+  const status = await waitRun({ ...start, flow_id: start.flow_id ?? flow.flow_id }, "transcrição", 600_000);
+
+  const transcripts = findKey(status, "transcripts");
+  const t = ((Array.isArray(transcripts) ? transcripts[0] : transcripts) ?? {}) as Record<string, unknown>;
+  let words = toWords(t.words);
+  const download = t.words_download_url;
+  // A lista de palavras pode vir cortada na resposta; a completa fica em words_download_url.
+  if (typeof download === "string" && (t.words_truncated || !words.length || (typeof t.words_count === "number" && t.words_count > words.length))) {
+    const res = await el.download(download);
+    if (res.ok) {
+      const data = (await res.json().catch(() => null)) as unknown;
+      const full = toWords(Array.isArray(data) ? data : (data as { words?: unknown } | null)?.words);
+      if (full.length) words = full;
+    }
+  }
+  const lang = t.language_code ?? t.language ?? findKey(status, "language_code");
+  const prob = t.language_probability ?? findKey(status, "language_probability");
+  const text = typeof t.text === "string" ? t.text : words.map((w) => w.text).join(" ");
   return {
-    language: data.language_code ?? "",
-    words: (data.words ?? []).filter((w) => w.type === "word").map(({ text, start, end }) => ({ text: text.trim(), start, end })),
+    language: typeof lang === "string" ? lang : "",
+    languageProbability: typeof prob === "number" ? prob : null,
+    text: text.trim(),
+    words,
   };
 }
+
+// Transcrição com tempo por palavra, usada para gerar as legendas do editor.
+export async function transcribe(audio: Buffer, filename: string): Promise<{ language: string; words: SttWord[] }> {
+  const { language, words } = await transcribeFull(audio, filename);
+  return { language, words };
+}
+
+export const elevenlabsConnected = async () => (await el.connectionStatus()).connected;

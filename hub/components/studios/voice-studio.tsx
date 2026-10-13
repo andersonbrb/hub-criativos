@@ -1,30 +1,28 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, RotateCcw, Sparkles } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { OpenAppButton } from "@/components/open-app-button";
-import { Field, GenerationCard, HistoryActions, HistoryPanel, MissingKey, SliderField, useGenerations } from "@/components/studios/shared";
+import { Field, GenerationCard, HistoryActions, HistoryPanel, MissingKey, useGenerations } from "@/components/studios/shared";
 import { VoicePicker, type PickerVoice } from "@/components/studios/voice-picker";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Workspace, WorkspacePanel } from "@/components/workspace";
-import { AUDIO_TAGS, DEFAULT_ELEVEN_MODEL, ELEVEN_MODELS, NARRATION_DEFAULTS, V3_STABILITY } from "@/lib/elevenlabs-models";
+import { AUDIO_TAGS, DEFAULT_ELEVEN_MODEL, ELEVEN_MODELS, elevenModelLabel, isHalfCreditModel } from "@/lib/elevenlabs-models";
 import { apiFetch, type Generation } from "@/lib/generations";
-import { cn } from "@/lib/utils";
 
 const DESCRIPTION =
   "Texto para fala com as vozes da sua conta ElevenLabs. As narrações ficam salvas no hub e vão para o Avatar e o Editor.";
 
 type Voice = PickerVoice;
 
-// Modelos e ajustes de cada um vêm de lib/elevenlabs-models.ts (o mesmo que o servidor usa).
+// Modelos vêm de lib/elevenlabs-models.ts (o mesmo que o servidor usa). O MCP do ElevenLabs não tem ajustes de voz
+// (estabilidade, similaridade, estilo, velocidade): só modelo e voz.
 const MODELS = ELEVEN_MODELS;
-
-const DEFAULTS = NARRATION_DEFAULTS;
 
 export function VoiceStudio({ configured }: { configured: boolean }) {
   const [text, setText] = useState("");
@@ -32,7 +30,6 @@ export function VoiceStudio({ configured }: { configured: boolean }) {
   const [voiceId, setVoiceId] = useState("");
   // Sempre começa no modelo mais avançado.
   const [modelId, setModelId] = useState(DEFAULT_ELEVEN_MODEL);
-  const [settings, setSettings] = useState(DEFAULTS);
   const [busy, setBusy] = useState(false);
   const [voicesLoaded, setVoicesLoaded] = useState(false);
   const { items, loaded, add, remove, clear } = useGenerations("elevenlabs");
@@ -50,7 +47,7 @@ export function VoiceStudio({ configured }: { configured: boolean }) {
 
   const voice = voices.find((v) => v.id === voiceId);
   const model = MODELS.find((m) => m.id === modelId)!;
-  const credits = modelId === "eleven_flash_v2_5" ? Math.ceil(text.length / 2) : text.length;
+  const credits = isHalfCreditModel(modelId) ? Math.ceil(text.length / 2) : text.length;
   const textRef = useRef<HTMLTextAreaElement>(null);
 
   // Insere a tag de emoção onde está o cursor (antes da frase que ela deve colorir).
@@ -72,7 +69,7 @@ export function VoiceStudio({ configured }: { configured: boolean }) {
       const { generation } = await apiFetch<{ generation: Generation }>("/api/elevenlabs/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voiceId, voiceName: voice?.name, modelId, ...settings }),
+        body: JSON.stringify({ text, voiceId, voiceName: voice?.name, modelId }),
       });
       add(generation);
       toast.success("Narração gerada");
@@ -161,7 +158,7 @@ export function VoiceStudio({ configured }: { configured: boolean }) {
           {configured ? (
             <VoicePicker voices={voices} value={voiceId} onChange={setVoiceId} loading={!voicesLoaded} />
           ) : (
-            <p className="text-xs text-muted-foreground">Conecte a chave do ElevenLabs para ver suas vozes.</p>
+            <p className="text-xs text-muted-foreground">Conecte o ElevenLabs em Integrações para ver suas vozes.</p>
           )}
         </Field>
 
@@ -181,72 +178,6 @@ export function VoiceStudio({ configured }: { configured: boolean }) {
           <p className="text-xs text-muted-foreground">{model.note}</p>
         </Field>
 
-        {/* Só os ajustes que o modelo escolhido aceita, como no ElevenLabs. */}
-        {model.settings.includes("speed") && (
-          <SliderField
-            label="Velocidade"
-            min={0.7}
-            max={1.1}
-            value={settings.speed}
-            onChange={(speed) => setSettings((s) => ({ ...s, speed }))}
-            format={(v) => `${v.toFixed(2)}×`}
-            left="Mais lenta"
-            right="Mais rápida"
-          />
-        )}
-        {model.settings.includes("stability") &&
-          (model.stabilityPresets ? (
-            <Field label="Estabilidade">
-              <div className="grid grid-cols-3 gap-1 rounded-lg border bg-card p-1" role="radiogroup" aria-label="Estabilidade">
-                {V3_STABILITY.map((p) => {
-                  const active = Math.abs(settings.stability - p.value) < 0.26;
-                  return (
-                    <button
-                      key={p.label}
-                      type="button"
-                      role="radio"
-                      aria-checked={active}
-                      title={p.note}
-                      onClick={() => setSettings((s) => ({ ...s, stability: p.value }))}
-                      className={cn("rounded-md py-1.5 text-xs font-medium transition-colors", active ? "bg-rec text-white" : "text-muted-foreground hover:bg-muted hover:text-foreground")}
-                    >
-                      {p.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </Field>
-          ) : (
-            <SliderField
-              label="Estabilidade"
-              value={settings.stability}
-              onChange={(stability) => setSettings((s) => ({ ...s, stability }))}
-              left="Mais variável"
-              right="Mais estável"
-            />
-          ))}
-        {model.settings.includes("similarity") && (
-          <SliderField
-            label="Similaridade"
-            value={settings.similarity}
-            onChange={(similarity) => setSettings((s) => ({ ...s, similarity }))}
-            left="Baixa"
-            right="Alta"
-          />
-        )}
-        {model.settings.includes("style") && (
-          <SliderField
-            label="Exagero de estilo"
-            value={settings.style}
-            onChange={(style) => setSettings((s) => ({ ...s, style }))}
-            left="Nenhum"
-            right="Exagerado"
-          />
-        )}
-        <Button variant="ghost" size="sm" className="self-start" onClick={() => setSettings(DEFAULTS)}>
-          <RotateCcw />
-          Restaurar padrão
-        </Button>
       </WorkspacePanel>
 
       <WorkspacePanel
@@ -271,7 +202,7 @@ export function VoiceStudio({ configured }: { configured: boolean }) {
               key={g.id}
               g={g}
               onDelete={remove}
-              meta={`${g.params.voiceName || "Voz"} · ${MODELS.find((m) => m.id === g.params.modelId)?.label ?? g.params.modelId} · ${new Date(g.createdAt).toLocaleString("pt-BR")}`}
+              meta={`${g.params.voiceName || "Voz"} · ${elevenModelLabel(String(g.params.modelId ?? ""))} · ${new Date(g.createdAt).toLocaleString("pt-BR")}`}
             />
           ))}
         </HistoryPanel>

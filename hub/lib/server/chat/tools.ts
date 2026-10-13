@@ -38,7 +38,7 @@ import {
   videoInfo,
 } from "@/lib/server/video";
 import { listVoices as listElevenVoices } from "@/lib/server/providers/elevenlabs";
-import { createProject, listProjects } from "@/lib/server/providers/flora";
+import { createProject, getProject, listProjects } from "@/lib/server/providers/flora";
 import { listLooks, listVoices as listHeyVoices } from "@/lib/server/providers/heygen";
 import { getGeneration, listGenerations } from "@/lib/server/store";
 
@@ -1081,7 +1081,10 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
     if (action === "link") {
       const id = str(input.project_id).trim();
       const name = str(input.name).trim().toLowerCase();
-      const p = projects.find((x) => x.id === id) ?? (name ? projects.find((x) => x.name.toLowerCase() === name) : undefined);
+      const p =
+        projects.find((x) => x.id === id) ??
+        (name ? projects.find((x) => x.name.toLowerCase() === name) : undefined) ??
+        (id ? await getProject(id) : null); // projeto de outro workspace da conta
       if (!p) throw new InputError("Projeto não encontrado. Use action=list para ver os projetos.");
       if (chat) chat.floraProject = { id: p.id, name: p.name };
       return { content: json({ current: chat?.floraProject ?? p }), summary: `projeto: ${p.name}` };
@@ -1103,7 +1106,7 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
     const id = str(input.project_id).trim();
     let project = chat?.floraProject;
     if (id) {
-      const p = (await listProjects()).find((x) => x.id === id);
+      const p = (await listProjects()).find((x) => x.id === id) ?? (await getProject(id));
       if (!p) throw new InputError("Projeto não encontrado. Use flora_projects action=list.");
       project = { id: p.id, name: p.name };
     }

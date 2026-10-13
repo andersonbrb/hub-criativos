@@ -1,37 +1,25 @@
 import "server-only";
 
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { requireKey } from "@/lib/server/env";
-import { ProviderError } from "@/lib/server/http";
+import { callTool, uploadAsset } from "@/lib/server/heygen-mcp";
 import { MEDIA_DIR } from "@/lib/server/media";
 
-// HeyGen API v3 (developers.heygen.com). Auth: x-api-key.
-const BASE = "https://api.heygen.com";
+// HeyGen pelo MCP (mcp.heygen.com, login da conta em Integrações): avatares, vozes e vídeo do avatar falando.
+// Consome os créditos do plano web do HeyGen, não o saldo da API.
 
-async function call<T = unknown>(pathname: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${pathname}`, {
-    ...init,
-    headers: { "x-api-key": requireKey("heygen"), Accept: "application/json", ...init?.headers },
-    cache: "no-store",
-  });
-  const text = await res.text();
-  if (!res.ok) throw new ProviderError("HeyGen", res.status, text);
-  return JSON.parse(text) as T;
-}
-
-// As respostas da v3 às vezes vêm dentro de { data }, às vezes não.
+// As respostas às vezes vêm dentro de { data }, às vezes não.
 function unwrap<T>(json: unknown): T {
   const j = json as { data?: unknown };
-  return (j && typeof j === "object" && "data" in j ? j.data : json) as T;
+  return (j && typeof j === "object" && "data" in j && j.data !== null ? j.data : json) as T;
 }
 
-function asList<T>(json: unknown, key: string): T[] {
+function asList<T>(json: unknown, ...keys: string[]): T[] {
   const inner = unwrap<unknown>(json);
   if (Array.isArray(inner)) return inner as T[];
-  const obj = inner as Record<string, unknown>;
-  return (Array.isArray(obj?.[key]) ? obj[key] : []) as T[];
+  const obj = (inner ?? {}) as Record<string, unknown>;
+  for (const k of keys) if (Array.isArray(obj[k])) return obj[k] as T[];
+  return [];
 }
 
 export type HeyLook = {
@@ -43,9 +31,9 @@ export type HeyLook = {
 };
 
 export async function listLooks(ownership: "public" | "private"): Promise<HeyLook[]> {
-  const json = await call(`/v3/avatars/looks?ownership=${ownership}&limit=50`);
   type Raw = { id: string; name?: string; avatar_type?: string; preview_image_url?: string; preferred_orientation?: string };
-  return asList<Raw>(json, "looks").map((l) => ({
+  const json = await callTool("list_avatar_looks", { ownership, limit: 50 });
+  return asList<Raw>(json, "looks", "items").map((l) => ({
     id: l.id,
     name: l.name ?? "Avatar",
     type: l.avatar_type ?? "",
@@ -56,13 +44,12 @@ export async function listLooks(ownership: "public" | "private"): Promise<HeyLoo
 
 export type HeyVoice = { id: string; name: string; language: string; gender: string; preview: string | null; own: boolean };
 
-// A lista sem filtro vem cortada em 100 por tipo; filtrar pelo idioma garante as vozes certas (ex.: Spanish).
+// A lista sem filtro vem cortada; filtrar pelo idioma garante as vozes certas (ex.: Spanish). As suas vêm primeiro.
 export async function listVoices(language?: string): Promise<HeyVoice[]> {
   type Raw = { voice_id: string; name: string; language?: string; gender?: string; preview_audio_url?: string };
-  const lang = language ? `&language=${encodeURIComponent(language)}` : "";
   const [priv, pub] = await Promise.all([
-    call(`/v3/voices?type=private&limit=100`).catch(() => ({ data: [] })),
-    call(`/v3/voices?type=public&limit=100${lang}`),
+    callTool("list_voices", { type: "private", limit: 100 }).catch(() => ({ data: [] })),
+    callTool("list_voices", { type: "public", limit: 100, ...(language ? { language } : {}) }),
   ]);
   const map = (own: boolean) => (v: Raw): HeyVoice => ({
     id: v.voice_id,
@@ -72,9 +59,9 @@ export async function listVoices(language?: string): Promise<HeyVoice[]> {
     preview: v.preview_audio_url ?? null,
     own,
   });
-  const mine = asList<Raw>(priv, "voices").map(map(true));
+  const mine = asList<Raw>(priv, "voices", "items").map(map(true));
   const ids = new Set(mine.map((v) => v.id));
-  const publicVoices = asList<Raw>(pub, "voices")
+  const publicVoices = asList<Raw>(pub, "voices", "items")
     .map(map(false))
     .filter((v) => !ids.has(v.id) && (!language || v.language === language));
   return [...mine, ...publicVoices];
@@ -82,14 +69,7 @@ export async function listVoices(language?: string): Promise<HeyVoice[]> {
 
 // Sobe um áudio gerado no hub (ex.: narração do ElevenLabs) para usar no lipsync.
 export async function uploadAudio(file: string): Promise<string> {
-  const bytes = await readFile(path.join(MEDIA_DIR, file));
-  const form = new FormData();
-  form.set("file", new Blob([bytes], { type: file.endsWith(".wav") ? "audio/wav" : "audio/mpeg" }), file);
-  const json = await call(`/v3/assets`, { method: "POST", body: form });
-  const data = unwrap<{ asset_id?: string; id?: string }>(json);
-  const id = data.asset_id ?? data.id;
-  if (!id) throw new Error("HeyGen não devolveu o id do áudio enviado.");
-  return id;
+  return uploadAsset(path.join(MEDIA_DIR, file), `audio:${file}`, file.endsWith(".wav") ? "audio/wav" : "audio/mpeg");
 }
 
 export type CreateVideoInput = {
@@ -100,25 +80,19 @@ export type CreateVideoInput = {
 } & ({ script: string; voiceId: string } | { audioAssetId: string });
 
 export async function createVideo(input: CreateVideoInput): Promise<string> {
-  const body: Record<string, string> = {
-    type: "avatar",
-    avatar_id: input.lookId,
-    aspect_ratio: input.aspectRatio,
+  const args: Record<string, unknown> = {
+    avatarId: input.lookId,
+    aspectRatio: input.aspectRatio,
     resolution: input.resolution,
     title: input.title,
   };
-  if ("audioAssetId" in input) body.audio_asset_id = input.audioAssetId;
+  if ("audioAssetId" in input) args.audioAssetId = input.audioAssetId;
   else {
-    body.script = input.script;
-    body.voice_id = input.voiceId;
+    args.script = input.script;
+    args.voiceId = input.voiceId;
   }
-  const json = await call(`/v3/videos`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = unwrap<{ video_id?: string; id?: string }>(json);
-  const id = data.video_id ?? data.id;
+  const data = unwrap<{ video_id?: string; videoId?: string; id?: string }>(await callTool("create_video_from_avatar", args));
+  const id = data.video_id ?? data.videoId ?? data.id;
   if (!id) throw new Error("HeyGen não devolveu o id do vídeo.");
   return id;
 }
@@ -127,7 +101,7 @@ export type HeyVideoStatus = { status: string; url: string | null; error: string
 
 export async function getVideo(id: string): Promise<HeyVideoStatus> {
   const data = unwrap<{ status: string; video_url?: string; failure_message?: string; failure_code?: string }>(
-    await call(`/v3/videos/${encodeURIComponent(id)}`),
+    await callTool("get_video", { videoId: id }),
   );
   return {
     status: data.status,

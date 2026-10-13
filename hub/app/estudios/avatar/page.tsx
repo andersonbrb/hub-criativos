@@ -1,11 +1,11 @@
 import { connection } from "next/server";
 
 import { AvatarStudio } from "@/components/studios/avatar-studio";
-import { hasKey } from "@/lib/server/env";
+import { mcp } from "@/lib/server/mcp-client";
 
 export default async function AvatarPage() {
   await connection();
-  const configured = hasKey("heygen");
+  const configured = (await mcp("heygen").connectionStatus()).connected;
   return (
     <main className="h-workspace">
       <AvatarStudio configured={configured} />

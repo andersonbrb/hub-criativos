@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { Archivo, JetBrains_Mono } from "next/font/google";
+import { Suspense } from "react";
 import "./globals.css";
 
 import { AppSidebar } from "@/components/app-sidebar";
+import { McpLoginToast } from "@/components/mcp-connect";
 import { Topbar } from "@/components/topbar";
 import { THEME_SCRIPT } from "@/lib/theme-script";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -40,6 +42,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             </SidebarInset>
           </SidebarProvider>
           <Toaster position="bottom-center" />
+          <Suspense>
+            <McpLoginToast />
+          </Suspense>
         </TooltipProvider>
       </body>
     </html>

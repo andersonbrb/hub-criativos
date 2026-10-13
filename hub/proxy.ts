@@ -21,6 +21,7 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Fora: arquivos do Next, ícone, o próprio login e a MCP (que tem token próprio).
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/entrar|api/mcp).*)"],
+  // Fora: arquivos do Next, ícone, o próprio login, a MCP (que tem token próprio) e os metadados OAuth públicos
+  // do hub (o ElevenLabs lê /oauth/elevenlabs-client.json para o login do MCP).
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/entrar|api/mcp|oauth/).*)"],
 };

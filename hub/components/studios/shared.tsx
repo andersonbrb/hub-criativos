@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bookmark, BookmarkCheck, CaptionsOff, Clapperboard, Download, Eraser, Eye, KeyRound, Loader2, Pencil, Trash2 } from "lucide-react";
+import { Bookmark, BookmarkCheck, CaptionsOff, Clapperboard, Download, Eraser, Eye, KeyRound, Loader2, Pencil, Plug, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { MCP_LABEL, McpConnectButton, type McpService } from "@/components/mcp-connect";
 import { TextShimmer } from "@/components/motion-primitives/text-shimmer";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -32,7 +33,11 @@ import {
 import type { Status } from "@/lib/data";
 import { cn } from "@/lib/utils";
 
+const MCP_BY_ENV: Record<string, McpService> = { HEYGEN_API_KEY: "heygen", FLORA_API_KEY: "flora", ELEVENLABS_API_KEY: "elevenlabs" };
+
 export function MissingKey({ envVar, where }: { envVar: string; where: string }) {
+  const service = MCP_BY_ENV[envVar];
+  if (service) return <McpMissing service={service} />;
   return (
     <div className="flex items-start gap-3 rounded-lg border border-warn/40 bg-warn/10 p-4 text-sm">
       <KeyRound className="mt-0.5 size-4 shrink-0 text-warn" />
@@ -43,6 +48,24 @@ export function MissingKey({ envVar, where }: { envVar: string; where: string })
         </p>
         <code className="w-fit rounded bg-muted px-2 py-1 font-mono text-xs">{envVar}=sua_chave_aqui</code>
         <p className="text-muted-foreground">Depois reinicie o servidor (npm run dev).</p>
+      </div>
+    </div>
+  );
+}
+
+// HeyGen, FLORA e ElevenLabs vão pelo MCP: basta entrar na conta, sem chave de API.
+export function McpMissing({ service }: { service: McpService }) {
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-warn/40 bg-warn/10 p-4 text-sm">
+      <Plug className="mt-0.5 size-4 shrink-0 text-warn" />
+      <div className="grid gap-2">
+        <p className="font-medium">{MCP_LABEL[service]} não está conectado</p>
+        <p className="text-muted-foreground">
+          O hub usa o {MCP_LABEL[service]} pelo MCP, com o login da sua conta e os créditos do seu plano. Entre uma vez e pronto.
+        </p>
+        <div>
+          <McpConnectButton service={service} size="sm" />
+        </div>
       </div>
     </div>
   );

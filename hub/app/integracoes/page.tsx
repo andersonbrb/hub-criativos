@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { connection } from "next/server";
 
+import { McpConnectButton, McpDisconnectButton, type McpService } from "@/components/mcp-connect";
 import { OpenAppButton } from "@/components/open-app-button";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -8,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AppId } from "@/lib/apps";
 import { hasKey, KEYS, type Provider } from "@/lib/server/env";
+import { mcp } from "@/lib/server/mcp-client";
 
 type Integration = {
   name: string;
@@ -17,6 +19,7 @@ type Integration = {
   app?: AppId;
   status: "ok" | "warn";
   detail: string;
+  mcp?: { service: McpService; connected: boolean };
 };
 
 const keyed = (p: Provider, base: Omit<Integration, "status" | "detail">, where: string): Integration => ({
@@ -24,6 +27,18 @@ const keyed = (p: Provider, base: Omit<Integration, "status" | "detail">, where:
   status: hasKey(p) ? "ok" : "warn",
   detail: hasKey(p) ? `Chave ${KEYS[p]} configurada` : `Adicione ${KEYS[p]} em .env.local (${where})`,
 });
+
+// HeyGen, FLORA e ElevenLabs vão pelo MCP do serviço: login da conta (OAuth), sem chave de API.
+async function viaMcp(service: McpService, base: Omit<Integration, "status" | "detail" | "mcp">): Promise<Integration> {
+  const { connected, account } = await mcp(service).connectionStatus();
+  const who = account?.email ?? account?.name;
+  return {
+    ...base,
+    status: connected ? "ok" : "warn",
+    detail: connected ? `MCP conectado${who ? ` · ${who}` : ""}` : "MCP: entre na sua conta para usar",
+    mcp: { service, connected },
+  };
+}
 
 export default async function IntegrationsPage() {
   await connection();
@@ -39,40 +54,28 @@ export default async function IntegrationsPage() {
   };
 
   const integrations: Integration[] = [
-    keyed(
-      "elevenlabs",
-      {
-        name: "ElevenLabs",
-        role: "Voz e narração",
-        features: ["Vozes da sua conta", "Modelos v4, v3, Multilingual e Flash", "Ajuste de velocidade, estabilidade e estilo"],
-        studio: { href: "/estudios/voz", label: "Voz" },
-        app: "elevenlabs",
-      },
-      "elevenlabs.io → Developers → API Keys",
-    ),
-    keyed(
-      "heygen",
-      {
-        name: "HeyGen",
-        role: "Avatar falando e lipsync",
-        features: ["Seus avatares e os públicos", "Roteiro com voz do HeyGen", "Lipsync com narração do ElevenLabs"],
-        studio: { href: "/estudios/avatar", label: "Avatar" },
-        app: "heygen",
-      },
-      "app.heygen.com → Settings → API",
-    ),
+    await viaMcp("elevenlabs", {
+      name: "ElevenLabs",
+      role: "Voz, narração e transcrição",
+      features: ["Vozes da sua conta", "Narração com eleven_v4 e audio tags", "Transcrição palavra por palavra (Scribe)"],
+      studio: { href: "/estudios/voz", label: "Voz" },
+      app: "elevenlabs",
+    }),
+    await viaMcp("heygen", {
+      name: "HeyGen",
+      role: "Avatar falando, lipsync e tradução",
+      features: ["Seus avatares e os públicos", "Criar avatar por foto, descrição ou vídeo", "Lipsync com narração do ElevenLabs"],
+      studio: { href: "/estudios/avatar", label: "Avatar" },
+      app: "heygen",
+    }),
     edicao,
-    keyed(
-      "flora",
-      {
-        name: "FLORA",
-        role: "Geração de imagem e vídeo",
-        features: ["Modelos de imagem e vídeo da conta", "Variações em lote", "Foto ou geração anterior como referência"],
-        studio: { href: "/estudios/geracao", label: "Geração" },
-        app: "flora",
-      },
-      "app.flora.ai → Settings → API Keys",
-    ),
+    await viaMcp("flora", {
+      name: "FLORA",
+      role: "Geração de imagem e vídeo",
+      features: ["Modelos de imagem e vídeo da conta", "Variações em lote", "Foto ou geração anterior como referência"],
+      studio: { href: "/estudios/geracao", label: "Geração" },
+      app: "flora",
+    }),
     keyed(
       "anthropic",
       {
@@ -101,7 +104,7 @@ export default async function IntegrationsPage() {
     <main className="flex max-w-7xl flex-col gap-6 px-4 py-6 md:px-6">
       <PageHeader
         title="Integrações"
-        description="Status real das conexões deste hub. As chaves ficam só no seu computador, no arquivo hub/.env.local."
+        description="Status real das conexões deste hub. HeyGen, FLORA e ElevenLabs entram pelo MCP, com o login da sua conta; Claude e Venice usam chave em hub/.env.local."
       />
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {integrations.map((i) => (
@@ -123,6 +126,7 @@ export default async function IntegrationsPage() {
             <CardFooter className="mt-auto flex flex-wrap items-center justify-between gap-2 px-4 text-xs text-muted-foreground">
               <span className="min-w-0 break-words">{i.detail}</span>
               <span className="flex flex-wrap gap-1.5">
+                {i.mcp && (i.mcp.connected ? <McpDisconnectButton service={i.mcp.service} /> : <McpConnectButton service={i.mcp.service} />)}
                 {i.app && <OpenAppButton app={i.app} variant="outline" />}
                 {i.studio && (
                   <Button size="xs" variant="outline" asChild>

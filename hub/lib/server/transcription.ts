@@ -5,13 +5,13 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { hasKey, requireKey } from "@/lib/server/env";
-import { InputError, ProviderError } from "@/lib/server/http";
+import { InputError } from "@/lib/server/http";
 import { MEDIA_DIR } from "@/lib/server/media";
+import { elevenlabsConnected, transcribeFull } from "@/lib/server/providers/elevenlabs";
 import { getGeneration } from "@/lib/server/store";
 
 // Transcrição de vídeo/áudio do hub + identificação do idioma (agente "Transcrição").
-// Motor principal: ElevenLabs Scribe (mais preciso, devolve idioma e confiança). Reserva: Whisper local (grátis).
+// Motor principal: ElevenLabs Scribe pelo MCP (mais preciso, devolve idioma e confiança). Reserva: Whisper local (grátis).
 
 const FFMPEG = process.env.FFMPEG_BIN || "ffmpeg";
 const SCRIPT = path.join(process.cwd(), "scripts", "transcrever.py");
@@ -74,33 +74,17 @@ function wordsToSegments(words: { text: string; start: number; end: number }[]):
 }
 
 async function scribe(file: string): Promise<Transcript> {
-  const form = new FormData();
-  form.set("model_id", "scribe_v2");
-  form.set("tag_audio_events", "false");
-  form.set("timestamps_granularity", "word");
-  form.set("file", new Blob([new Uint8Array(await readFile(file))], { type: "audio/mpeg" }), path.basename(file));
-  const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
-    method: "POST",
-    headers: { "xi-api-key": requireKey("elevenlabs") },
-    body: form,
-  });
-  if (!res.ok) throw new ProviderError("ElevenLabs", res.status, await res.text());
-  const data = (await res.json()) as {
-    language_code?: string;
-    language_probability?: number;
-    text?: string;
-    words?: { text: string; start: number; end: number; type: string }[];
-  };
-  const words = (data.words ?? []).filter((w) => w.type === "word").map((w) => ({ text: w.text.trim(), start: w.start, end: w.end }));
-  const raw = (data.language_code ?? "").toLowerCase();
+  const data = await transcribeFull(await readFile(file), path.basename(file));
+  const words = data.words;
+  const raw = data.language.toLowerCase();
   const code = ISO3[raw] ?? raw;
   return {
     engine: "elevenlabs",
     languageCode: code,
     languageName: languageName(code),
-    confidence: typeof data.language_probability === "number" ? data.language_probability : null,
+    confidence: data.languageProbability,
     duration: words.length ? words[words.length - 1].end : null,
-    text: (data.text ?? words.map((w) => w.text).join(" ")).trim(),
+    text: (data.text || words.map((w) => w.text).join(" ")).trim(),
     segments: wordsToSegments(words),
   };
 }
@@ -143,7 +127,7 @@ export async function transcribeGeneration(generationId: string, engine: Engine 
       throw new InputError("Não encontrei áudio nesse arquivo para transcrever.");
     });
 
-    const useScribe = engine === "elevenlabs" || (engine === "auto" && hasKey("elevenlabs"));
+    const useScribe = engine === "elevenlabs" || (engine === "auto" && (await elevenlabsConnected()));
     if (!useScribe) return await whisper(audio);
     try {
       return await scribe(audio);

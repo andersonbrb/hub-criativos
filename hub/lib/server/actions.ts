@@ -3,10 +3,11 @@ import "server-only";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { DEFAULT_ELEVEN_MODEL, getElevenModel, NARRATION_DEFAULTS, stripAudioTags } from "@/lib/elevenlabs-models";
+import { DEFAULT_ELEVEN_MODEL, getElevenModel, resolveElevenModel, stripAudioTags } from "@/lib/elevenlabs-models";
 import { applyRules, FLORA_FAMILIES, type FloraFamily, getFamily, MAX_REFERENCES, type Operation, paramsFor } from "@/lib/flora-models";
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
+import { McpNotConnected } from "@/lib/server/mcp-client";
 import { CONTENT_TYPES, downloadMedia, MEDIA_DIR, saveMedia } from "@/lib/server/media";
 import { montageStatus } from "@/lib/server/montage";
 import { textToSpeech } from "@/lib/server/providers/elevenlabs";
@@ -18,11 +19,6 @@ import { refreshTranslation } from "@/lib/server/video-translation";
 
 // Ações dos estúdios, compartilhadas entre as rotas da interface e as ferramentas do chat principal.
 // Entrada inválida lança InputError (vira 400 na rota e erro legível para o agente).
-
-const clamp = (v: unknown, min: number, max: number, fallback: number) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
-};
 
 // ---------- ElevenLabs ----------
 
@@ -43,19 +39,14 @@ export async function runTts(req: TtsRequest): Promise<Generation> {
   if (text.length > 5000) throw new InputError("Máximo de 5.000 caracteres por geração.");
   if (!req.voiceId) throw new InputError("Escolha uma voz.");
 
-  // language_code só é aceito por alguns modelos; deixamos o ElevenLabs detectar o idioma.
   // Padrão: Eleven v4 (o mais natural e emotivo, aceita tags como [excited]) ao mesmo custo do Multilingual v2.
-  const modelId = String(req.modelId || DEFAULT_ELEVEN_MODEL);
+  const modelId = resolveElevenModel(String(req.modelId || DEFAULT_ELEVEN_MODEL));
+  // stability/similarity/style/speed seguem aceitos (chat e telas antigas mandam), mas o MCP do ElevenLabs não expõe ajustes de voz.
   const input = {
     // Modelos sem suporte a tags leriam "[excited]" em voz alta: tiramos.
     text: getElevenModel(modelId)?.audioTags === false ? stripAudioTags(text) : text,
     voiceId: String(req.voiceId),
     modelId,
-    stability: clamp(req.stability, 0, 1, NARRATION_DEFAULTS.stability),
-    similarity: clamp(req.similarity, 0, 1, NARRATION_DEFAULTS.similarity),
-    style: clamp(req.style, 0, 1, NARRATION_DEFAULTS.style),
-    // Acima de 1,1× a fala fica atropelada e robótica.
-    speed: clamp(req.speed, 0.7, 1.1, NARRATION_DEFAULTS.speed),
   };
 
   const file = await saveMedia(await textToSpeech(input), "mp3");
@@ -65,15 +56,7 @@ export async function runTts(req: TtsRequest): Promise<Generation> {
     status: "done",
     prompt: text,
     file,
-    params: {
-      voiceId: input.voiceId,
-      voiceName: String(req.voiceName ?? ""),
-      modelId: input.modelId,
-      stability: input.stability,
-      similarity: input.similarity,
-      style: input.style,
-      speed: input.speed,
-    },
+    params: { voiceId: input.voiceId, voiceName: String(req.voiceName ?? ""), modelId: input.modelId },
   });
 }
 
@@ -278,7 +261,8 @@ export async function quoteFlora(req: {
       imageField: family.imageField,
     });
     return cost === null ? fallback() : { estimatedCost: cost * count, approximate: false };
-  } catch {
+  } catch (err) {
+    if (err instanceof McpNotConnected) throw err; // sem login no FLORA a geração também não vai: avisa já no orçamento
     return fallback();
   }
 }
