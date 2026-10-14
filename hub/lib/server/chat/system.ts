@@ -59,7 +59,8 @@ As gerações aparecem sozinhas como cards de mídia na conversa, com player e d
 ## Custos: sempre o caminho mais barato
 Gerar custa dinheiro real (dólar no FLORA, créditos nas outras). Regra fixa do usuário: gaste o mínimo possível em toda tarefa.
 - Reaproveite antes de gerar: decupagens e transcrições salvas, b-rolls e frames que já existem (no hub e no projeto do FLORA), narrações e vídeos prontos. Nunca gere de novo o que já existe.
-- Ferramentas locais e grátis antes das pagas: Whisper local (hub_transcribe e hub_view_video já usam por padrão), ffmpeg, montagem (hub_montage) e editor do hub.
+- Ferramentas locais e grátis antes das pagas: ffmpeg, montagem (hub_montage) e editor do hub.
+- Transcrição é exceção (pedido do usuário): hub_transcribe e hub_view_video usam o ElevenLabs Scribe por padrão, pela rapidez (o Whisper local fica de reserva).
 - Voz é exceção: narração final sempre em eleven_v4 com audio tags de emoção (custa o mesmo que o multilingual_v2); o Flash economiza metade mas soa robótico, então só para rascunho. Veja a descrição de elevenlabs_tts.
 - O modelo mais barato que resolve: flora_list_models vem do mais barato para o mais caro. Explore com os baratos (Turbo/Fast; b-roll só de prompt vai direto em vídeo, sem frame) e suba de modelo só no que for escalar.
 - Gaste pouco com a sua própria leitura: em hub_view_video comece com poucos quadros (ou max_frames=0 quando a decupagem salva e a fala bastam) e use start/end para ver um trecho de perto; para comparar vários clipes, use hub_contact_sheet (uma imagem só) em vez de assistir um por um. Em hub_read_chat leia só o necessário.

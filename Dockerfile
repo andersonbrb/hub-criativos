@@ -1,4 +1,4 @@
-# Hub de Criativos no Railway: Next.js (hub/) + ffmpeg (editor) + Python/faster-whisper (montagem e transcrição local)
+# Hub de Criativos no Railway: Next.js (hub/) + ffmpeg (editor) + Python/faster-whisper (montagem e transcrição local) + LaMa (remover legenda)
 # + Chrome headless do Remotion (gráficos animados da edição final).
 FROM node:22-bookworm-slim
 
@@ -15,7 +15,9 @@ RUN echo "deb http://deb.debian.org/debian bookworm contrib" > /etc/apt/sources.
   && fc-cache -f \
   && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m venv /opt/py && /opt/py/bin/pip install --no-cache-dir faster-whisper numpy
+# PyTorch (versão só CPU, bem menor) + OpenCV: "Remover legenda" com o LaMa (scripts/remover_legenda.py).
+# O modelo big-lama.pt (~200 MB) é baixado no 1º uso para o volume (/app/.data/models).
+RUN python3 -m venv /opt/py && /opt/py/bin/pip install --no-cache-dir faster-whisper numpy opencv-python-headless   && /opt/py/bin/pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 ENV PYTHON_BIN=/opt/py/bin/python
 
 WORKDIR /app

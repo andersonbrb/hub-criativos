@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Check, Link2, MessageSquare, MousePointerClick, Search, Trash2, Unlink } from "lucide-react";
+import { Check, Download, Link2, MessageSquare, MousePointerClick, Search, Trash2, Unlink } from "lucide-react";
 
 import { ConfirmDialog, formatDate, GenerationThumb, toolLabel } from "@/components/pipeline/shared";
 import { GenerationCard } from "@/components/studios/shared";
@@ -161,6 +161,10 @@ export function CardDetails({
       generationIds: card.generationIds.includes(id) ? card.generationIds.filter((g) => g !== id) : [...card.generationIds, id],
     });
   const unlink = (id: string) => onUpdate({ generationIds: card.generationIds.filter((g) => g !== id) });
+  const videoCount = card.generationIds.filter((id) => {
+    const g = generationsById.get(id);
+    return g?.kind === "video" && g.status === "done" && (g.file || g.remoteUrl);
+  }).length;
 
   return (
     <div className="flex flex-col gap-5 p-4">
@@ -233,10 +237,20 @@ export function CardDetails({
           <h3 className={LABEL}>
             Gerações vinculadas <span className="font-mono tabular-nums">· {card.generationIds.length}</span>
           </h3>
-          <Button variant="outline" size="sm" onClick={() => setLinkOpen(true)}>
-            <Link2 />
-            Vincular geração
-          </Button>
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {videoCount > 0 && (
+              <Button variant="outline" size="sm" asChild>
+                <a href={`/api/board/cards/${card.id}/download`} download title="Baixa todos os vídeos prontos deste card num .zip">
+                  <Download />
+                  Baixar vídeos ({videoCount})
+                </a>
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={() => setLinkOpen(true)}>
+              <Link2 />
+              Vincular geração
+            </Button>
+          </div>
         </div>
         {card.generationIds.length === 0 ? (
           <p className="rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">

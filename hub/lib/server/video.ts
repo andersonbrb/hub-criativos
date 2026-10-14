@@ -112,7 +112,34 @@ export async function videoInfo(g: Generation & { file: string }): Promise<{ met
 }
 
 // Transcrição em cache. auto = Whisper local (grátis) primeiro; ElevenLabs Scribe só se o local falhar.
-export async function transcriptOf(id: string, engine: Engine = "auto"): Promise<{ transcript: Transcript | null; noSpeech?: string; cached: boolean }> {
+type TranscriptResult = { transcript: Transcript | null; noSpeech?: string; cached: boolean; pending?: boolean };
+
+// Transcrições em andamento: um novo pedido do mesmo arquivo espera a mesma, em vez de abrir outro Whisper em paralelo.
+const inflight = new Map<string, Promise<TranscriptResult>>();
+
+// waitMs: devolve { pending: true } se não terminar nesse tempo; a transcrição continua e fica salva para o próximo pedido.
+// (O chat desiste de uma ferramenta que passa de 5 min sem resposta; um áudio longo no Whisper local leva mais que isso.)
+export async function transcriptOf(id: string, engine: Engine = "auto", waitMs?: number): Promise<TranscriptResult> {
+  const key = `${id}:${engine}`;
+  let job = inflight.get(key);
+  if (!job) {
+    job = runTranscript(id, engine).finally(() => inflight.delete(key));
+    job.catch(() => {}); // quem desistiu de esperar não deixa a falha sem tratamento
+    inflight.set(key, job);
+  }
+  if (!waitMs) return job;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<TranscriptResult>((resolve) => {
+    timer = setTimeout(() => resolve({ transcript: null, cached: false, pending: true }), waitMs);
+  });
+  try {
+    return await Promise.race([job, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runTranscript(id: string, engine: Engine): Promise<TranscriptResult> {
   const a = await getAnalysis(id);
   if (a.transcript && (engine === "auto" || a.transcript.engine === engine)) return { transcript: a.transcript, cached: true };
   if (a.noSpeech && engine === "auto") return { transcript: null, noSpeech: a.noSpeech, cached: true };
@@ -120,14 +147,16 @@ export async function transcriptOf(id: string, engine: Engine = "auto"): Promise
   try {
     if (engine !== "auto") transcript = await transcribeGeneration(id, engine);
     else {
+      // Padrão (pedido do usuário): ElevenLabs Scribe primeiro, pela rapidez; o Whisper local fica de reserva.
       try {
-        transcript = await transcribeGeneration(id, "local");
-      } catch (local) {
-        if (local instanceof InputError) throw local;
+        transcript = await transcribeGeneration(id, "elevenlabs");
+      } catch (remote) {
+        if (remote instanceof InputError && !/conectado/i.test(remote.message)) throw remote;
         try {
-          transcript = await transcribeGeneration(id, "elevenlabs");
-        } catch (remote) {
-          throw new Error(`Whisper local: ${(local as Error).message} · ElevenLabs: ${(remote as Error).message}`);
+          transcript = await transcribeGeneration(id, "local");
+        } catch (local) {
+          if (local instanceof InputError) throw local;
+          throw new Error(`ElevenLabs: ${(remote as Error).message} · Whisper local: ${(local as Error).message}`);
         }
       }
     }

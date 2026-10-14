@@ -90,7 +90,8 @@ async function scribe(file: string): Promise<Transcript> {
 }
 
 async function whisper(file: string): Promise<Transcript> {
-  const out = await run(process.env.PYTHON_BIN || "python", ["-W", "ignore", SCRIPT, file], 900_000);
+  // Até 1 h: um VSL de 40 min no Whisper "small" em CPU passa fácil dos 15 min.
+  const out = await run(process.env.PYTHON_BIN || "python", ["-W", "ignore", SCRIPT, file], 3_600_000);
   const data = JSON.parse(out.trim().split("\n").pop() ?? "{}") as {
     error?: string;
     language?: string;

@@ -54,6 +54,7 @@ export const TOOL_LABELS: Record<string, string> = {
   hub_montage: "Edição final",
   hub_beat_edit: "Edição na batida",
   hub_remove_captions: "Remover legenda",
+  hub_transcript_read: "Lendo a transcrição",
   hub_transcribe: "Transcrevendo e identificando o idioma",
   hub_view_video: "Assistindo ao vídeo",
   hub_save_analysis: "Salvando a decupagem",

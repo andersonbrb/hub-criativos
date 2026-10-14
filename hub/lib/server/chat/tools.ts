@@ -21,7 +21,7 @@ import { InputError } from "@/lib/server/http";
 import { MEDIA_DIR } from "@/lib/server/media";
 import { runBeatEdit, runMontage, runRemoveCaptions, type MontageFx } from "@/lib/server/montage";
 import type { GraphicRequest } from "@/lib/server/motion";
-import { timeline, type Engine } from "@/lib/server/transcription";
+import { timeline, type Engine, type Transcript } from "@/lib/server/transcription";
 import { runTranslation } from "@/lib/server/video-translation";
 import { addReferences, drawReferences, kbFiles, kbRead, kbSearch, listNiches, readNiche, saveNiche } from "@/lib/server/ad-writer";
 import {
@@ -644,8 +644,48 @@ const definitions: Anthropic.Beta.BetaTool[] = [
       },
       ["generation_id"],
     ),
+  },  {
+    name: "hub_transcript_read",
+    description:
+      "Lê uma transcrição JÁ FEITA (hub_transcribe) em partes, sem transcrever de novo e sem custo. Use quando hub_transcribe avisar que o texto é longo (VSL, aula, live). Dois modos: por trecho (start_s/end_s, em segundos) ou por busca (search: palavras como \"precio\", \"$\", \"dólares\"), que devolve só as frases que contêm alguma delas, com o tempo [mm:ss] e a frase de antes e de depois para contexto.",
+    input_schema: objectSchema(
+      {
+        generation_id: { type: "string", description: "O mesmo vídeo/áudio já transcrito." },
+        start_s: { type: "number", minimum: 0, description: "Início do trecho em segundos. Padrão 0." },
+        end_s: { type: "number", minimum: 0, description: "Fim do trecho em segundos (opcional)." },
+        search: { type: "array", items: { type: "string" }, description: "Palavras para achar (sem diferenciar maiúsculas e acentos). Se vier, ignora start_s/end_s." },
+      },
+      ["generation_id"],
+    ),
   },
 ];
+
+// A resposta de uma ferramenta tem limite: transcrições longas vão em páginas de até ~20 mil caracteres.
+const TRANSCRIPT_PAGE = 20_000;
+const mmss = (t: number) => `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+
+function transcriptPage(t: Transcript, startS: number, endS = Infinity) {
+  const out: string[] = [];
+  let size = 0;
+  let next: number | null = null;
+  for (const s of t.segments.filter((x) => x.end > startS && x.start < endS)) {
+    const line = `[${mmss(s.start)}] ${s.text}`;
+    if (size + line.length > TRANSCRIPT_PAGE && out.length) {
+      next = Math.floor(s.start);
+      break;
+    }
+    out.push(line);
+    size += line.length + 1;
+  }
+  return {
+    com_tempo: out.join("\n") || "(nenhuma fala nesse trecho)",
+    ...(next !== null
+      ? { continua: `Texto longo: isto vai até ${mmss(next)}. Leia o resto com hub_transcript_read (start_s=${next}) ou ache trechos com hub_transcript_read (search=[...]).` }
+      : {}),
+  };
+}
+
+const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
 const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>> = {
   async hub_list_generations(input) {
@@ -974,9 +1014,16 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
 
   async hub_transcribe(input) {
     const engine = (["elevenlabs", "local"].includes(str(input.engine)) ? str(input.engine) : "auto") as Engine;
-    const { transcript: t, noSpeech, cached } = await transcriptOf(str(input.generation_id), engine);
+    const { transcript: t, noSpeech, cached, pending } = await transcriptOf(str(input.generation_id), engine, 240_000);
+    if (pending)
+      return {
+        content: json({
+          status: "transcrevendo",
+          aviso: "Áudio longo: a transcrição continua rodando no hub e fica salva. Chame hub_transcribe de novo com o mesmo generation_id daqui a 1 a 2 minutos (não abre outra transcrição, só espera a mesma).",
+        }),
+        summary: "ainda transcrevendo",
+      };
     if (!t) return { content: json({ fala: noSpeech ?? "sem fala" }), summary: "sem fala" };
-    const lines = timeline(t);
     return {
       content: json({
         idioma: t.languageName,
@@ -985,8 +1032,7 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
         duracao_s: t.duration === null ? null : Math.round(t.duration),
         motor: t.engine === "elevenlabs" ? "ElevenLabs Scribe" : "Whisper local",
         cache: cached,
-        texto: cut(t.text, 40_000),
-        com_tempo: cut(lines, 40_000),
+        ...transcriptPage(t, 0),
       }),
       summary: `${t.languageName}${t.confidence !== null ? ` (${Math.round(t.confidence * 100)}%)` : ""} · ${t.segments.length} frases`,
     };
@@ -1002,8 +1048,10 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
       if (!meta.hasAudio) fala = "o vídeo não tem trilha de áudio";
       else {
         try {
-          const { transcript: t, noSpeech, cached } = await transcriptOf(g.id);
-          fala = t
+          const { transcript: t, noSpeech, cached, pending } = await transcriptOf(g.id, "auto", 150_000);
+          fala = pending
+            ? "transcrição em andamento (áudio longo); chame hub_transcribe com este generation_id daqui a 1 a 2 minutos"
+            : t
             ? { idioma: `${t.languageName} (${t.languageCode})`, motor: t.engine === "elevenlabs" ? "ElevenLabs Scribe" : "Whisper local", cache: cached, com_tempo: cut(timeline(t), 30_000) || "(nenhuma fala detectada)" }
             : (noSpeech ?? "sem fala");
         } catch (err) {
@@ -1243,6 +1291,29 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
       default:
         throw new InputError("Ação inválida.");
     }
+  },
+
+  async hub_transcript_read(input) {
+    const { transcript: t } = await transcriptOf(str(input.generation_id), "auto", 1);
+    if (!t) throw new InputError("Esse arquivo ainda não foi transcrito (ou ainda está transcrevendo). Use hub_transcribe primeiro.");
+    const terms = (Array.isArray(input.search) ? input.search : []).map((x) => fold(String(x)).trim()).filter(Boolean);
+    if (terms.length) {
+      const segs = t.segments;
+      const hits = segs.flatMap((s, i) => (terms.some((w) => fold(s.text).includes(w)) ? [i] : []));
+      const trechos = hits.map((i) => ({
+        tempo: mmss(segs[i].start),
+        segundos: Math.floor(segs[i].start),
+        frase: segs[i].text,
+        contexto: [segs[i - 1]?.text, segs[i].text, segs[i + 1]?.text].filter(Boolean).join(" "),
+      }));
+      return {
+        content: json({ encontrados: trechos.length, trechos: trechos.slice(0, 80), ...(trechos.length > 80 ? { aviso: "Mais de 80 trechos: refine a busca." } : {}) }),
+        summary: `${trechos.length} trechos`,
+      };
+    }
+    const start = num(input.start_s, 0, 1e6, 0);
+    const end = typeof input.end_s === "number" && input.end_s > start ? input.end_s : Infinity;
+    return { content: json(transcriptPage(t, start, end)), summary: `a partir de ${mmss(start)}` };
   },
 };
 
