@@ -36,3 +36,10 @@ export async function exigirUsuario(chave?: Chave): Promise<Usuario> {
   void chave;
   throw new Error("Em construção: exigirUsuario (Onda 1, agente Acesso).");
 }
+
+// Para páginas (componentes de servidor): sem login vai para /entrar (e volta para a mesma página depois);
+// sem a chave mostra a tela de "sem acesso". Devolve a pessoa logada.
+export async function exigirPagina(chave?: Chave): Promise<Usuario> {
+  void chave;
+  throw new Error("Em construção: exigirPagina (Onda 1, agente Acesso).");
+}
