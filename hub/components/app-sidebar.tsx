@@ -64,10 +64,13 @@ const admin: Item[] = [
   { href: "/membros", label: "Membros", icon: Users, chave: "membros" },
 ];
 
+// Telas que só existem com o banco (no PC sem banco ficam fora do menu).
+const SO_COM_BANCO = new Set<string>(["/memoria", "/conector", "/membros"]);
+
 // Menu lateral: cada pessoa só vê as telas que a conta dela pode abrir (a página também confere no servidor).
-export function AppSidebar({ usuario }: { usuario: Usuario }) {
+export function AppSidebar({ usuario, semBanco = false }: { usuario: Usuario; semBanco?: boolean }) {
   const pathname = usePathname();
-  const liberados = (itens: Item[]) => itens.filter((i) => podeUsar(usuario, i.chave));
+  const liberados = (itens: Item[]) => itens.filter((i) => podeUsar(usuario, i.chave) && !(semBanco && SO_COM_BANCO.has(i.href)));
 
   const grupo = (titulo: string, itens: Item[]) => {
     const visiveis = liberados(itens);

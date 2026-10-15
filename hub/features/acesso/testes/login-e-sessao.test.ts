@@ -1,21 +1,35 @@
 import { eq } from "drizzle-orm";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { banco } from "@/db/cliente";
 import { sessoes, usuarios } from "@/db/schema";
 import { bancoDeTeste } from "@/db/teste";
 import { ContaDesativada, CredenciaisInvalidas, MuitasTentativas } from "@/features/acesso/erros";
 import { entrar, freio, sair } from "@/features/acesso/servicos/login";
+import * as senha from "@/features/acesso/servicos/senha";
 import { criarSessao, hashDoToken, usuarioPeloToken } from "@/features/acesso/servicos/sessoes";
 import { criarConta } from "@/features/acesso/testes/ajuda";
 
 const DIA = 24 * 60 * 60 * 1000;
+
+// Quantos pedidos terminaram com cada erro.
+function placar(resultados: PromiseSettledResult<unknown>[]) {
+  const motivos = resultados.map((r) => (r.status === "rejected" ? r.reason : null));
+  return {
+    erradas: motivos.filter((m) => m instanceof CredenciaisInvalidas).length,
+    freadas: motivos.filter((m) => m instanceof MuitasTentativas).length,
+  };
+}
 
 describe("login", () => {
   beforeEach(async () => {
     await bancoDeTeste();
     freio.zerar();
     freio.atrasoMs = 0;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("entra com e-mail e senha certos (e-mail sem diferença de maiúsculas) e abre sessão", async () => {
@@ -63,6 +77,62 @@ describe("login", () => {
     await entrar("ana@exemplo.com", "senha-certa-da-ana", { ip: "1.2.3.4" });
     for (let i = 0; i < 4; i++) await expect(entrar("ana@exemplo.com", "errada-xxxxxx", { ip: "1.2.3.4" })).rejects.toThrow(CredenciaisInvalidas);
     await expect(entrar("ana@exemplo.com", "senha-certa-da-ana", { ip: "1.2.3.4" })).resolves.toBeTruthy();
+  });
+
+  it("rajada de 20 senhas erradas em paralelo: só 5 chegam a conferir a senha", async () => {
+    await criarConta({ email: "ana@exemplo.com", senha: "senha-certa-da-ana" });
+    const conferir = vi.spyOn(senha, "conferirSenha");
+    const resultados = await Promise.allSettled(Array.from({ length: 20 }, (_, i) => entrar("ana@exemplo.com", `errada-${i}-xxxxx`, { ip: "7.7.7.7" })));
+    expect(placar(resultados)).toEqual({ erradas: 5, freadas: 15 });
+    expect(conferir).toHaveBeenCalledTimes(5);
+    // Nem a senha certa passa depois da rajada.
+    await expect(entrar("ana@exemplo.com", "senha-certa-da-ana", { ip: "7.7.7.7" })).rejects.toThrow(MuitasTentativas);
+  });
+
+  it("no máximo 8 conferências de senha ao mesmo tempo; as vagas voltam depois", async () => {
+    await criarConta({ email: "ana@exemplo.com", senha: "senha-certa-da-ana" });
+    const conferir = vi.spyOn(senha, "conferirSenha");
+    // E-mails e IPs diferentes: nenhum dos três freios segura, só o teto do processo.
+    const resultados = await Promise.allSettled(Array.from({ length: 20 }, (_, i) => entrar(`p${i}@exemplo.com`, "qualquer-senha", { ip: `10.0.0.${i}` })));
+    expect(placar(resultados)).toEqual({ erradas: 8, freadas: 12 });
+    expect(conferir).toHaveBeenCalledTimes(8);
+    const freada = resultados.find((r) => r.status === "rejected" && r.reason instanceof MuitasTentativas) as PromiseRejectedResult;
+    expect(freada.reason.message).toMatch(/^Muitas tentativas/);
+    // As vagas voltam: passada a rajada, o login entra normalmente.
+    await expect(entrar("ana@exemplo.com", "senha-certa-da-ana", { ip: "10.0.0.19" })).resolves.toBeTruthy();
+  });
+
+  it("freio por IP: 30 erros em e-mails diferentes bloqueiam o IP, não a conta", async () => {
+    await criarConta({ email: "ana@exemplo.com", senha: "senha-certa-da-ana" });
+    for (let i = 0; i < 30; i++) await expect(entrar(`robo-${i}@exemplo.com`, "chute-xxxxxx", { ip: "5.5.5.5" })).rejects.toThrow(CredenciaisInvalidas);
+    await expect(entrar("ana@exemplo.com", "senha-certa-da-ana", { ip: "5.5.5.5" })).rejects.toThrow(MuitasTentativas);
+    await expect(entrar("ana@exemplo.com", "senha-certa-da-ana", { ip: "6.6.6.6" })).resolves.toBeTruthy();
+  });
+
+  it("freio por conta: 50 erros vindos de IPs diferentes bloqueiam a conta em qualquer IP", async () => {
+    await criarConta({ email: "ana@exemplo.com", senha: "senha-certa-da-ana" });
+    for (let i = 0; i < 50; i++) await expect(entrar("ana@exemplo.com", "chute-xxxxxx", { ip: `20.0.0.${i}` })).rejects.toThrow(CredenciaisInvalidas);
+    await expect(entrar("ana@exemplo.com", "senha-certa-da-ana", { ip: "30.0.0.1" })).rejects.toThrow(MuitasTentativas);
+    // Outra conta no mesmo IP segue normal.
+    await criarConta({ email: "bia@exemplo.com", senha: "senha-certa-da-bia" });
+    await expect(entrar("bia@exemplo.com", "senha-certa-da-bia", { ip: "20.0.0.1" })).resolves.toBeTruthy();
+  });
+
+  it("login certo não limpa o freio do IP: só não conta a si mesmo", async () => {
+    await criarConta({ email: "ana@exemplo.com", senha: "senha-certa-da-ana" });
+    for (let i = 0; i < 29; i++) await expect(entrar(`robo-${i}@exemplo.com`, "chute-xxxxxx", { ip: "4.4.4.4" })).rejects.toThrow(CredenciaisInvalidas);
+    await expect(entrar("ana@exemplo.com", "senha-certa-da-ana", { ip: "4.4.4.4" })).resolves.toBeTruthy();
+    // Os 29 erros continuam valendo: mais um completa os 30 e o IP trava.
+    await expect(entrar("robo-x@exemplo.com", "chute-xxxxxx", { ip: "4.4.4.4" })).rejects.toThrow(CredenciaisInvalidas);
+    await expect(entrar("ana@exemplo.com", "senha-certa-da-ana", { ip: "4.4.4.4" })).rejects.toThrow(MuitasTentativas);
+  });
+
+  it("falha do servidor não conta como tentativa", async () => {
+    await criarConta({ email: "ana@exemplo.com", senha: "senha-certa-da-ana" });
+    vi.spyOn(senha, "conferirSenha").mockRejectedValue(new Error("falhou"));
+    for (let i = 0; i < 6; i++) await expect(entrar("ana@exemplo.com", "qualquer-senha", { ip: "3.3.3.3" })).rejects.toThrow("falhou");
+    vi.restoreAllMocks();
+    await expect(entrar("ana@exemplo.com", "senha-certa-da-ana", { ip: "3.3.3.3" })).resolves.toBeTruthy();
   });
 
   it("cada erro espera o atraso configurado (600 ms por padrão)", async () => {

@@ -19,7 +19,7 @@ const g = globalThis as typeof globalThis & { __hubBanco?: Banco };
 export function banco(): Banco {
   if (g.__hubBanco) return g.__hubBanco;
   const url = process.env.DATABASE_URL?.trim();
-  if (!url) throw new Error("Falta a variável DATABASE_URL (endereço do Postgres). No PC, coloque no hub/.env.local.");
+  if (!url) throw new Error("Este recurso precisa do banco do hub (DATABASE_URL), que existe só no hub da nuvem. Use o hub da nuvem para isso.");
   // max 10: o Postgres do Railway aceita ~100 conexões e o hub roda num processo só.
   const cliente = postgres(url, { max: 10, idle_timeout: 30 });
   g.__hubBanco = drizzle(cliente, { schema }) as unknown as Banco;

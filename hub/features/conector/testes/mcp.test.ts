@@ -5,9 +5,9 @@ import { DELETE as mcpDelete, GET as mcpGet } from "@/app/mcp/route";
 import { banco } from "@/db/cliente";
 import { chamadasMcp, conexaoTokens, conexoes } from "@/db/schema";
 import type { Chave } from "@/features/acesso/contrato";
-import { LIMITE_CHAMADAS_POR_MINUTO } from "@/features/conector/servicos/mcp";
+import { LIMITE_CHAMADAS_POR_MINUTO, SEGREDO_REMOVIDO } from "@/features/conector/servicos/mcp";
 import type { Doc } from "@/features/memoria/contrato";
-import { ConflitoDeVersao } from "@/features/memoria/erros";
+import { ConflitoDeVersao, SegredoDetectado } from "@/features/memoria/erros";
 import * as memoria from "@/features/memoria/servicos/memoria";
 import {
   BASE,
@@ -304,6 +304,51 @@ describe("conector MCP: ferramentas por pessoa", () => {
     const tipoErrado = await chamar(acesso, "memoria_indice", { tipo: "receita" });
     expect(tipoErrado.isError).toBe(true);
     expect(tipoErrado.texto).toContain("regra, fluxo");
+  });
+
+  it("segredo recusado pela Memória não fica gravado na auditoria", async () => {
+    const { acesso } = await conectado();
+    vi.mocked(memoria.salvar).mockRejectedValue(new SegredoDetectado("chave da Anthropic"));
+    // Montada aqui para nenhuma chave com cara de verdade ficar escrita no repositório.
+    const chave = `sk-ant-api03-${"Ab1".repeat(15)}`;
+    // A chave começa perto do caractere 200, onde o resumo corta: cortada, sobraria o começo dela.
+    const conteudo = `${"texto comum ".repeat(16)}${chave}`;
+    const resultado = await chamar(acesso, "memoria_salvar", {
+      slug: "vozes-clonadas",
+      conteudo,
+      versao_esperada: 1,
+      nota: `xi-api-key: ${"k9".repeat(10)}`,
+      // Campo inventado: "senha" só vira segredo junto com o nome.
+      senha: "Abc1234567890xyz",
+    });
+    expect(resultado.isError).toBe(true);
+    expect(resultado.texto).toContain("chave ou senha");
+
+    const [chamada] = await banco().select().from(chamadasMcp);
+    expect(JSON.parse(chamada.argumentos)).toEqual({
+      slug: "vozes-clonadas",
+      conteudo: SEGREDO_REMOVIDO,
+      versao_esperada: 1,
+      nota: SEGREDO_REMOVIDO,
+      senha: SEGREDO_REMOVIDO,
+    });
+    expect(chamada.argumentos).not.toContain("sk-ant");
+    expect(chamada.argumentos).not.toContain("Abc123");
+    // O motivo da recusa continua na auditoria (ele não repete o segredo).
+    expect(chamada.erro).toContain("chave da Anthropic");
+  });
+
+  it("o conector não deixa o Claude mudar o que entra no prompt dos agentes (noPrompt)", async () => {
+    const { acesso } = await conectado();
+    const res = await mcp(acesso, "tools/list");
+    const ferramentas = ((await res.json()) as { result: { tools: { name: string; inputSchema: { properties: Record<string, unknown> } }[] } }).result.tools;
+    for (const f of ferramentas) expect(Object.keys(f.inputSchema.properties).filter((p) => /prompt/i.test(p)), f.name).toEqual([]);
+
+    // Mesmo mandando o campo por fora do esquema, ele não chega à Memória.
+    vi.mocked(memoria.salvar).mockResolvedValue(doc({ slug: "02-regras", versao: 2 }));
+    const resultado = await chamar(acesso, "memoria_salvar", { slug: "02-regras", conteudo: "# Regras", versao_esperada: 1, noPrompt: true, no_prompt: true });
+    expect(resultado.isError).toBe(false);
+    expect(vi.mocked(memoria.salvar).mock.calls[0][0]).not.toHaveProperty("noPrompt");
   });
 
   it("gravação sai com o autor da pessoa (Claude Code) e versao_esperada null cria", async () => {

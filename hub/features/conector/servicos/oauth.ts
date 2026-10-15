@@ -3,6 +3,7 @@ import "server-only";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 
+import { metaDoPedido } from "@/features/acesso/servicos/pedido";
 import type { App } from "@/features/conector/contrato";
 import { ESCOPO_HUB, ESCOPO_OFFLINE, redirectsPermitidos } from "@/features/conector/servicos/config";
 
@@ -94,10 +95,12 @@ export function hostDoDestino(uri: string): string {
   }
 }
 
-// IP de quem chamou. O primeiro item do X-Forwarded-For pode ser forjado: serve para registro e para os tetos de
-// enxurrada, nunca para permissão (essa é sempre o token e as chaves da conta).
+// IP de quem chamou, pelo mesmo critério das rotas de login (features/acesso/servicos/pedido.ts): o x-real-ip que o
+// proxy do Railway grava e, sem ele, o ÚLTIMO item do X-Forwarded-For (o que o proxy acrescentou). Os itens da
+// esquerda vêm de quem chamou e podem ser inventados: contar por eles deixaria um só atacante fingir 500 IPs e
+// estourar o teto global de registros, travando o /oauth2/register de todo mundo.
+// Serve para registro e para os tetos de enxurrada, nunca para permissão (essa é sempre o token e as chaves da conta).
 export function ipDaRequisicao(request: Request): string | null {
-  const encaminhado = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const ip = encaminhado || request.headers.get("x-real-ip")?.trim() || "";
-  return isIP(ip) ? ip : null;
+  const { ip } = metaDoPedido(request);
+  return ip && isIP(ip) ? ip : null;
 }

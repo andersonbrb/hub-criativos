@@ -1,6 +1,6 @@
 import type { EntradaSalvar } from "@/features/memoria/contrato";
 import { ler, salvar } from "@/features/memoria/servicos/memoria";
-import { autorEditor, comConflito, lerCorpo } from "@/features/memoria/servicos/rotas";
+import { comConflito, gravacaoDoEditor } from "@/features/memoria/servicos/rotas";
 import { route } from "@/lib/server/http";
 
 // Lê um documento: GET ?versao= (sem versão, a mais recente).
@@ -15,13 +15,12 @@ export const GET = route(
   { chave: "memoria" },
 );
 
-// Salva: { conteudo, versaoEsperada (a versão que a pessoa leu), titulo?, tipo?, frente?, mercado?, noPrompt?, nota? }.
-// Se o documento mudou desde a leitura: 409 com a versão atual.
+// Salva: { conteudo, versaoEsperada (a versão que a pessoa leu), titulo?, tipo?, frente?, mercado?, noPrompt? (só admin
+// ou dono), nota? }. Se o documento mudou desde a leitura: 409 com a versão atual.
 export const PUT = route(
   async (request: Request, ctx: RouteContext<"/api/memoria/[slug]">) => {
     const { slug } = await ctx.params;
-    const autor = await autorEditor();
-    const corpo = await lerCorpo(request);
+    const { autor, corpo } = await gravacaoDoEditor(request);
     return comConflito(async () => Response.json({ documento: await salvar({ ...corpo, slug } as EntradaSalvar, autor) }));
   },
   { chave: "memoria_editar" },

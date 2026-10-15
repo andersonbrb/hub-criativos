@@ -1,3 +1,4 @@
+import { caminhoSeguro } from "@/features/acesso/contrato";
 import { InputError, route } from "@/lib/server/http";
 import { isMcpService, mcp, originOf } from "@/lib/server/mcp-client";
 
@@ -7,7 +8,7 @@ export const GET = route(async (request: Request, { params }: { params: Promise<
   const { service } = await params;
   if (!isMcpService(service)) throw new InputError("Serviço desconhecido.");
   const q = new URL(request.url).searchParams;
-  const volta = q.get("volta") ?? "/integracoes";
-  const safe = volta.startsWith("/") && !volta.startsWith("//") ? volta : "/integracoes";
-  return Response.redirect(await mcp(service).startLogin(originOf(request), safe, q.get("para") === "nuvem" ? "nuvem" : undefined), 302);
+  // Só caminho dentro do hub: "/\site.com" passaria por uma conferência ingênua e o navegador iria para outro site.
+  const volta = caminhoSeguro(q.get("volta"), "/integracoes");
+  return Response.redirect(await mcp(service).startLogin(originOf(request), volta, q.get("para") === "nuvem" ? "nuvem" : undefined), 302);
 }, { chave: "integracoes" });

@@ -1,10 +1,12 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Clapperboard, Download } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { mediaUrl } from "@/lib/generations";
+import { CHAVES_DE_PRODUCAO } from "@/lib/server/media";
 import { getGeneration } from "@/lib/server/store";
+import { podeUsar } from "@/features/acesso/contrato";
 import { exigirPagina } from "@/features/acesso/servicos/sessao";
 
 const TOOL_NAMES: Record<string, string> = {
@@ -19,8 +21,10 @@ const TOOL_NAMES: Record<string, string> = {
 };
 
 // Visualização de uma geração em tela cheia (link aberto a partir dos cards do chat, estúdios e quadro).
+// Qualquer tela de produção serve (o link "Visualizar" aparece em todas); sem nenhuma, vai para "sem acesso".
 export default async function VerPage({ params }: PageProps<"/ver/[id]">) {
-  await exigirPagina();
+  const usuario = await exigirPagina();
+  if (!CHAVES_DE_PRODUCAO.some((chave) => podeUsar(usuario, chave))) redirect("/sem-acesso");
   const { id } = await params;
   const g = await getGeneration(id);
   const url = g && mediaUrl(g);

@@ -11,6 +11,7 @@ import { banco } from "@/db/cliente";
 import { conexaoTokens, conexoes, oauthClientes, oauthCodigos, oauthPedidos } from "@/db/schema";
 import { LIMITE_REGISTROS_POR_HORA } from "@/features/conector/servicos/rotas-oauth";
 import { limparVencidos } from "@/features/conector/servicos/limpeza";
+import { ipDaRequisicao } from "@/features/conector/servicos/oauth";
 import { hashDe } from "@/features/conector/servicos/segredos";
 import {
   BASE,
@@ -157,6 +158,27 @@ describe("conector: registro de cliente", () => {
   it("limita os registros por IP", async () => {
     for (let i = 0; i < LIMITE_REGISTROS_POR_HORA; i++) expect((await registrar()).status).toBe(201);
     expect((await registrar()).status).toBe(429);
+  });
+
+  it("IP forjado no começo do X-Forwarded-For não muda a contagem", async () => {
+    // Cada pedido inventa um IP novo à esquerda; o proxy acrescenta o de verdade (10.0.0.1) no fim.
+    const comIpForjado = (i: number) => registrar([REDIRECT_CLAUDE], {}, { "x-forwarded-for": `203.0.113.${i}, 10.0.0.1` });
+    for (let i = 0; i < LIMITE_REGISTROS_POR_HORA; i++) expect((await comIpForjado(i)).status).toBe(201);
+    expect((await comIpForjado(99)).status).toBe(429);
+    // O mesmo endereço sem nada forjado também já passou do limite: é uma conta só.
+    expect((await registrar()).status).toBe(429);
+    const clientes = await banco().select().from(oauthClientes);
+    expect(new Set(clientes.map((c) => c.ipRegistro))).toEqual(new Set(["10.0.0.1"]));
+  });
+
+  it("IP de quem chamou: x-real-ip do proxy; sem ele, o último do X-Forwarded-For; o que não é IP fica de fora", () => {
+    const ip = (cabecalhos: Record<string, string>) => ipDaRequisicao(new Request(`${BASE}/oauth2/register`, { headers: cabecalhos }));
+    expect(ip({ "x-forwarded-for": "1.2.3.4, 10.0.0.1" })).toBe("10.0.0.1");
+    expect(ip({ "x-forwarded-for": "1.2.3.4, 10.0.0.1", "x-real-ip": "10.0.0.9" })).toBe("10.0.0.9");
+    expect(ip({ "x-forwarded-for": "2001:db8::1" })).toBe("2001:db8::1");
+    // Lixo no fim não faz voltar para um item da esquerda (que poderia ser forjado).
+    expect(ip({ "x-forwarded-for": "1.2.3.4, nao-e-ip" })).toBeNull();
+    expect(ip({})).toBeNull();
   });
 });
 

@@ -1,4 +1,5 @@
 import { route } from "@/lib/server/http";
+import { CHAVES_DE_PRODUCAO } from "@/lib/server/media";
 import { account } from "@/lib/server/providers/higgsfield";
 import { listGenerations } from "@/lib/server/store";
 
@@ -19,4 +20,4 @@ export const GET = route(async () => {
   const [flora, credits] = await Promise.all([listGenerations("flora"), higgsfieldCredits()]);
   const floraSpent = flora.reduce((sum, g) => sum + (typeof g.params.cost === "number" ? g.params.cost : 0), 0);
   return Response.json({ floraSpent, floraCount: flora.length, higgsfieldCredits: credits });
-});
+}, { chave: CHAVES_DE_PRODUCAO });

@@ -7,6 +7,7 @@ import { cache } from "react";
 import { banco } from "@/db/cliente";
 import { usuarios } from "@/db/schema";
 import { CABECALHO_CAMINHO, caminhoSeguro, COOKIE_SESSAO, NaoAutenticado, podeUsar, SemPermissao, type Chave, type Usuario } from "@/features/acesso/contrato";
+import { DONO_LOCAL, modoLocalSemBanco } from "@/features/acesso/modo-local";
 import { usuarioPeloToken } from "@/features/acesso/servicos/sessoes";
 import { paraUsuario } from "@/features/acesso/servicos/usuarios";
 
@@ -23,6 +24,7 @@ export async function buscarUsuario(id: string): Promise<Usuario | null> {
 
 // Layout, página e rotas pedem a pessoa várias vezes no mesmo pedido: uma ida ao banco por pedido basta.
 const lerSessaoDoPedido = cache(async (): Promise<Usuario | null> => {
+  if (modoLocalSemBanco()) return DONO_LOCAL;
   const token = (await cookies()).get(COOKIE_SESSAO)?.value;
   return token ? usuarioPeloToken(token) : null;
 });

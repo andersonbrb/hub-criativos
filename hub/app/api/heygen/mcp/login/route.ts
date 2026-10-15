@@ -1,3 +1,4 @@
+import { caminhoSeguro } from "@/features/acesso/contrato";
 import { startLogin } from "@/lib/server/heygen-mcp";
 import { route } from "@/lib/server/http";
 
@@ -13,7 +14,7 @@ function originOf(request: Request) {
 // em .data/heygen-mcp-nuvem.json, sem mexer na sessão desta máquina.
 export const GET = route(async (request: Request) => {
   const params = new URL(request.url).searchParams;
-  const returnTo = params.get("returnTo") ?? "/estudios/traducao";
-  const safe = returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/estudios/traducao";
-  return Response.redirect(await startLogin(originOf(request), safe, params.get("para") === "nuvem" ? "nuvem" : undefined), 302);
+  // Só caminho dentro do hub: "/\site.com" passaria por uma conferência ingênua e o navegador iria para outro site.
+  const returnTo = caminhoSeguro(params.get("returnTo"), "/estudios/traducao");
+  return Response.redirect(await startLogin(originOf(request), returnTo, params.get("para") === "nuvem" ? "nuvem" : undefined), 302);
 }, { chave: "integracoes" });

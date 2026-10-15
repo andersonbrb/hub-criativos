@@ -58,11 +58,12 @@ export const mudarPessoa = (id: string, dados: Partial<typeof usuarios.$inferIns
 
 // ---- OAuth ----
 
-export function registrar(redirectUris: string[] = [REDIRECT_CLAUDE], extra: Record<string, unknown> = {}) {
+// cabecalhos substitui o IP padrão (ex.: X-Forwarded-For com um IP forjado na frente).
+export function registrar(redirectUris: string[] = [REDIRECT_CLAUDE], extra: Record<string, unknown> = {}, cabecalhos: Record<string, string> = {}) {
   return rotaRegister(
     new Request(`${BASE}/oauth2/register`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-forwarded-for": "10.0.0.1" },
+      headers: { "content-type": "application/json", "x-forwarded-for": "10.0.0.1", ...cabecalhos },
       body: JSON.stringify({ client_name: "Claude", redirect_uris: redirectUris, ...extra }),
     }),
   );

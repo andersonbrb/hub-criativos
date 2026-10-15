@@ -31,9 +31,9 @@ O que mora onde:
 ### `Postgres`
 - Template oficial do Railway (imagem `postgres-ssl`, Postgres 18), com volume próprio.
 - Acesso interno (rede privada do projeto): é o que o `hub` usa, pela `DATABASE_URL`.
-- Acesso público por **TCP proxy** (`acela.proxy.rlwy.net`, porta `48929` → 5432). Serve para rodar scripts do PC
-  contra o banco de produção. O endereço completo, com usuário e senha, fica na variável `DATABASE_PUBLIC_URL` do
-  serviço `Postgres`.
+- Acesso público por **TCP proxy**, só para rodar scripts do PC contra o banco de produção. O endereço completo, com
+  usuário e senha, fica na variável `DATABASE_PUBLIC_URL` do serviço `Postgres`. Desligue o proxy (serviço
+  `Postgres` → Settings → Networking) quando não estiver usando: é uma porta a mais aberta na internet.
 
 ### Volume `hub-volume`
 - Montado em `/app/.data` no serviço `hub`.
@@ -91,7 +91,8 @@ Depois de publicar, confira que a publicação ficou "Success" e abra `/api/saud
 
 ## Migrações
 
-- Rodam ao subir: o `CMD` do `Dockerfile` é `npm run db:migrar && npm start`.
+- Rodam ao subir: o `CMD` do `Dockerfile` é `npm run db:migrar && exec npm start` (o `exec` deixa o servidor
+  receber o sinal de parada do Railway).
 - `db:migrar` (`hub/scripts/migrar.mjs`) aplica o que falta de `hub/db/migrations` e não faz nada se o banco já
   estiver em dia. Sem `DATABASE_URL`, também não faz nada.
 - Se a migração falhar, o servidor não sobe, a checagem de saúde não passa e a publicação fica marcada como falha.
@@ -108,7 +109,7 @@ No PowerShell, dentro de `hub/`, com o Railway CLI logado:
 
 ```powershell
 $env:DATABASE_URL = (railway variable list --project 9e6740cf-5d13-4b41-9c97-8022197f2ff6 --environment production --service Postgres --json | ConvertFrom-Json).DATABASE_PUBLIC_URL
-npm run criar-dono -- --email viniciuschegouoperacional@gmail.com
+npm run criar-dono -- --email <e-mail do dono> --nome "<nome>"
 npm run importar-memoria -- <pasta>
 Remove-Item Env:DATABASE_URL
 ```
@@ -153,6 +154,6 @@ pg_dump --format=custom --no-owner --file "hub-$(Get-Date -Format yyyyMMdd-HHmm)
 - **Chat na nuvem:** sem chave da Anthropic, o chat interno fica desligado (`HUB_CHAT=off`). Para ligar, veja as
   variáveis opcionais acima.
 - **Integrações:** depois do primeiro acesso, ligar FLORA, HeyGen e ElevenLabs na tela Integrações (login da conta).
-- **Hub antigo:** está em outra conta do Railway. O endereço padrão de `HUB_PUBLIC_URL` no código, usado no PC
-  quando a variável está vazia, ainda aponta para ele.
+- **Hub antigo:** está em outra conta do Railway. O endereço padrão de `HUB_PUBLIC_URL` no código (usado no PC
+  quando a variável está vazia) já aponta para o hub novo.
 - **Backups agendados:** ainda não ligados (veja [Backups](#backups)).

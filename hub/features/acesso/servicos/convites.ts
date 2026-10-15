@@ -2,10 +2,11 @@ import "server-only";
 
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 
-import { banco } from "@/db/cliente";
+import { banco, type Banco } from "@/db/cliente";
 import { convites, usuarios } from "@/db/schema";
 import { limparChaves, type ConvitePendente, type ConviteParaAceitar, type Papel, type Usuario } from "@/features/acesso/contrato";
 import { ConviteInvalido, RegraDeMembros, SoQuemPode } from "@/features/acesso/erros";
+import { comVagaDeSenha } from "@/features/acesso/servicos/login";
 import { exigirGestor, ehUuid } from "@/features/acesso/servicos/membros";
 import { gerarHashDeSenha, validarSenha } from "@/features/acesso/servicos/senha";
 import { criarSessao, hashDoToken, novoToken, type MetaDaSessao } from "@/features/acesso/servicos/sessoes";
@@ -21,6 +22,19 @@ type PapelDoConvite = Exclude<Papel, "dono">;
 
 export type EntradaDoConvite = { email: unknown; nome?: unknown; papel?: unknown; chaves?: unknown };
 
+// Conta desativada de admin ou dono só volta por convite do dono. Aceitar o convite reativa a conta com a senha nova,
+// então um admin que convidasse esse e-mail para um endereço dele ficaria com a conta (histórico, autoria na
+// Memória) de alguém que manda tanto ou mais do que ele.
+const contaDeChefeDesativada = (conta: { ativo: boolean; papel: Papel } | undefined) => Boolean(conta && !conta.ativo && conta.papel !== "membro");
+
+async function ehDonoAtivo(id: string | null, db: Banco = banco()) {
+  if (!id) return false;
+  const [quem] = await db.select({ papel: usuarios.papel, ativo: usuarios.ativo }).from(usuarios).where(eq(usuarios.id, id)).limit(1);
+  return Boolean(quem?.ativo && quem.papel === "dono");
+}
+
+const SO_O_DONO_REATIVA = "Este convite não vale: o e-mail é de um admin ou dono desativado, e só o dono do hub pode chamar essa pessoa de volta. Peça um link novo ao dono.";
+
 export async function criarConvite(entrada: EntradaDoConvite, quemConvida: Usuario): Promise<{ link: string; convite: ConvitePendente }> {
   const eu = await exigirGestor(quemConvida);
   const email = normalizarEmail(entrada.email);
@@ -33,8 +47,9 @@ export async function criarConvite(entrada: EntradaDoConvite, quemConvida: Usuar
   const nome = entrada.nome === undefined || entrada.nome === null || entrada.nome === "" ? null : normalizarNome(entrada.nome);
   if (entrada.nome && !nome) throw new InputError("O nome pode ter até 100 caracteres.");
 
-  const [conta] = await banco().select({ ativo: usuarios.ativo }).from(usuarios).where(eq(usuarios.email, email)).limit(1);
+  const [conta] = await banco().select({ ativo: usuarios.ativo, papel: usuarios.papel }).from(usuarios).where(eq(usuarios.email, email)).limit(1);
   if (conta?.ativo) throw new RegraDeMembros(`Já existe uma conta ativa com o e-mail ${email}. Para mudar o acesso dela, edite na lista de membros.`);
+  if (contaDeChefeDesativada(conta) && eu.papel !== "dono") throw new SoQuemPode("Esse e-mail é de um admin ou dono desativado: só o dono do hub convida essa pessoa de volta.");
 
   // Um convite vivo por e-mail: o link novo substitui os anteriores ainda não usados.
   await banco().delete(convites).where(and(eq(convites.email, email), isNull(convites.usadoEm)));
@@ -95,8 +110,10 @@ async function motivoDoConvite(token: string, agora = new Date()) {
   if (!convite) return { convite: null, erro: "Este convite não existe ou foi revogado. Peça um link novo a quem convidou você." };
   if (convite.usadoEm) return { convite, erro: "Este convite já foi usado. Se a conta é sua, entre com o seu e-mail e senha." };
   if (convite.expiraEm <= agora) return { convite, erro: "Este convite venceu (vale 7 dias). Peça um link novo a quem convidou você." };
-  const [conta] = await banco().select({ ativo: usuarios.ativo }).from(usuarios).where(eq(usuarios.email, convite.email)).limit(1);
+  const [conta] = await banco().select({ ativo: usuarios.ativo, papel: usuarios.papel }).from(usuarios).where(eq(usuarios.email, convite.email)).limit(1);
   if (conta?.ativo) return { convite, erro: `Já existe uma conta ativa com o e-mail ${convite.email}. Entre com ela.` };
+  // A conta pode ter virado admin depois do convite, ou quem convidou pode ter deixado de ser dono.
+  if (contaDeChefeDesativada(conta) && !(await ehDonoAtivo(convite.criadoPor))) return { convite, erro: SO_O_DONO_REATIVA };
   return { convite, erro: null };
 }
 
@@ -112,8 +129,12 @@ export async function buscarConvite(token: string): Promise<ConviteParaAceitar> 
 // Cria a conta (ou reativa uma desativada com o mesmo e-mail), queima o convite e já abre a sessão.
 export async function aceitarConvite(token: string, dados: { nome?: unknown; senha?: unknown }, meta: MetaDaSessao = {}) {
   if (!tokenValido(token)) throw new ConviteInvalido("Link de convite inválido. Confira se copiou o endereço inteiro.");
+  // Rota aberta: o convite (consulta barata) é conferido antes do hash da senha (scrypt, caro), para um link
+  // inventado não gastar CPU do servidor. A transação abaixo confere de novo, agora com a linha travada.
+  const { erro } = await motivoDoConvite(token);
+  if (erro) throw new ConviteInvalido(erro);
   const senha = validarSenha(dados.senha);
-  const senhaHash = await gerarHashDeSenha(senha);
+  const senhaHash = await comVagaDeSenha(() => gerarHashDeSenha(senha));
   const nomeDigitado = normalizarNome(dados.nome);
 
   const usuario = await banco().transaction(async (tx) => {
@@ -132,6 +153,7 @@ export async function aceitarConvite(token: string, dados: { nome?: unknown; sen
 
     const [conta] = await tx.select().from(usuarios).where(eq(usuarios.email, convite.email)).limit(1).for("update");
     if (conta?.ativo) throw new ConviteInvalido(`Já existe uma conta ativa com o e-mail ${convite.email}. Entre com ela.`);
+    if (contaDeChefeDesativada(conta) && !(await ehDonoAtivo(convite.criadoPor, tx))) throw new ConviteInvalido(SO_O_DONO_REATIVA);
 
     const dadosDaConta = { nome, senhaHash, papel: convite.papel, chaves: limparChaves(convite.chaves), ativo: true };
     const [linha] = conta

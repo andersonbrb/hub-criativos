@@ -19,6 +19,7 @@ import { acharFerramenta, ferramentasDe, liberada } from "@/features/conector/se
 import { TETO_RESPOSTA, type Contexto } from "@/features/conector/servicos/ferramentas/comum";
 import { json, lerCorpo } from "@/features/conector/servicos/http";
 import { passouDoLimite } from "@/features/conector/servicos/limites";
+import { acharSegredo } from "@/features/memoria/servicos/segredos";
 import { InputError } from "@/lib/server/http";
 
 // O servidor MCP público (POST /mcp): JSON-RPC 2.0, SEM ESTADO. Cada POST traz o token e uma mensagem, e a resposta é
@@ -74,12 +75,23 @@ function identificacao(versao: string, base: string) {
   };
 }
 
+// A auditoria não pode guardar o segredo que a Memória acabou de recusar: o texto com a chave chega aqui inteiro,
+// recusado ou não. Toda string em que a barreira da Memória acha segredo vira SEGREDO_REMOVIDO. A conferência é feita
+// no texto INTEIRO, antes do corte: cortado, o pedaço que sobra pode não ser reconhecido e ainda vazar parte da chave.
+// O nome do campo entra na conferência porque "senha=valor" só é segredo junto com o nome (argumento { senha: "..." }).
+export const SEGREDO_REMOVIDO = "[segredo removido]";
+
+const semSegredo = (texto: string, campo = "") => (acharSegredo(texto) || (campo && acharSegredo(`${campo}=${texto}`)) ? SEGREDO_REMOVIDO : texto);
+
 function resumoDosArgumentos(args: Record<string, unknown>): string {
   try {
-    const curto = JSON.stringify(args, (_k, v) =>
-      typeof v === "string" && v.length > TETO_ARGUMENTO_AUDITADO ? `${v.slice(0, TETO_ARGUMENTO_AUDITADO)}…(${v.length} caracteres)` : v,
-    );
-    return curto.slice(0, TETO_AUDITORIA);
+    const curto = JSON.stringify(args, (campo, v) => {
+      if (typeof v !== "string") return v;
+      const limpo = semSegredo(v, campo);
+      return limpo.length > TETO_ARGUMENTO_AUDITADO ? `${limpo.slice(0, TETO_ARGUMENTO_AUDITADO)}…(${limpo.length} caracteres)` : limpo;
+    });
+    // Rede final: segredo que só aparece no JSON montado (ex.: no nome de um campo inventado) não entra.
+    return acharSegredo(curto) ? JSON.stringify({ argumentos: SEGREDO_REMOVIDO }) : curto.slice(0, TETO_AUDITORIA);
   } catch {
     return "";
   }
@@ -96,7 +108,8 @@ async function auditar(ctx: Contexto, ferramenta: string, args: Record<string, u
         ferramenta: ferramenta.slice(0, 64),
         argumentos: resumoDosArgumentos(args),
         duracaoMs: Math.round(duracaoMs),
-        erro: falha ? falha.slice(0, TETO_AUDITORIA) : null,
+        // A mensagem de erro pode repetir um argumento (ex.: o slug que não existe).
+        erro: falha ? semSegredo(falha).slice(0, TETO_AUDITORIA) : null,
       });
   } catch (err) {
     console.error("[conector] falha ao registrar a chamada", ferramenta, err instanceof Error ? err.message : err);

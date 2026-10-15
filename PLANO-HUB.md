@@ -52,6 +52,15 @@ Migração única, lint, tipos, testes, build, revisão de segurança e de funci
 conta do dono, importação da memória no banco de produção, convites e teste de ponta a ponta com o Claude Code.
 
 ### Onda 3 em diante
+- **Antes de ligar o chat na nuvem (`HUB_BRAIN=api`), obrigatório:** as ferramentas do chat precisam saber quem está
+  usando. Hoje `runTool` não recebe a pessoa. Com a chave "chat", alguém lê a Memória (`memoria_buscar` e
+  `memoria_ler`) sem a chave "memoria", gera nos estúdios sem a chave "estudios" e lê a conversa de qualquer pessoa
+  (`hub_read_chat`). Corrigir passando a pessoa no `ctx`, conferindo a chave de cada ferramenta e só pondo a Memória
+  no prompt de quem tem "memoria". Achado MÉDIO 5 da revisão de segurança da Onda 2.
+- Botões que levam para "Sem acesso": "Conectar FLORA/HeyGen/ElevenLabs" nos estúdios para quem não tem
+  "integracoes", e "Editor" no card de vídeo para quem não tem "editor". Trocar por um texto ou esconder o botão.
+- No pedido de autorização do conector, quem não tem a chave cai em "Sem acesso" e não consegue recusar. O Claude
+  espera até o pedido vencer (10 min).
 - Gerações, conversas, quadro, editor, decupagens e sessões das integrações no banco, com importação do hub antigo.
 - Dono por item.
 - Mídias em bucket e serviço separado para edição pesada.

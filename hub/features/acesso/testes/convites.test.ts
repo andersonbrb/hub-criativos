@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { banco } from "@/db/cliente";
 import { convites, usuarios } from "@/db/schema";
@@ -7,6 +7,7 @@ import { bancoDeTeste } from "@/db/teste";
 import type { Usuario } from "@/features/acesso/contrato";
 import { ConviteInvalido, RegraDeMembros, SenhaFraca, SoQuemPode } from "@/features/acesso/erros";
 import { aceitarConvite, buscarConvite, criarConvite, listarConvites, revogarConvite } from "@/features/acesso/servicos/convites";
+import * as senha from "@/features/acesso/servicos/senha";
 import { usuarioPeloToken } from "@/features/acesso/servicos/sessoes";
 import { criarConta } from "@/features/acesso/testes/ajuda";
 
@@ -20,6 +21,10 @@ describe("convites", () => {
     await bancoDeTeste();
     dono = await criarConta({ email: "dono@exemplo.com", papel: "dono" });
     admin = await criarConta({ email: "admin@exemplo.com", papel: "admin" });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("aceito: cria a conta com papel e chaves do convite e já abre a sessão", async () => {
@@ -72,9 +77,62 @@ describe("convites", () => {
 
   it("reativa conta desativada com o mesmo e-mail, com o papel e as chaves do convite", async () => {
     const antiga = await criarConta({ email: "volta@exemplo.com", papel: "admin", ativo: false, chaves: ["integracoes"] });
-    const { link } = await criarConvite({ email: "volta@exemplo.com", chaves: ["biblioteca"] }, admin);
+    const { link } = await criarConvite({ email: "volta@exemplo.com", chaves: ["biblioteca"] }, dono);
     const { usuario } = await aceitarConvite(tokenDo(link), { nome: "De Volta", senha: "uma-senha-boa-123" });
     expect(usuario).toMatchObject({ id: antiga.id, ativo: true, papel: "membro", chaves: ["biblioteca"], nome: "De Volta" });
+  });
+
+  it("conta desativada de admin ou dono: só o dono convida de volta", async () => {
+    await criarConta({ email: "ex-admin@exemplo.com", papel: "admin", ativo: false });
+    await criarConta({ email: "ex-dono@exemplo.com", papel: "dono", ativo: false });
+    await expect(criarConvite({ email: "ex-admin@exemplo.com" }, admin)).rejects.toThrow(SoQuemPode);
+    await expect(criarConvite({ email: "ex-dono@exemplo.com" }, admin)).rejects.toThrow(SoQuemPode);
+    expect(await listarConvites()).toHaveLength(0);
+
+    // Membro desativado o admin pode chamar de volta.
+    await criarConta({ email: "ex-membro@exemplo.com", ativo: false });
+    const { link: doMembro } = await criarConvite({ email: "ex-membro@exemplo.com" }, admin);
+    await expect(aceitarConvite(tokenDo(doMembro), { nome: "Ex Membro", senha: "uma-senha-boa-123" })).resolves.toBeTruthy();
+
+    // Convite do admin feito quando a conta era de membro; depois ela virou admin: não vale mais, nem queima.
+    const virou = await criarConta({ email: "virou@exemplo.com", ativo: false });
+    const { link } = await criarConvite({ email: "virou@exemplo.com" }, admin);
+    await banco().update(usuarios).set({ papel: "admin" }).where(eq(usuarios.id, virou.id));
+    await expect(buscarConvite(tokenDo(link))).rejects.toThrow(/só o dono/);
+    await expect(aceitarConvite(tokenDo(link), { nome: "Virou", senha: "uma-senha-boa-123" })).rejects.toThrow(/só o dono/);
+    const [conta] = await banco().select().from(usuarios).where(eq(usuarios.id, virou.id));
+    expect(conta).toMatchObject({ ativo: false, papel: "admin" });
+
+    // O dono pode.
+    const { link: doDono } = await criarConvite({ email: "ex-dono@exemplo.com" }, dono);
+    const { usuario } = await aceitarConvite(tokenDo(doDono), { nome: "Ex Dono", senha: "uma-senha-boa-123" });
+    expect(usuario).toMatchObject({ email: "ex-dono@exemplo.com", ativo: true, papel: "membro" });
+  });
+
+  it("convite que não serve é recusado sem gastar o hash da senha", async () => {
+    const hash = vi.spyOn(senha, "gerarHashDeSenha");
+    const dados = { nome: "Nova", senha: "uma-senha-boa-123" };
+    await expect(aceitarConvite("a".repeat(43), dados)).rejects.toThrow(/não existe/);
+    await expect(aceitarConvite("curto", dados)).rejects.toThrow(ConviteInvalido);
+
+    const vencido = await criarConvite({ email: "vencido@exemplo.com" }, admin);
+    await banco().update(convites).set({ expiraEm: new Date(Date.now() - 1000) }).where(eq(convites.email, "vencido@exemplo.com"));
+    await expect(aceitarConvite(tokenDo(vencido.link), dados)).rejects.toThrow(/venceu/);
+
+    const revogado = await criarConvite({ email: "revogado@exemplo.com" }, admin);
+    await revogarConvite(revogado.convite.id, admin);
+    await expect(aceitarConvite(tokenDo(revogado.link), dados)).rejects.toThrow(/revogado/);
+
+    // Conta ativa criada sem senha (criarConta não gera hash nesse caso).
+    const ativo = await criarConvite({ email: "ativa@exemplo.com" }, admin);
+    await criarConta({ email: "ativa@exemplo.com", senha: null });
+    await expect(aceitarConvite(tokenDo(ativo.link), dados)).rejects.toThrow(/conta ativa/);
+    expect(hash).not.toHaveBeenCalled();
+
+    // O convite bom gasta um hash só.
+    const bom = await criarConvite({ email: "boa@exemplo.com" }, admin);
+    await aceitarConvite(tokenDo(bom.link), dados);
+    expect(hash).toHaveBeenCalledTimes(1);
   });
 
   it("senha curta não cria conta nem queima o convite", async () => {

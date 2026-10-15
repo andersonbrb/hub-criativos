@@ -46,6 +46,9 @@ import { FRENTE_ROTULO, FRENTES, TIPO_ROTULO, TIPOS, type DocResumo, type Frente
 import { DocNaoEncontrado } from "@/features/memoria/erros";
 import { buscar as buscarNaMemoria, ler as lerDaMemoria, listarIndice as indiceDaMemoria, resolverSlug } from "@/features/memoria/servicos/memoria";
 
+// PC sem banco: a Memória só existe no hub da nuvem. Resposta para o agente seguir com os playbooks do prompt.
+const MEMORIA_FORA = { content: "A Memória fica no hub da nuvem; neste PC ela não está ligada. Siga os playbooks do prompt.", summary: "memória indisponível" };
+
 // Ferramentas do chat principal: as mesmas ações dos estúdios, mais leitura do histórico do hub.
 // A ordem e o texto das definições precisam ser estáveis (fazem parte do prefixo cacheado).
 
@@ -1346,6 +1349,7 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
 
   // ---- Memória (features/memoria) ----
   async memoria_buscar(input) {
+    if (!process.env.DATABASE_URL?.trim()) return MEMORIA_FORA;
     const filtro = {
       ...(TIPOS.includes(str(input.tipo) as TipoDoc) ? { tipo: str(input.tipo) as TipoDoc } : {}),
       ...(FRENTES.includes(str(input.frente) as Frente) ? { frente: str(input.frente) as Frente } : {}),
@@ -1368,6 +1372,7 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
   },
 
   async memoria_ler(input) {
+    if (!process.env.DATABASE_URL?.trim()) return MEMORIA_FORA;
     // Aceita também o nome de arquivo dos links dos textos antigos ("projetos/dewalt-ads-cl.md").
     const slug = (await resolverSlug(str(input.slug))) ?? str(input.slug).trim();
     const versao = input.versao === undefined || input.versao === null || input.versao === "" ? undefined : Number(input.versao);

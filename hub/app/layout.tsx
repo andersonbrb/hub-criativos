@@ -6,6 +6,7 @@ import "./globals.css";
 import { AppSidebar } from "@/components/app-sidebar";
 import { McpLoginToast } from "@/components/mcp-connect";
 import { Topbar } from "@/components/topbar";
+import { modoLocalSemBanco } from "@/features/acesso/modo-local";
 import { usuarioDaSessao } from "@/features/acesso/servicos/sessao";
 import { THEME_SCRIPT } from "@/lib/theme-script";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -41,7 +42,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         <TooltipProvider>
           {usuario ? (
             <SidebarProvider>
-              <AppSidebar usuario={usuario} />
+              <AppSidebar usuario={usuario} semBanco={modoLocalSemBanco()} />
               <SidebarInset className="min-w-0">
                 <Topbar usuario={usuario} />
                 {children}
