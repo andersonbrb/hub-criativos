@@ -3,6 +3,7 @@ import "server-only";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { podeUsar, type Usuario } from "@/features/acesso/contrato";
 import { FRENTE_ROTULO, TIPO_ROTULO } from "@/features/memoria/contrato";
 import { documentosDoPrompt, listarIndice } from "@/features/memoria/servicos/memoria";
 import { getAgentProfile } from "@/lib/agent-profiles";
@@ -24,9 +25,12 @@ async function playbooks(): Promise<string> {
 // Com banco (DATABASE_URL), a base de conhecimento vem da Memória: os documentos marcados "no prompt" entram
 // inteiros e o resto vai como lista, para ler sob demanda (memoria_buscar e memoria_ler). Sem banco (PC sem
 // Postgres) ou se o banco falhar, seguem os playbooks do disco, como antes.
-async function conhecimento(): Promise<{ fonte: string; secao: string }> {
+// A Memória tem os dados do negócio: quem não tem a chave "memoria" também fica com os playbooks do disco (o prompt
+// congela na conversa, então vale a chave de quem a criou).
+async function conhecimento(usuario?: Usuario): Promise<{ fonte: string; secao: string }> {
   const doDisco = async () => ({ fonte: "nos playbooks abaixo", secao: `# Playbooks\n${await playbooks()}` });
   if (!process.env.DATABASE_URL?.trim()) return doDisco();
+  if (usuario && !podeUsar(usuario, "memoria")) return doDisco();
   try {
     const [noPrompt, indice] = await Promise.all([documentosDoPrompt(), listarIndice()]);
     if (!noPrompt.length && !indice.length) return doDisco();
@@ -57,19 +61,20 @@ ${outros || "(nenhum)"}`,
 
 // Com agentId, a conversa é com um agente específico (lib/agent-profiles.ts): mesmas ferramentas e regras,
 // mais as instruções do agente. O mesmo prompt vale para o Claude e para a Venice (Modo Black).
-export async function buildSystemPrompt(agentId?: string | null): Promise<string> {
+// usuario: quem está criando a conversa (as rotas sempre passam). Sem ela (scripts e testes), a Memória entra.
+export async function buildSystemPrompt(agentId?: string | null, usuario?: Usuario): Promise<string> {
   const agent = getAgentProfile(agentId);
   const agentSection = agent
     ? `\n\n# Seu papel nesta conversa: agente de ${agent.name}\nNesta conversa você atua como o agente de ${agent.name} do hub (${agent.role}). Mantenha o foco nessa etapa, mas use qualquer ferramenta do hub quando ajudar o usuário.\n\n${agent.instructions}`
     : "";
   // Personalização do usuário ("Editar agente") vem por último: acrescenta, nunca substitui as regras gerais.
   const custom = agent ? await agentPromptSection(agent.id) : "";
-  return `${await basePrompt()}${agentSection}${custom}`;
+  return `${await basePrompt(usuario)}${agentSection}${custom}`;
 }
 
-async function basePrompt(): Promise<string> {
+async function basePrompt(usuario?: Usuario): Promise<string> {
   const today = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric", timeZone: "America/Sao_Paulo" });
-  const { fonte, secao } = await conhecimento();
+  const { fonte, secao } = await conhecimento(usuario);
   return `Você é o assistente principal do Hub de Criativos, o hub local de produção de criativos para anúncios (Meta e TikTok) do usuário. Hoje é ${today}.
 
 O usuário trabalha com duas operações, descritas ${fonte}: infoproduto (avatar falando + B-rolls + edição) e dropshipping COD (frames a partir da foto do produto e vídeo no FLORA). Fale em português do Brasil, de forma direta. Quando a tarefa for de uma operação, siga o playbook dela.

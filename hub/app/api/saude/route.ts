@@ -24,7 +24,8 @@ export const GET = route(
       const limite = new Promise<never>((_, falhar) => {
         espera = setTimeout(() => falhar(new Error(`o banco não respondeu em ${LIMITE_MS / 1000} s`)), LIMITE_MS);
       });
-      await Promise.race([banco().execute(sql`select 1`), limite]);
+      // Lê uma tabela da migração (não só "select 1"): uma versão que subiu sem migrar não passa na checagem.
+      await Promise.race([banco().execute(sql`select 1 from usuarios limit 1`), limite]);
       return Response.json({ ok: true, banco: "ok" }, { headers: semCache });
     } catch (err) {
       // O motivo fica só no log do servidor: a rota é pública e não deve expor detalhes do banco.

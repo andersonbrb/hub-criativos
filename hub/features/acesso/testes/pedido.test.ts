@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lerCorpo } from "@/features/acesso/servicos/pedido";
 import { InputError, route } from "@/lib/server/http";
 
+// Fora de um pedido do Next não há cookies: a sessão lê sempre o cookie (sessao.ts), então o teste entrega um vazio.
+vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }), headers: async () => new Headers() }));
+
 const URL_DO_HUB = "http://hub.local/api/teste";
 
 describe("lerCorpo (rotas de acesso)", () => {

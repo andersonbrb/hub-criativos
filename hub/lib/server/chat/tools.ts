@@ -41,6 +41,8 @@ import { listVoices as listElevenVoices } from "@/lib/server/providers/elevenlab
 import { createProject, getProject, listProjects } from "@/lib/server/providers/flora";
 import { listLooks, listVoices as listHeyVoices } from "@/lib/server/providers/heygen";
 import { getGeneration, listGenerations } from "@/lib/server/store";
+// ---- Acesso (features/acesso) ----
+import { podeUsar, SemPermissao, type Chave, type Usuario } from "@/features/acesso/contrato";
 // ---- Memória (features/memoria) ----
 import { FRENTE_ROTULO, FRENTES, TIPO_ROTULO, TIPOS, type DocResumo, type Frente, type TipoDoc } from "@/features/memoria/contrato";
 import { DocNaoEncontrado } from "@/features/memoria/erros";
@@ -63,7 +65,10 @@ export type ToolOutcome = {
 type Input = Record<string, unknown>;
 // chat: a conversa que chamou a ferramenta (projeto do FLORA dela, leitura das outras conversas).
 // viaMcp: chamada pela MCP do hub (Claude Code), que corta ferramentas demoradas: esperas ficam curtas.
-type Ctx = { signal: AbortSignal; chat?: Chat; viaMcp?: boolean };
+// usuario: quem está usando o chat. runTool barra a ferramenta que exige uma chave que a pessoa não tem
+// (CHAVE_DA_FERRAMENTA, no fim do arquivo). As rotas do chat sempre passam a pessoa; só scripts e testes internos
+// chamam sem ela, e aí nada é barrado.
+type Ctx = { signal: AbortSignal; chat?: Chat; viaMcp?: boolean; usuario?: Usuario };
 
 const str = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : String(v));
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
@@ -1405,6 +1410,63 @@ export const TOOL_NAMES = CURRENT.map((d) => d.name);
 // de uma conversa muda o prefixo (cache) e invalida os blocos de raciocínio já salvos.
 export const toolsFor = (names?: string[]) => (names ? definitions.filter((d) => names.includes(d.name)) : CURRENT);
 
+// ---- Quem pode usar cada ferramenta (features/acesso) ----
+// Ter a chave do chat não libera o hub inteiro: a ferramenta que lê a Memória, gasta crédito ou mexe em outra tela
+// exige a chave daquela tela, como as rotas da interface (app/api/**). Sem o mapa, uma conta só com "chat" lia os dados
+// do negócio e gerava no FLORA, HeyGen e ElevenLabs pelo agente.
+// Fora do mapa basta o chat: ler o histórico do hub, listar vozes, avatares e modelos, orçar e o que roda local sem
+// crédito. hub_remove_captions fica livre de propósito: roda local (LaMa) e o botão do card já aceita quem tem "chat"
+// (app/api/montagem/sem-legenda).
+// quando: a chave vale só para algumas chamadas (ex.: criar projeto no FLORA). A ferramenta continua na lista da
+// conversa e só a chamada que gasta é barrada. dica: o que o agente pode fazer no lugar.
+type RegraDeAcesso = { chave: Chave; quando?: (input: Input) => boolean; dica?: string };
+
+const CHAVE_DA_FERRAMENTA: Record<string, RegraDeAcesso> = {
+  // Memória: dados do negócio.
+  memoria_buscar: { chave: "memoria" },
+  memoria_ler: { chave: "memoria" },
+  // Estúdios: gera ou gasta crédito (FLORA, HeyGen, ElevenLabs, inclusive a transcrição pelo ElevenLabs Scribe).
+  elevenlabs_tts: { chave: "estudios" },
+  heygen_create_video: { chave: "estudios" },
+  heygen_translate_video: { chave: "estudios" },
+  flora_generate: { chave: "estudios" },
+  higgsfield_edit: { chave: "estudios" },
+  // As duas edições seguem a tela (app/api/montagem pede "estudios"); a edição final ainda transcreve pelo Scribe.
+  hub_montage: { chave: "estudios" },
+  hub_beat_edit: { chave: "estudios" },
+  hub_transcribe: { chave: "estudios" },
+  // Promete só ler, mas sem transcrição pronta transcriptOf começa uma no Scribe.
+  hub_transcript_read: { chave: "estudios" },
+  flora_projects: { chave: "estudios", quando: (input) => str(input.action) === "create" },
+  hub_view_video: {
+    chave: "estudios",
+    quando: (input) => input.transcribe !== false,
+    dica: "Sem a fala, dá para assistir: chame hub_view_video de novo com transcribe=false.",
+  },
+  // Fluxo (quadro Kanban).
+  pipeline_get: { chave: "fluxo" },
+  pipeline_save_card: { chave: "fluxo" },
+  // Editor. Como na tela do editor (app/api/editor), a legenda automática pelo Scribe vem junto com a chave "editor".
+  editor_open: { chave: "editor" },
+  editor_render: { chave: "editor" },
+  editor_join: { chave: "editor" },
+};
+
+// Chave que falta para esta chamada, ou null se a pessoa pode fazê-la.
+function chaveQueFalta(name: string, input: Input, usuario: Usuario): RegraDeAcesso | null {
+  const regra = CHAVE_DA_FERRAMENTA[name];
+  if (!regra || podeUsar(usuario, regra.chave)) return null;
+  return !regra.quando || regra.quando(input) ? regra : null;
+}
+
+// Ferramentas que a pessoa recebe numa lista (conversa nova e Modo Black), na mesma ordem das definições.
+// Some só a ferramenta que exige sempre uma chave que ela não tem; a que exige em parte das chamadas fica.
+export const ferramentasDaPessoa = (usuario: Usuario, names: string[] = TOOL_NAMES) =>
+  names.filter((name) => {
+    const regra = CHAVE_DA_FERRAMENTA[name];
+    return !regra || Boolean(regra.quando) || podeUsar(usuario, regra.chave);
+  });
+
 // Ferramentas que rodam nos servidores da Anthropic (pesquisa e leitura de páginas, ex.: página de vendas).
 export const SERVER_TOOLS: Anthropic.Beta.BetaToolUnion[] = [
   { type: "web_search_20260209", name: "web_search", max_uses: 8 },
@@ -1414,6 +1476,13 @@ export const SERVER_TOOLS: Anthropic.Beta.BetaToolUnion[] = [
 export async function runTool(name: string, input: unknown, ctx: Ctx): Promise<ToolOutcome & { error: boolean }> {
   const handler = handlers[name];
   if (!handler) return { content: `Ferramenta desconhecida: ${name}`, summary: "desconhecida", error: true };
+  // Barra na hora da chamada, não só na lista: a conversa antiga (lista congelada com tudo), a conversa de outra pessoa
+  // e o modelo que chama uma ferramenta fora da lista dele (a Venice aceita qualquer nome) passam por aqui.
+  const falta = ctx.usuario ? chaveQueFalta(name, (input ?? {}) as Input, ctx.usuario) : null;
+  if (falta) {
+    const message = `${new SemPermissao(falta.chave).message}${falta.dica ? ` ${falta.dica}` : ""}`;
+    return { content: message, summary: cut(message, 120), error: true };
+  }
   try {
     return { ...(await handler((input ?? {}) as Input, ctx)), error: false };
   } catch (err) {

@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
 
+import { exigirUsuario } from "@/features/acesso/servicos/sessao";
 import type { Attachment, ChatEvent } from "@/lib/chat";
 import type { MediaKind } from "@/lib/generations";
 import { ATTACHMENTS_NOTE } from "@/lib/server/chat/display";
@@ -11,7 +12,7 @@ import { runVeniceTurn } from "@/lib/server/chat/venice";
 import { endTurn, startTurn } from "@/lib/server/chat/running";
 import { getChat, listChats, newChat, saveChat, summary } from "@/lib/server/chat/store";
 import { buildSystemPrompt } from "@/lib/server/chat/system";
-import { TOOL_NAMES } from "@/lib/server/chat/tools";
+import { ferramentasDaPessoa } from "@/lib/server/chat/tools";
 import { hasKey } from "@/lib/server/env";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { languageNote } from "@/lib/languages";
@@ -98,6 +99,9 @@ export const POST = route(async (request: Request) => {
   if (process.env.HUB_CHAT?.trim() === "off") {
     return Response.json({ error: "O chat está desligado neste servidor. Use o chat no hub do seu computador." }, { status: 403 });
   }
+  // Quem manda a mensagem: as ferramentas conferem a chave dela a cada chamada (lib/server/chat/tools.ts) e a
+  // conversa nova só leva as ferramentas e a Memória que ela pode usar.
+  const usuario = await exigirUsuario();
   const form = await request.formData();
   const black = form.get("mode") === "black";
   const useApi = process.env.HUB_BRAIN?.trim() === "api";
@@ -127,7 +131,7 @@ export const POST = route(async (request: Request) => {
   if (!chat) {
     // agentId (só na criação): conversa com um agente; o prompt dele fica congelado na conversa.
     const agentId = getAgentProfile(String(form.get("agentId") ?? ""))?.id;
-    chat = newChat(titleFrom.replace(/\s+/g, " ").slice(0, 60), await buildSystemPrompt(agentId), TOOL_NAMES, agentId);
+    chat = newChat(titleFrom.replace(/\s+/g, " ").slice(0, 60), await buildSystemPrompt(agentId, usuario), ferramentasDaPessoa(usuario), agentId);
   } else if (chat.messages.length === 0 && !chat.titleRenamedAt) {
     // Conversa criada pelo botão "Nova conversa": ganha o título da primeira mensagem.
     chat.title = titleFrom.replace(/\s+/g, " ").slice(0, 60);
@@ -164,9 +168,9 @@ export const POST = route(async (request: Request) => {
       try {
         emit({ type: "chat", chat: summary(current) });
         emit({ type: "user", item: { kind: "user", text: shown, attachments } });
-        if (black) await runVeniceTurn(current, emit, turn.signal);
-        else if (useApi) await runChatTurn(current, emit, turn.signal);
-        else await runClaudeCodeTurn(current, emit, turn.signal, new URL(request.url).origin);
+        if (black) await runVeniceTurn(current, emit, turn.signal, usuario);
+        else if (useApi) await runChatTurn(current, emit, turn.signal, usuario);
+        else await runClaudeCodeTurn(current, emit, turn.signal, new URL(request.url).origin, usuario);
         emit({ type: "chat", chat: summary(current) });
         emit({ type: "done" });
       } finally {

@@ -2,6 +2,7 @@ import "server-only";
 
 import Anthropic from "@anthropic-ai/sdk";
 
+import type { Usuario } from "@/features/acesso/contrato";
 import type { ChatEvent } from "@/lib/chat";
 import { requireKey } from "@/lib/server/env";
 import { hydrateMessages } from "@/lib/server/chat/images";
@@ -45,7 +46,9 @@ function friendlyError(err: unknown): string {
 
 // Roda o agente até ele terminar de responder a última mensagem do usuário (já salva em chat.messages).
 // Cada passo concluído é salvo; um passo interrompido no meio não entra no histórico.
-export async function runChatTurn(chat: Chat, emit: Emit, signal: AbortSignal) {
+// usuario: quem mandou a mensagem. A lista de ferramentas é a congelada na conversa (o cache depende dela), então
+// quem não tem a chave de uma ferramenta é barrado na chamada (runTool), não na lista.
+export async function runChatTurn(chat: Chat, emit: Emit, signal: AbortSignal, usuario: Usuario) {
   const client = new Anthropic({ apiKey: requireKey("anthropic") });
 
   try {
@@ -116,7 +119,7 @@ export async function runChatTurn(chat: Chat, emit: Emit, signal: AbortSignal) {
         return;
       }
 
-      const outcomes = await Promise.all(toolUses.map((t) => runTool(t.name, t.input, { signal, chat })));
+      const outcomes = await Promise.all(toolUses.map((t) => runTool(t.name, t.input, { signal, chat, usuario })));
       const results: Anthropic.Beta.BetaToolResultBlockParam[] = toolUses.map((t, i) => {
         const o = outcomes[i];
         const generations = o.generations ?? [];

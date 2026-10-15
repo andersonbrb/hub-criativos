@@ -4,11 +4,12 @@ import { randomUUID } from "node:crypto";
 
 import type Anthropic from "@anthropic-ai/sdk";
 
+import type { Usuario } from "@/features/acesso/contrato";
 import type { ChatEvent } from "@/lib/chat";
 import { requireKey } from "@/lib/server/env";
 import { hydrateMessages } from "@/lib/server/chat/images";
 import { saveChat, type Chat } from "@/lib/server/chat/store";
-import { runTool, toolDetail, toolsFor } from "@/lib/server/chat/tools";
+import { ferramentasDaPessoa, runTool, toolDetail, toolsFor } from "@/lib/server/chat/tools";
 
 // "Modo Black": o mesmo agente do chat (mesmo prompt de sistema, mesmas ferramentas do hub), rodando no
 // modelo sem censura da Venice AI (API compatível com OpenAI, com function calling e visão).
@@ -209,9 +210,11 @@ async function step(system: string, messages: OaiMessage[], tools: unknown[], em
   return { text, calls: [...calls.values()].filter((c) => c.name), finish };
 }
 
-export async function runVeniceTurn(chat: Chat, emit: Emit, signal: AbortSignal) {
-  // Todas as ferramentas atuais, também em conversas antigas (a lista congelada em chat.toolNames só importa no modo HUB_BRAIN=api).
-  const defs = toolsFor();
+// usuario: quem mandou a mensagem. Só vê as ferramentas que pode usar, e runTool barra o resto se o modelo chamar.
+export async function runVeniceTurn(chat: Chat, emit: Emit, signal: AbortSignal, usuario: Usuario) {
+  // Todas as ferramentas atuais que a pessoa pode usar, também em conversas antigas (a lista congelada em
+  // chat.toolNames só importa no modo HUB_BRAIN=api; aqui não há prefixo cacheado, então filtrar a cada turno é seguro).
+  const defs = toolsFor(ferramentasDaPessoa(usuario));
   const tools = defs.map((d) => ({ type: "function", function: { name: d.name, description: d.description ?? "", parameters: d.input_schema } }));
   const system = chat.system + blackNote(veniceModel());
   const vision = await supportsVision(veniceModel());
@@ -252,7 +255,7 @@ export async function runVeniceTurn(chat: Chat, emit: Emit, signal: AbortSignal)
         toolUses.map((t) =>
           "_argumentos_invalidos" in ((t.input ?? {}) as object)
             ? Promise.resolve({ content: "Argumentos inválidos (JSON malformado). Chame a ferramenta de novo com JSON válido.", summary: "argumentos inválidos", error: true, generations: [] })
-            : runTool(t.name, t.input, { signal, chat }),
+            : runTool(t.name, t.input, { signal, chat, usuario }),
         ),
       );
       const results: Anthropic.Beta.BetaToolResultBlockParam[] = toolUses.map((t, idx) => {

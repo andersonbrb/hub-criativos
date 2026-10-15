@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
+import { DONO_LOCAL } from "@/features/acesso/modo-local";
 import { mcpToken } from "@/lib/server/chat/claude-code";
 import { hydrateMessages } from "@/lib/server/chat/images";
 import { turnSignal } from "@/lib/server/chat/running";
@@ -48,7 +49,17 @@ async function handle(req: RpcRequest, chatId: string, signal: AbortSignal): Pro
       const flora = JSON.stringify(chat?.floraProject ?? null);
       // Para junto com o turno (botão Parar), não só quando a conexão da MCP cai.
       const turn = chatId ? turnSignal(chatId) : undefined;
-      const outcome = await runTool(name, args, { signal: turn ? AbortSignal.any([signal, turn]) : signal, chat: chat ?? undefined, viaMcp: true });
+      // Quem chama é o Claude Code local, não uma pessoa: esta rota não sabe quem mandou a mensagem e roda como o dono
+      // local, sem barrar ferramenta. Isso só vale porque o cérebro Claude Code só existe no PC do dono
+      // (features/acesso/modo-local.ts; a nuvem usa HUB_BRAIN=api, que barra por pessoa em runTool) e a rota exige o
+      // bearer gerado a cada início do servidor. Lá, runClaudeCodeTurn já proíbe ao Claude Code as ferramentas que a
+      // pessoa logada não pode usar.
+      const outcome = await runTool(name, args, {
+        signal: turn ? AbortSignal.any([signal, turn]) : signal,
+        chat: chat ?? undefined,
+        viaMcp: true,
+        usuario: DONO_LOCAL,
+      });
 
       // A ferramenta pode ter escolhido o projeto do FLORA da conversa: grava na hora.
       if (chat && JSON.stringify(chat.floraProject ?? null) !== flora) {

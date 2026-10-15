@@ -24,8 +24,10 @@ export async function buscarUsuario(id: string): Promise<Usuario | null> {
 
 // Layout, página e rotas pedem a pessoa várias vezes no mesmo pedido: uma ida ao banco por pedido basta.
 const lerSessaoDoPedido = cache(async (): Promise<Usuario | null> => {
-  if (modoLocalSemBanco()) return DONO_LOCAL;
+  // Lê o cookie SEMPRE, antes do modo local: é isso que torna as páginas dinâmicas. No build (sem DATABASE_URL nem
+  // RAILWAY_*) o modo local daria "sim" e o Next gravaria as páginas como HTML fixo, com o dono local dentro.
   const token = (await cookies()).get(COOKIE_SESSAO)?.value;
+  if (modoLocalSemBanco()) return DONO_LOCAL;
   return token ? usuarioPeloToken(token) : null;
 });
 

@@ -9,11 +9,12 @@ import path from "node:path";
 
 import type Anthropic from "@anthropic-ai/sdk";
 
+import type { Usuario } from "@/features/acesso/contrato";
 import type { ChatEvent } from "@/lib/chat";
 import type { Generation } from "@/lib/generations";
 import { hydrateMessages } from "@/lib/server/chat/images";
 import { getChat, saveChat, type Chat } from "@/lib/server/chat/store";
-import { toolDetail } from "@/lib/server/chat/tools";
+import { ferramentasDaPessoa, TOOL_NAMES, toolDetail } from "@/lib/server/chat/tools";
 import { getGeneration } from "@/lib/server/store";
 
 // "Cérebro" do chat e dos agentes pelo Claude Code instalado nesta máquina, logado na assinatura do usuário
@@ -107,7 +108,10 @@ function missedContext(chat: Chat): string {
   return `<contexto_anterior>\nMensagens desta conversa que você ainda não viu (parte delas respondida no Modo Black, por outro modelo):\n\n${cut}\n</contexto_anterior>\n\n`;
 }
 
-export async function runClaudeCodeTurn(chat: Chat, emit: Emit, signal: AbortSignal, origin: string) {
+// usuario: quem mandou a mensagem. A MCP do hub não sabe quem é e roda como o dono local (app/api/mcp), porque este
+// cérebro só existe no PC do dono. Mesmo assim, as ferramentas que a pessoa não pode usar ficam proibidas para o
+// Claude Code (--disallowedTools). Para o dono a lista é vazia e nada muda.
+export async function runClaudeCodeTurn(chat: Chat, emit: Emit, signal: AbortSignal, origin: string, usuario: Usuario) {
   const bin = findClaude();
   if (!bin) {
     emit({ type: "error", message: "Não encontrei o Claude Code nesta máquina. Instale a extensão do Claude Code no VS Code (ou defina CLAUDE_CODE_BIN no .env.local) e faça login com a sua conta do claude.ai." });
@@ -133,6 +137,8 @@ export async function runClaudeCodeTurn(chat: Chat, emit: Emit, signal: AbortSig
 
   const resuming = Boolean(chat.claudeSessionId);
   const sessionId = chat.claudeSessionId ?? randomUUID();
+  const permitidas = new Set(ferramentasDaPessoa(usuario));
+  const proibidas = TOOL_NAMES.filter((n) => !permitidas.has(n)).map((n) => `mcp__hub__${n}`);
   const args = [
     "-p",
     "--input-format", "stream-json",
@@ -146,6 +152,8 @@ export async function runClaudeCodeTurn(chat: Chat, emit: Emit, signal: AbortSig
     "--setting-sources", "project",
     "--tools", "WebSearch", "WebFetch",
     "--allowedTools", "mcp__hub", "WebSearch", "WebFetch",
+    // A proibição vale sobre a permissão acima.
+    ...(proibidas.length ? ["--disallowedTools", ...proibidas] : []),
     "--model", process.env.HUB_CLAUDE_MODEL?.trim() || "opus",
     ...(resuming ? ["--resume", sessionId] : ["--session-id", sessionId]),
   ];

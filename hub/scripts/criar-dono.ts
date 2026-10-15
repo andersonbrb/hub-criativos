@@ -1,6 +1,7 @@
 // Cria (ou recupera) a conta de dono do hub, com uma senha nova e forte impressa uma única vez.
 // Uso: npm run criar-dono -- --email voce@exemplo.com --nome "Seu Nome"
-// Usa a DATABASE_URL do ambiente (no Railway: `railway run npm run criar-dono -- ...`).
+// Usa a DATABASE_URL do ambiente. Do PC contra o banco do Railway: a URL pública do Postgres (TCP proxy), só na
+// sessão do terminal (docs/railway.md). `railway run` não serve: ele passa o endereço interno, que o PC não alcança.
 // Rodar de novo para o mesmo e-mail troca a senha e derruba as sessões abertas dessa conta.
 
 import { garantirDono } from "@/features/acesso/servicos/donos";
@@ -26,7 +27,7 @@ async function principal() {
     return 1;
   }
   if (!process.env.DATABASE_URL?.trim()) {
-    console.error("Falta a variável DATABASE_URL (endereço do Postgres). No PC, coloque no hub/.env.local ou rode pelo `railway run`.");
+    console.error("Falta a variável DATABASE_URL (endereço do Postgres). Use a URL pública do Postgres só nesta sessão do terminal (veja docs/railway.md).");
     return 1;
   }
 

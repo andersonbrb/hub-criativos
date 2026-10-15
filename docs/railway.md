@@ -2,26 +2,26 @@
 
 ## Visão geral
 
-O hub na nuvem roda no Railway, no workspace **Grupo Chegou**, projeto **Hub de Criativos**, ambiente `production`.
+O hub na nuvem roda no Railway, no workspace **GC Pro Compartilhado's Projects**, projeto **Hub de Criativos**, ambiente `production`, serviço `hub-criativos` (o mesmo hub que a equipe já usava, agora com contas, Memória e conector).
 É a mesma imagem Docker do `Dockerfile` da raiz: Next.js (`hub/`), ffmpeg, Python (faster-whisper, torch CPU,
 OpenCV), o Chrome headless do Remotion e as fontes.
 
 O que mora onde:
 - **Postgres** (serviço `Postgres`): contas, convites, sessões, memória e conexões do conector do Claude.
-- **Volume do `hub`** (`/app/.data`): mídias, gerações, conversas, Fluxo, editor, decupagens, modelos do Whisper e
+- **Volume do `hub-criativos`** (`/app/.data`): mídias, gerações, conversas, Fluxo, editor, decupagens, modelos do Whisper e
   do LaMa, e as sessões das integrações. É a mesma pasta `hub/.data/` do PC.
 
 | Item | ID |
 |---|---|
-| Projeto | `9e6740cf-5d13-4b41-9c97-8022197f2ff6` |
-| Ambiente `production` | `607c1a8b-e5dd-4e3e-9b4f-e17bc69da812` |
-| Serviço `hub` | `71499abf-1f24-422e-9fea-569d235bb523` |
-| Serviço `Postgres` | `26cebaad-7ef0-407e-b5d9-bbd40b4b9422` |
-| Volume do `hub` (`hub-volume`) | `34896b74-9699-4fd6-b282-a20ff0a82b06` |
+| Projeto | `decc4e81-4032-4894-b887-d8d3bffd7e07` |
+| Ambiente `production` | `a90be87a-0084-493d-9fbf-74ffd2b6c874` |
+| Serviço `hub-criativos` | `226eecf3-4db4-4aae-afc2-77d3123ecd08` |
+| Serviço `Postgres` | `0dc60bc5-0f1c-45f2-9ad0-bdb5a7068fe4` |
+| Volume do `hub-criativos` (`hub-criativos-volume`) | `6a73667d-c5d5-4e61-8098-176424d49f7e` |
 
 ## Serviços
 
-### `hub`
+### `hub-criativos`
 - Constrói pelo `Dockerfile` da raiz (`railway.json`: builder `DOCKERFILE`).
 - Ao subir, roda as migrações e depois o servidor (veja [Migrações](#migrações)).
 - Reinicia sozinho se cair (`ON_FAILURE`, até 5 tentativas).
@@ -35,8 +35,8 @@ O que mora onde:
   usuário e senha, fica na variável `DATABASE_PUBLIC_URL` do serviço `Postgres`. Desligue o proxy (serviço
   `Postgres` → Settings → Networking) quando não estiver usando: é uma porta a mais aberta na internet.
 
-### Volume `hub-volume`
-- Montado em `/app/.data` no serviço `hub`.
+### Volume `hub-criativos-volume`
+- Montado em `/app/.data` no serviço `hub-criativos`.
 - Nunca vai para o git. Some se o volume for apagado (com os backups dele).
 
 ## Variáveis
@@ -64,28 +64,27 @@ O Railway também injeta as suas (`RAILWAY_*`), como `RAILWAY_PUBLIC_DOMAIN` e `
 
 ### Serviço `Postgres`
 Vêm do template: `DATABASE_URL` (interna), `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`, `POSTGRES_*`,
-`PGDATA`. Acrescentada à mão:
-- `DATABASE_PUBLIC_URL`: o mesmo banco pelo TCP proxy, para usar do PC. É montada com referências
-  (`PGUSER`, `POSTGRES_PASSWORD`, `RAILWAY_TCP_PROXY_DOMAIN`, `RAILWAY_TCP_PROXY_PORT`, `PGDATABASE`), então
-  acompanha a senha e o proxy.
+`PGDATA`. Para usar do PC, monte a URL pública com `PGUSER`, `PGPASSWORD`, `PGDATABASE` e o domínio e a porta do
+TCP proxy (serviço `Postgres` → Settings → Networking).
+
+**Sobrou de 15/10/2026:** os serviços `Postgres-ZDkt` e `Postgres-LIbh` foram criados por engano, vazios e sem
+uso. Podem ser apagados com os volumes deles. Também existe um projeto "Hub de Criativos" no workspace Grupo Chegou
+(`9e6740cf-…`) que foi preparado antes e não é usado: pode ser apagado.
 
 ## Domínio
 
-- Domínio gerado pelo Railway: **https://hub-production-797d.up.railway.app** (porta 3000).
+- Domínio gerado pelo Railway: **https://hub-criativos-production.up.railway.app** (porta 3000).
 - Se trocar por um domínio próprio, atualize `HUB_PUBLIC_URL` e refaça o login das integrações que dependem do
   endereço (ElevenLabs) e as conexões do conector do Claude.
 
 ## Como publicar
 
-Ainda não há fonte ligada ao serviço `hub`: nada foi publicado. Isso fica para a Onda 2, depois da junção.
+O serviço `hub-criativos` publica a partir do repositório `Grupo-Chegou-Geral/hub-criativos`: cada push na `main`
+publica sozinho. Não use "Custom Start Command" no painel: ele substitui o `CMD` do `Dockerfile` e a migração não
+roda.
 
-Opção 1, repositório (recomendada):
-1. No painel: serviço `hub` → Settings → Source → Connect Repo → `Grupo-Chegou-Geral/hub-criativos`, branch `main`.
-2. Deixe a pasta raiz vazia (o `Dockerfile` e o `railway.json` ficam na raiz do repositório).
-3. A partir daí, cada push na `main` publica sozinho.
-
-Opção 2, pelo conector do Railway no Claude Code: ligar a fonte (`connect_service_source`) ou publicar a pasta
-local, sempre no serviço `hub` deste projeto.
+Ordem segura para uma mudança que mexe no banco: variáveis e Postgres prontos → migração e scripts rodados do PC
+(veja abaixo) → push na `main`. Assim o hub sobe já com tudo no lugar.
 
 Depois de publicar, confira que a publicação ficou "Success" e abra `/api/saude`.
 
@@ -108,7 +107,7 @@ coloque essa URL no `hub/.env.local` nem no git: com ela, qualquer pessoa lê e 
 No PowerShell, dentro de `hub/`, com o Railway CLI logado:
 
 ```powershell
-$env:DATABASE_URL = (railway variable list --project 9e6740cf-5d13-4b41-9c97-8022197f2ff6 --environment production --service Postgres --json | ConvertFrom-Json).DATABASE_PUBLIC_URL
+$env:DATABASE_URL = (railway variable list --project decc4e81-4032-4894-b887-d8d3bffd7e07 --environment production --service Postgres --json | ConvertFrom-Json).DATABASE_PUBLIC_URL
 npm run criar-dono -- --email <e-mail do dono> --nome "<nome>"
 npm run importar-memoria -- <pasta>
 Remove-Item Env:DATABASE_URL
