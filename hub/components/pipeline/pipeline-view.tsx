@@ -637,6 +637,7 @@ export function PipelineView({ initialBoard, initialGenerations }: { initialBoar
               onUpdate={(patch) => updateCard(selected.id, patch)}
               onMove={(columnId) => moveCard(selected.id, columnId)}
               onDelete={() => deleteCard(selected.id)}
+              onGenerationsAdded={(added) => setGenerations((cur) => [...added, ...cur])}
             />
           ) : (
             <CardDetailsEmpty />

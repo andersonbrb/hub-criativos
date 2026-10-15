@@ -118,6 +118,7 @@ export function TranslateStudio() {
   const [videos, setVideos] = useState<Generation[] | null>(null);
   const [sourceId, setSourceId] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadStep, setUploadStep] = useState("");
 
   const [outputs, setOutputs] = useState<string[]>([]);
   const [langOpen, setLangOpen] = useState(false);
@@ -199,23 +200,33 @@ export function TranslateStudio() {
 
   const toggleLang = (l: string) => setOutputs((cur) => (cur.includes(l) ? cur.filter((x) => x !== l) : [...cur, l]));
 
-  async function uploadVideo(file: File) {
+  // Um ou vários vídeos: todos entram na lista do hub e o primeiro fica escolhido para traduzir.
+  async function uploadVideos(list: File[]) {
+    const files = list.filter((f) => f.type.startsWith("video/"));
+    if (!files.length) return toast.error("Escolha arquivos de vídeo (mp4, mov, webm).");
     setUploading(true);
+    const sent: Generation[] = [];
     try {
-      const form = new FormData();
-      form.set("file", file);
-      const { generation } = await apiFetch<{ generation: Generation }>("/api/uploads", { method: "POST", body: form });
-      setVideos((cur) => [generation, ...(cur ?? [])]);
-      setSourceId(generation.id);
+      for (const [i, file] of files.entries()) {
+        if (files.length > 1) setUploadStep(`${i + 1}/${files.length}`);
+        try {
+          const form = new FormData();
+          form.set("file", file);
+          sent.push((await apiFetch<{ generation: Generation }>("/api/uploads", { method: "POST", body: form })).generation);
+        } catch (e) {
+          toast.error(`“${file.name}”: ${e instanceof Error ? e.message : "não consegui enviar"}`);
+        }
+      }
+      if (!sent.length) return;
+      setVideos((cur) => [...[...sent].reverse(), ...(cur ?? [])]);
+      setSourceId(sent[0].id);
       setSourceTab("hub");
-      toast.success("Vídeo enviado ao hub.");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Não consegui enviar.");
+      toast.success(sent.length > 1 ? `${sent.length} vídeos enviados ao hub. O primeiro já está escolhido.` : "Vídeo enviado ao hub.");
     } finally {
       setUploading(false);
+      setUploadStep("");
     }
   }
-
 
   async function translate() {
     setBusy(true);
@@ -302,20 +313,21 @@ export function TranslateStudio() {
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
-              const f = e.dataTransfer.files[0];
-              if (f) uploadVideo(f);
+              const files = Array.from(e.dataTransfer.files);
+              if (files.length) uploadVideos(files);
             }}
           >
             {uploading ? <Loader2 className="size-6 animate-spin" /> : <Upload className="size-6" />}
-            {uploading ? "Enviando…" : "Clique ou arraste o vídeo (mp4, mov, webm). Até 200 MB no HeyGen."}
+            {uploading ? `Enviando${uploadStep ? ` ${uploadStep}` : ""}…` : "Clique ou arraste um ou vários vídeos (mp4, mov, webm). Até 200 MB cada no HeyGen."}
             <input
               type="file"
               accept="video/mp4,video/quicktime,video/webm"
+              multiple
               className="sr-only"
               onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) uploadVideo(f);
+                const files = Array.from(e.target.files ?? []);
                 e.target.value = "";
+                if (files.length) uploadVideos(files);
               }}
             />
           </label>

@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Check, Download, Link2, MessageSquare, MousePointerClick, Search, Trash2, Unlink } from "lucide-react";
+import { Check, Download, Link2, Loader2, MessageSquare, MousePointerClick, Search, Trash2, Unlink, Upload } from "lucide-react";
+
+import { toast } from "sonner";
 
 import { ConfirmDialog, formatDate, GenerationThumb, toolLabel } from "@/components/pipeline/shared";
 import { GenerationCard } from "@/components/studios/shared";
@@ -12,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { OPERATIONS, operationLabel, type BoardCard, type BoardColumn, type Operation } from "@/lib/board";
-import type { Generation } from "@/lib/generations";
+import { apiFetch, type Generation } from "@/lib/generations";
 import { cn } from "@/lib/utils";
 
 type CardPatch = Partial<Pick<BoardCard, "title" | "description" | "operation" | "product" | "generationIds">>;
@@ -140,6 +142,7 @@ export function CardDetails({
   onUpdate,
   onMove,
   onDelete,
+  onGenerationsAdded,
 }: {
   card: BoardCard;
   columns: BoardColumn[];
@@ -149,6 +152,7 @@ export function CardDetails({
   onUpdate: (patch: CardPatch) => void;
   onMove: (columnId: string) => void;
   onDelete: () => Promise<void>;
+  onGenerationsAdded: (added: Generation[]) => void;
 }) {
   const [linkOpen, setLinkOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -161,6 +165,27 @@ export function CardDetails({
       generationIds: card.generationIds.includes(id) ? card.generationIds.filter((g) => g !== id) : [...card.generationIds, id],
     });
   const unlink = (id: string) => onUpdate({ generationIds: card.generationIds.filter((g) => g !== id) });
+  // Envia um ou vários arquivos do computador direto para o hub, já vinculados a este card (na ordem escolhida).
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const [uploadStep, setUploadStep] = useState<string | null>(null);
+  const uploadFiles = async (files: File[]) => {
+    const sent: Generation[] = [];
+    for (const [i, file] of files.entries()) {
+      setUploadStep(files.length > 1 ? `${i + 1}/${files.length}` : "");
+      try {
+        const form = new FormData();
+        form.set("file", file);
+        sent.push((await apiFetch<{ generation: Generation }>("/api/uploads", { method: "POST", body: form })).generation);
+      } catch (err) {
+        toast.error(`“${file.name}”: ${err instanceof Error ? err.message : "não consegui enviar"}`);
+      }
+    }
+    setUploadStep(null);
+    if (!sent.length) return;
+    onGenerationsAdded(sent);
+    onUpdate({ generationIds: [...card.generationIds, ...sent.map((g) => g.id).filter((id) => !card.generationIds.includes(id))] });
+    toast.success(sent.length > 1 ? `${sent.length} arquivos enviados e vinculados ao card` : `“${files[0].name}” enviado e vinculado ao card`);
+  };
   const videoCount = card.generationIds.filter((id) => {
     const g = generationsById.get(id);
     return g?.kind === "video" && g.status === "done" && (g.file || g.remoteUrl);
@@ -246,6 +271,22 @@ export function CardDetails({
                 </a>
               </Button>
             )}
+            <Button variant="outline" size="sm" disabled={uploadStep !== null} onClick={() => uploadRef.current?.click()} title="Enviar um ou vários vídeos, áudios ou imagens do computador, já vinculados a este card">
+              {uploadStep !== null ? <Loader2 className="animate-spin" /> : <Upload />}
+              {uploadStep !== null ? `Enviando${uploadStep ? ` ${uploadStep}` : ""}…` : "Enviar arquivos"}
+            </Button>
+            <input
+              ref={uploadRef}
+              type="file"
+              accept="video/*,audio/*,image/*"
+              multiple
+              hidden
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                e.target.value = "";
+                if (files.length) uploadFiles(files);
+              }}
+            />
             <Button variant="outline" size="sm" onClick={() => setLinkOpen(true)}>
               <Link2 />
               Vincular geração

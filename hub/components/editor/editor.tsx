@@ -360,25 +360,57 @@ export function Editor({ initialProjectId, initialGenerationId }: { initialProje
     }
   };
 
-  // Enviar vídeo do computador: com projeto aberto entra no fim da timeline; sem projeto, abre um projeto novo.
+  // Enviar vídeos do computador (um ou vários, na ordem escolhida): com projeto aberto entram no fim da timeline;
+  // sem projeto, abrem um projeto novo com todos em sequência.
   const uploadRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadStep, setUploadStep] = useState("");
   const pickUpload = () => uploadRef.current?.click();
-  const uploadVideo = async (file: File) => {
-    if (!file.type.startsWith("video/")) return toast.error("Escolha um arquivo de vídeo (mp4, mov, webm…).");
+  const uploadVideos = async (list: File[]) => {
+    const files = list.filter((f) => f.type.startsWith("video/"));
+    if (!files.length) return toast.error("Escolha arquivos de vídeo (mp4, mov, webm…).");
+    if (files.length < list.length) toast.warning(`${list.length - files.length} arquivo(s) ignorado(s): não são vídeo.`);
     setUploading(true);
+    const ids: string[] = [];
     try {
-      const form = new FormData();
-      form.set("file", file);
-      const { generation } = await apiFetch<{ generation: Generation }>("/api/uploads", { method: "POST", body: form });
-      toast.success(`“${file.name}” enviado`);
-      if (project) await addToTimeline(generation.id);
-      else await openVideo(generation.id);
-      loadLibrary();
+      for (const [i, file] of files.entries()) {
+        if (files.length > 1) setUploadStep(`${i + 1}/${files.length}`);
+        try {
+          const form = new FormData();
+          form.set("file", file);
+          ids.push((await apiFetch<{ generation: Generation }>("/api/uploads", { method: "POST", body: form })).generation.id);
+        } catch (err) {
+          toast.error(`“${file.name}”: ${err instanceof Error ? err.message : "não consegui enviar"}`);
+        }
+      }
+      if (!ids.length) return;
+      toast.success(ids.length > 1 ? `${ids.length} vídeos enviados` : `“${files[0].name}” enviado`);
+      if (project) await save();
+      let target =
+        project ??
+        (await apiFetch<{ project: EditorProject }>("/api/editor/projects", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ generationId: ids.shift() }),
+        })).project;
+      for (const generationId of ids) {
+        target = (await apiFetch<{ project: EditorProject }>(`/api/editor/projects/${target.id}/sources`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ generationId }),
+        })).project;
+      }
+      if (project) {
+        const { sources, clips } = target;
+        change((p) => ({ ...p, sources, clips }));
+        if (ids.length) toast.success(ids.length > 1 ? `${ids.length} vídeos adicionados ao fim da timeline` : "Vídeo adicionado ao fim da timeline");
+      } else show(target);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Não consegui enviar o vídeo.");
+      toast.error(err instanceof Error ? err.message : "Não consegui montar a timeline com os vídeos.");
     } finally {
       setUploading(false);
+      setUploadStep("");
+      loadLibrary();
     }
   };
 
@@ -444,11 +476,12 @@ export function Editor({ initialProjectId, initialGenerationId }: { initialProje
           ref={uploadRef}
           type="file"
           accept="video/*"
+          multiple
           hidden
           onChange={(e) => {
-            const file = e.target.files?.[0];
+            const files = Array.from(e.target.files ?? []);
             e.target.value = "";
-            if (file) uploadVideo(file);
+            if (files.length) uploadVideos(files);
           }}
         />
         <Library
@@ -457,6 +490,7 @@ export function Editor({ initialProjectId, initialGenerationId }: { initialProje
           activeId={project?.id ?? null}
           hasProject={Boolean(project)}
           uploading={uploading}
+          uploadStep={uploadStep}
           onUpload={pickUpload}
           onOpenProject={openProject}
           onOpenVideo={openVideo}
@@ -478,7 +512,7 @@ export function Editor({ initialProjectId, initialGenerationId }: { initialProje
                     <p className="mt-1">Envie um vídeo do seu computador, abra um da Biblioteca, ou use o botão “Editor” em qualquer vídeo do chat e dos estúdios.</p>
                     <Button className="mt-4 bg-rec text-white hover:bg-rec/85" disabled={uploading} onClick={pickUpload}>
                       {uploading ? <Loader2 className="animate-spin" /> : <Upload />}
-                      {uploading ? "Enviando…" : "Enviar vídeo"}
+                      {uploading ? `Enviando${uploadStep ? ` ${uploadStep}` : ""}…` : "Enviar vídeos"}
                     </Button>
                   </div>
                 ) : (
@@ -566,6 +600,7 @@ function Library({
   activeId,
   hasProject,
   uploading,
+  uploadStep,
   onUpload,
   onOpenProject,
   onOpenVideo,
@@ -577,6 +612,7 @@ function Library({
   activeId: string | null;
   hasProject: boolean;
   uploading: boolean;
+  uploadStep: string;
   onUpload: () => void;
   onOpenProject: (id: string) => void;
   onOpenVideo: (id: string) => void;
@@ -585,9 +621,9 @@ function Library({
 }) {
   return (
     <div className="flex flex-col gap-4 p-3">
-      <Button className="w-full bg-rec text-white hover:bg-rec/85" disabled={uploading} onClick={onUpload} title="Enviar um vídeo do seu computador">
+      <Button className="w-full bg-rec text-white hover:bg-rec/85" disabled={uploading} onClick={onUpload} title="Enviar um ou vários vídeos do seu computador">
         {uploading ? <Loader2 className="animate-spin" /> : <Upload />}
-        {uploading ? "Enviando…" : hasProject ? "Enviar vídeo para a timeline" : "Enviar vídeo"}
+        {uploading ? `Enviando${uploadStep ? ` ${uploadStep}` : ""}…` : hasProject ? "Enviar vídeos para a timeline" : "Enviar vídeos"}
       </Button>
       <section className="flex flex-col gap-1">
         <h3 className="text-[0.6875rem] font-medium tracking-wider text-muted-foreground uppercase">Projetos</h3>
