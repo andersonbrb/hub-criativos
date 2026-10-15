@@ -28,6 +28,11 @@ export type Generation = {
   createdAt: string;
   // Quando ficou pronta ou falhou (calibra a previsão de tempo das próximas).
   finishedAt?: string;
+  // Vídeo guardado no Google Drive (features/drive): é a ÚNICA cópia. `file` continua sendo a chave do endereço
+  // /api/media/<file>, que passa a buscar o vídeo no Drive.
+  drive?: { id: string; pasta: string };
+  // O arquivo foi apagado ou foi para a lixeira direto no Drive: o hub esconde a geração (espelho do Drive).
+  foraDoDrive?: boolean;
 };
 
 export const mediaUrl = (g: Generation) => (g.file ? `/api/media/${g.file}` : g.remoteUrl);

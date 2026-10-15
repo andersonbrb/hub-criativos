@@ -5,3 +5,4 @@
 export * from "../features/acesso/tabelas";
 export * from "../features/memoria/tabelas";
 export * from "../features/conector/tabelas";
+export * from "../features/drive/tabelas";
