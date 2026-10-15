@@ -5,4 +5,4 @@ import { route } from "@/lib/server/http";
 export const DELETE = route(async (_request: Request, { params }: { params: Promise<{ id: string }> }) => {
   await dismissCreation((await params).id);
   return Response.json({ ok: true });
-});
+}, { chave: "estudios" });

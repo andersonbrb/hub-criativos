@@ -12,7 +12,7 @@ export const GET = route(async () => {
     creations,
     credits: premium ? { remaining: premium.remaining ?? null, resetsAt: premium.resets_at ?? null, plan: account?.subscription?.plan ?? null } : null,
   });
-});
+}, { chave: "estudios" });
 
 // FormData: mode (photo | prompt | twin), name, photo | video | prompt + references[] + aspectRatio.
 export const POST = route(async (request: Request) => {
@@ -31,4 +31,4 @@ export const POST = route(async (request: Request) => {
     aspectRatio: String(form.get("aspectRatio") ?? ""),
   });
   return Response.json({ creation });
-});
+}, { chave: "estudios" });

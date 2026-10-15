@@ -3,11 +3,13 @@ import "server-only";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { FRENTE_ROTULO, TIPO_ROTULO } from "@/features/memoria/contrato";
+import { documentosDoPrompt, listarIndice } from "@/features/memoria/servicos/memoria";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { agentPromptSection } from "@/lib/server/agent-settings";
 
 // Prompt de sistema do chat principal. É montado uma vez por conversa (fica salvo nela),
-// então editar um playbook vale para as próximas conversas.
+// então editar um playbook ou um documento da Memória vale para as próximas conversas.
 
 const PLAYBOOKS_DIR = path.join(process.cwd(), "playbooks");
 
@@ -17,6 +19,40 @@ async function playbooks(): Promise<string> {
     names.map(async (n) => `<playbook arquivo="${n}">\n${(await readFile(path.join(PLAYBOOKS_DIR, n), "utf8")).trim()}\n</playbook>`),
   );
   return docs.join("\n\n");
+}
+
+// Com banco (DATABASE_URL), a base de conhecimento vem da Memória: os documentos marcados "no prompt" entram
+// inteiros e o resto vai como lista, para ler sob demanda (memoria_buscar e memoria_ler). Sem banco (PC sem
+// Postgres) ou se o banco falhar, seguem os playbooks do disco, como antes.
+async function conhecimento(): Promise<{ fonte: string; secao: string }> {
+  const doDisco = async () => ({ fonte: "nos playbooks abaixo", secao: `# Playbooks\n${await playbooks()}` });
+  if (!process.env.DATABASE_URL?.trim()) return doDisco();
+  try {
+    const [noPrompt, indice] = await Promise.all([documentosDoPrompt(), listarIndice()]);
+    if (!noPrompt.length && !indice.length) return doDisco();
+    const dentro = new Set(noPrompt.map((d) => d.slug));
+    const docs = noPrompt
+      .map((d) => `<documento slug="${d.slug}" titulo="${d.titulo.replace(/"/g, "'")}" tipo="${d.tipo}" versao="${d.versao}">\n${d.conteudo.trim()}\n</documento>`)
+      .join("\n\n");
+    const outros = indice
+      .filter((d) => !dentro.has(d.slug))
+      .map((d) => `- ${d.slug} · ${d.titulo} · ${TIPO_ROTULO[d.tipo]} · ${FRENTE_ROTULO[d.frente]}${d.precisaRevisao ? " · precisa de revisão" : ""}`)
+      .join("\n");
+    return {
+      fonte: "na memória da operação abaixo",
+      secao: `# Memória da operação
+Base de conhecimento da operação (regras, fluxos, dados do negócio, projetos e lotes, lições), guardada no hub com versões. Os documentos abaixo valem como regra nesta conversa. Quando uma regra daqui conflitar com as regras do hub escritas acima, siga as do hub até a decisão (documento decisoes-pendentes).
+
+${docs}
+
+## Outros documentos da memória (leia sob demanda)
+Antes de responder sobre fluxos, lotes e projetos, dados do negócio (contas, lojas, margens, ferramentas) ou lições, procure com memoria_buscar e leia o documento certo com memoria_ler. Não responda de memória sobre isso.
+${outros || "(nenhum)"}`,
+    };
+  } catch (err) {
+    console.error("[hub] Memória indisponível no prompt; usando os playbooks do disco:", err instanceof Error ? err.message : err);
+    return doDisco();
+  }
 }
 
 // Com agentId, a conversa é com um agente específico (lib/agent-profiles.ts): mesmas ferramentas e regras,
@@ -33,9 +69,10 @@ export async function buildSystemPrompt(agentId?: string | null): Promise<string
 
 async function basePrompt(): Promise<string> {
   const today = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric", timeZone: "America/Sao_Paulo" });
+  const { fonte, secao } = await conhecimento();
   return `Você é o assistente principal do Hub de Criativos, o hub local de produção de criativos para anúncios (Meta e TikTok) do usuário. Hoje é ${today}.
 
-O usuário trabalha com duas operações, descritas nos playbooks abaixo: infoproduto (avatar falando + B-rolls + edição) e dropshipping COD (frames a partir da foto do produto e vídeo no FLORA). Fale em português do Brasil, de forma direta. Quando a tarefa for de uma operação, siga o playbook dela.
+O usuário trabalha com duas operações, descritas ${fonte}: infoproduto (avatar falando + B-rolls + edição) e dropshipping COD (frames a partir da foto do produto e vídeo no FLORA). Fale em português do Brasil, de forma direta. Quando a tarefa for de uma operação, siga o playbook dela.
 Escreva TUDO para o usuário em português do Brasil, inclusive as mensagens curtas entre uma ferramenta e outra ("Pronto.", "Vou conferir os quadros…"); nunca em inglês, mesmo quando as ferramentas e os modelos respondem em inglês. Só o conteúdo do criativo segue o idioma do criativo.
 
 ## O que você controla
@@ -92,6 +129,5 @@ Você e os agentes (Estrategista, Copy, VSL, Voz, Avatar UGC, B-rolls, Estático
 ## Antes de usar uma imagem
 Quando um frame ou foto vai virar referência de vídeo, olhe a imagem (hub_view_image) e confira fidelidade ao produto e às regras do playbook antes de gastar no vídeo.
 
-# Playbooks
-${await playbooks()}`;
+${secao}`;
 }

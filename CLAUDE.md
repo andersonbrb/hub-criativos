@@ -94,7 +94,8 @@ As mensagens são em português, legíveis tanto para quem usa quanto para o age
 
 ## Deploy (Railway)
 O `Dockerfile` e o `railway.json` da raiz montam uma imagem com Node 22, ffmpeg, Python (faster-whisper, torch CPU, OpenCV), o Chrome headless do Remotion e as fontes, e fazem o build de `hub/`. Variáveis de lá:
-- `HUB_PASSWORD`: senha de acesso, cobrada por `proxy.ts`. Sem ela, nada é bloqueado.
+- `DATABASE_URL`: o Postgres do projeto (referência ao serviço `Postgres`).
+- `DONOS_DA_PLATAFORMA`: e-mails que podem ser dono (separados por vírgula). O login é por conta (`features/acesso`); o primeiro dono sai de `npm run criar-dono -- --email X --nome "Nome"`. `HUB_PASSWORD` não é mais usada.
 - `HUB_BRAIN`/`HUB_CHAT`: escolhem o cérebro do chat ou o desligam.
 - `HUB_PUBLIC_URL`: endereço público do hub.
 - `<SERVIÇO>_MCP_SESSION`: sessão OAuth de cada serviço.

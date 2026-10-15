@@ -24,7 +24,7 @@ import { createGeneration } from "@/lib/server/store";
 export const GET = route(async (request: Request) => {
   const agent = new URL(request.url).searchParams.get("agent");
   return Response.json({ chats: await listChats(getAgentProfile(agent)?.id ?? null) });
-});
+}, { chave: ["chat", "criativo-automatico"] });
 
 const MAX_FILE_BYTES = 500 * 1024 * 1024;
 const MAX_TEXT_CHARS = 150_000;
@@ -180,4 +180,4 @@ export const POST = route(async (request: Request) => {
   return new Response(body, {
     headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" },
   });
-});
+}, { chave: ["chat", "criativo-automatico"] });

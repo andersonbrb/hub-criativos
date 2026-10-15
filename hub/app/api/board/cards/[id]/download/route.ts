@@ -49,4 +49,4 @@ export const GET = route(async (_request: Request, { params }: Ctx) => {
       "Cache-Control": "no-store",
     },
   });
-});
+}, { chave: "fluxo" });

@@ -35,7 +35,7 @@ produzindo criativos no próprio PC (assinatura, sem API), lendo e gravando a me
 Dependências (Drizzle, postgres, vitest, PGlite, tsx), `db/`, padrão `features/`, contratos de Acesso e Memória,
 este plano, CHANGELOG.
 
-### Onda 1: em paralelo
+### Onda 1: em paralelo ✅
 - **A, Acesso:** contas, senha, sessões, convites, chaves por tela, telas Entrar, Aceitar convite e Membros. Troca a
   senha única (`HUB_PASSWORD`) e cria o script `criar-dono`.
 - **B, Memória:** base de conhecimento com versões, busca, barreira de segredo, importador do contexto do Sávio e

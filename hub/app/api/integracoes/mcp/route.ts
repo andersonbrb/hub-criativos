@@ -6,4 +6,4 @@ export const GET = route(async () => {
   const ids = Object.keys(MCP_SERVICES) as McpServiceId[];
   const list = await Promise.all(ids.map(async (id) => ({ id, label: MCP_SERVICES[id].label, ...(await mcp(id).connectionStatus()) })));
   return Response.json({ services: list });
-});
+}, { chave: "integracoes" });

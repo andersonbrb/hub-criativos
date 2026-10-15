@@ -5,4 +5,4 @@ import { route } from "@/lib/server/http";
 export const POST = route(async (request: Request) => {
   const { chatId } = (await request.json().catch(() => ({}))) as { chatId?: string };
   return Response.json({ stopped: chatId ? stopTurn(String(chatId)) : false });
-});
+}, { chave: ["chat", "criativo-automatico"] });

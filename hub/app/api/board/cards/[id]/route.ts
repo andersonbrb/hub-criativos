@@ -20,10 +20,10 @@ export const PATCH = route(async (request: Request, { params }: Ctx) => {
     await moveCard(id, body.columnId, body.index === undefined || body.index === null ? undefined : (body.index as number));
   }
   return Response.json({ board: await getBoard() });
-});
+}, { chave: "fluxo" });
 
 export const DELETE = route(async (_request: Request, { params }: Ctx) => {
   const { id } = await params;
   await deleteCard(id);
   return Response.json({ ok: true });
-});
+}, { chave: "fluxo" });

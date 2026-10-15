@@ -1,7 +1,8 @@
+import { route } from "@/lib/server/http";
 import { isMcpService, mcp } from "@/lib/server/mcp-client";
 
 // Volta do login do serviço: troca o código pelos tokens e retorna para a tela de onde saiu.
-export async function GET(request: Request, { params }: { params: Promise<{ service: string }> }) {
+export const GET = route(async (request: Request, { params }: { params: Promise<{ service: string }> }) => {
   const { service } = await params;
   const url = new URL(request.url);
   const back = (path: string, status: string) =>
@@ -15,4 +16,4 @@ export async function GET(request: Request, { params }: { params: Promise<{ serv
     console.error(`[hub] login ${service}:`, err instanceof Error ? err.message : err);
     return back("/integracoes", "erro");
   }
-}
+}, { chave: "integracoes" });

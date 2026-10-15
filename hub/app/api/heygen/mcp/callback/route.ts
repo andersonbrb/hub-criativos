@@ -1,7 +1,8 @@
 import { finishLogin } from "@/lib/server/heygen-mcp";
+import { route } from "@/lib/server/http";
 
-// Volta do login do HeyGen: troca o código pelos tokens e retorna para o estúdio.
-export async function GET(request: Request) {
+// Volta do login do HeyGen: troca o código pelos tokens e retorna para o estúdio. Ligar conta é de Integrações.
+export const GET = route(async (request: Request) => {
   const url = new URL(request.url);
   const back = (path: string, status: string) => new Response(null, { status: 302, headers: { Location: `${path}${path.includes("?") ? "&" : "?"}heygen=${status}` } });
   const code = url.searchParams.get("code");
@@ -13,4 +14,4 @@ export async function GET(request: Request) {
     console.error("[hub] login HeyGen:", err instanceof Error ? err.message : err);
     return back("/estudios/traducao", "erro");
   }
-}
+}, { chave: "integracoes" });

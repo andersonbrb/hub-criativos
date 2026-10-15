@@ -5,4 +5,4 @@ import { brandGlossaries, translationLanguages } from "@/lib/server/video-transl
 export const GET = route(async () => {
   const [languages, glossaries] = await Promise.all([translationLanguages(), brandGlossaries().catch(() => [])]);
   return Response.json({ languages, glossaries });
-});
+}, { chave: "estudios" });

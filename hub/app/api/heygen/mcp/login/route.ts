@@ -16,4 +16,4 @@ export const GET = route(async (request: Request) => {
   const returnTo = params.get("returnTo") ?? "/estudios/traducao";
   const safe = returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/estudios/traducao";
   return Response.redirect(await startLogin(originOf(request), safe, params.get("para") === "nuvem" ? "nuvem" : undefined), 302);
-});
+}, { chave: "integracoes" });

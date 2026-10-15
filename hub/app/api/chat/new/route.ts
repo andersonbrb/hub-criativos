@@ -15,4 +15,4 @@ export const POST = route(async (request: Request) => {
   const chat = newChat("Nova conversa", await buildSystemPrompt(agentId), TOOL_NAMES, agentId);
   await saveChat(chat);
   return Response.json({ chat: summary(chat) });
-});
+}, { chave: ["chat", "criativo-automatico"] });

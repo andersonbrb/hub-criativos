@@ -67,3 +67,53 @@ export type EntradaLicao = {
   regra: string;
   relacionado?: string; // slug de outro documento
 };
+
+// ---- Acrescentado na Onda 1 (agente Memória) ----
+
+export const TIPO_ROTULO: Record<TipoDoc, string> = {
+  regra: "Regras",
+  fluxo: "Fluxos",
+  fato: "Fatos do negócio",
+  projeto: "Projetos e lotes",
+  licao: "Lições",
+  decisao: "Decisões",
+  playbook: "Playbooks",
+};
+
+export const FRENTE_ROTULO: Record<Frente, string> = {
+  cod: "COD",
+  info: "Infoproduto",
+  x1: "X1 After-Pay",
+  geral: "Geral",
+};
+
+export const ehTipo = (v: unknown): v is TipoDoc => typeof v === "string" && (TIPOS as readonly string[]).includes(v);
+export const ehFrente = (v: unknown): v is Frente => typeof v === "string" && (FRENTES as readonly string[]).includes(v);
+
+// Slug: minúsculo, com hífen (ex.: 05-traducao-de-criativos, projeto-dewalt-ads-cl).
+export const SLUG_VALIDO = /^[a-z0-9][a-z0-9-]{0,119}$/;
+// Nomes usados por rotas fixas da API (/api/memoria/busca etc.): um documento com esse slug ficaria inacessível.
+export const SLUGS_RESERVADOS = ["busca", "projetos", "pendentes"] as const;
+
+// Busca: limite padrão e máximo de resultados.
+export const LIMITE_BUSCA = 10;
+export const LIMITE_BUSCA_MAX = 30;
+
+// Linha do índice de projetos gerado (a partir dos documentos tipo "projeto").
+export type LinhaProjeto = {
+  slug: string;
+  titulo: string;
+  frente: Frente;
+  // Como a frente aparecia na tabela original (ex.: "e-com (cartão)"), quando não bate com as quatro frentes.
+  frenteOriginal: string | null;
+  mercado: string | null;
+  status: string | null;
+  data: string | null; // AAAA-MM-DD
+  precisaRevisao: boolean;
+  atualizadoEm: string;
+};
+
+// Dia de hoje (AAAA-MM-DD) no fuso da operação, para datar seções e lições.
+export const hojeISO = (agora = new Date()) => agora.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+
+export const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;

@@ -1,10 +1,12 @@
 import { open, stat } from "node:fs/promises";
 import path from "node:path";
 
+import { route } from "@/lib/server/http";
 import { CONTENT_TYPES, MEDIA_DIR } from "@/lib/server/media";
 
 // Serve os arquivos gerados (hub/.data/media) com suporte a Range, para o player de vídeo conseguir avançar.
-export async function GET(request: Request, { params }: { params: Promise<{ file: string }> }) {
+// Só para quem está logado (várias telas usam: chat, estúdios, Fluxo, editor, Biblioteca).
+export const GET = route(async (request: Request, { params }: { params: Promise<{ file: string }> }) => {
   const { file } = await params;
   if (!/^[\w-]+\.\w+$/.test(file)) return new Response("Arquivo inválido", { status: 400 });
 
@@ -36,4 +38,4 @@ export async function GET(request: Request, { params }: { params: Promise<{ file
       ...(range ? { "Content-Range": `bytes ${start}-${end}/${info.size}` } : {}),
     },
   });
-}
+});

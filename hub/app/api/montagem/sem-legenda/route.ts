@@ -5,4 +5,4 @@ import { runRemoveCaptions } from "@/lib/server/montage";
 export const POST = route(async (request: Request) => {
   const body = await request.json();
   return Response.json({ generation: await runRemoveCaptions(body) });
-});
+}, { chave: "estudios" });

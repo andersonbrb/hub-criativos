@@ -9,10 +9,10 @@ const client = async (params: Ctx["params"]) => {
   return mcp(service);
 };
 
-export const GET = route(async (_request: Request, { params }: Ctx) => Response.json(await (await client(params)).connectionStatus()));
+export const GET = route(async (_request: Request, { params }: Ctx) => Response.json(await (await client(params)).connectionStatus()), { chave: "integracoes" });
 
 // Desconecta (apaga a sessão deste servidor; não mexe na conta do serviço).
 export const DELETE = route(async (_request: Request, { params }: Ctx) => {
   await (await client(params)).disconnect();
   return Response.json({ connected: false });
-});
+}, { chave: "integracoes" });

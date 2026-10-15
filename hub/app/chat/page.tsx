@@ -3,9 +3,11 @@ import { connection } from "next/server";
 import { ChatView } from "@/components/chat/chat-view";
 import { getBoard } from "@/lib/server/board";
 import { brainReady } from "@/lib/server/chat/claude-code";
+import { exigirPagina } from "@/features/acesso/servicos/sessao";
 
 // /chat?c=<conversa> abre uma conversa; /chat?card=<id> começa uma conversa nova já apontando para um card do quadro.
 export default async function ChatPage({ searchParams }: PageProps<"/chat">) {
+  await exigirPagina("chat");
   await connection(); // lê a chave a cada acesso, não no build
   const { c, card } = await searchParams;
   let initialDraft = "";

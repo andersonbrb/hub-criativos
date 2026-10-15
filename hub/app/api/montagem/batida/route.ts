@@ -5,4 +5,4 @@ import { runBeatEdit } from "@/lib/server/montage";
 export const POST = route(async (request: Request) => {
   const body = await request.json();
   return Response.json({ generation: await runBeatEdit(body) });
-});
+}, { chave: "estudios" });

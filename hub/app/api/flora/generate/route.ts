@@ -17,4 +17,4 @@ export const POST = route(async (request: Request) => {
     images: form.getAll("image").filter((f): f is File => f instanceof File && f.size > 0),
   });
   return Response.json({ generations });
-});
+}, { chave: "estudios" });

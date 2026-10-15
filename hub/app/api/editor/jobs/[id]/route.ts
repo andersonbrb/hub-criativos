@@ -6,4 +6,4 @@ export const POST = route(async (_request: Request, { params }: { params: Promis
   const generation = await getGeneration((await params).id);
   if (!generation) return Response.json({ error: "Geração não encontrada." }, { status: 404 });
   return Response.json({ generation });
-});
+}, { chave: "editor" });

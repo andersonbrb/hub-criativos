@@ -41,6 +41,10 @@ import { listVoices as listElevenVoices } from "@/lib/server/providers/elevenlab
 import { createProject, getProject, listProjects } from "@/lib/server/providers/flora";
 import { listLooks, listVoices as listHeyVoices } from "@/lib/server/providers/heygen";
 import { getGeneration, listGenerations } from "@/lib/server/store";
+// ---- Memória (features/memoria) ----
+import { FRENTE_ROTULO, FRENTES, TIPO_ROTULO, TIPOS, type DocResumo, type Frente, type TipoDoc } from "@/features/memoria/contrato";
+import { DocNaoEncontrado } from "@/features/memoria/erros";
+import { buscar as buscarNaMemoria, ler as lerDaMemoria, listarIndice as indiceDaMemoria, resolverSlug } from "@/features/memoria/servicos/memoria";
 
 // Ferramentas do chat principal: as mesmas ações dos estúdios, mais leitura do histórico do hub.
 // A ordem e o texto das definições precisam ser estáveis (fazem parte do prefixo cacheado).
@@ -656,6 +660,30 @@ const definitions: Anthropic.Beta.BetaTool[] = [
         search: { type: "array", items: { type: "string" }, description: "Palavras para achar (sem diferenciar maiúsculas e acentos). Se vier, ignora start_s/end_s." },
       },
       ["generation_id"],
+    ),
+  },
+  // ---- Memória (features/memoria) ----
+  // Só leitura. Ficam no fim da lista: a ordem das definições faz parte do prefixo cacheado.
+  {
+    name: "memoria_buscar",
+    description:
+      "Procura na Memória da operação (regras, fluxos, dados do negócio, projetos e lotes, lições, decisões e playbooks; o antigo contexto do Sávio). Devolve os documentos mais relevantes com um trecho em volta do termo. Use antes de responder sobre um fluxo, um lote ou projeto, um dado do negócio ou uma lição, e depois leia o documento certo com memoria_ler. Sem consulta, lista o índice (com tipo e frente, se vierem).",
+    input_schema: objectSchema({
+      consulta: { type: "string", description: "Palavras do assunto, com ou sem acento (ex.: tradução espanhol, lipsync heygen, Yara Chile)." },
+      tipo: { type: "string", enum: [...TIPOS], description: "Filtrar por tipo de documento." },
+      frente: { type: "string", enum: [...FRENTES], description: "Filtrar por frente: cod, info (infoproduto), x1 ou geral." },
+    }),
+  },
+  {
+    name: "memoria_ler",
+    description:
+      "Lê um documento inteiro da Memória da operação pelo slug (o nome que aparece na lista do prompt ou na memoria_buscar). Sem versão, lê a mais recente.",
+    input_schema: objectSchema(
+      {
+        slug: { type: "string", description: "Ex.: 05-traducao-de-criativos, projeto-yara-bf-chile." },
+        versao: { type: "integer", minimum: 1, description: "Versão antiga específica (opcional)." },
+      },
+      ["slug"],
     ),
   },
 ];
@@ -1315,6 +1343,50 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
     const end = typeof input.end_s === "number" && input.end_s > start ? input.end_s : Infinity;
     return { content: json(transcriptPage(t, start, end)), summary: `a partir de ${mmss(start)}` };
   },
+
+  // ---- Memória (features/memoria) ----
+  async memoria_buscar(input) {
+    const filtro = {
+      ...(TIPOS.includes(str(input.tipo) as TipoDoc) ? { tipo: str(input.tipo) as TipoDoc } : {}),
+      ...(FRENTES.includes(str(input.frente) as Frente) ? { frente: str(input.frente) as Frente } : {}),
+    };
+    const consulta = str(input.consulta).trim();
+    const docs: (DocResumo & { trecho?: string })[] = consulta ? await buscarNaMemoria(consulta, filtro) : await indiceDaMemoria(filtro);
+    const itens = docs.map((d) => ({
+      slug: d.slug,
+      titulo: d.titulo,
+      tipo: TIPO_ROTULO[d.tipo],
+      frente: FRENTE_ROTULO[d.frente],
+      ...(d.mercado ? { mercado: d.mercado } : {}),
+      versao: d.versao,
+      ...(d.precisaRevisao ? { precisa_revisao: true } : {}),
+      ...(d.trecho ? { trecho: d.trecho } : {}),
+    }));
+    if (!itens.length)
+      return { content: consulta ? `Nada na Memória para "${consulta}". Tente outras palavras ou sem filtro.` : "Nenhum documento na Memória com esse filtro.", summary: "0 documentos" };
+    return { content: json({ total: itens.length, documentos: itens }), summary: `${itens.length} ${itens.length === 1 ? "documento" : "documentos"}` };
+  },
+
+  async memoria_ler(input) {
+    // Aceita também o nome de arquivo dos links dos textos antigos ("projetos/dewalt-ads-cl.md").
+    const slug = (await resolverSlug(str(input.slug))) ?? str(input.slug).trim();
+    const versao = input.versao === undefined || input.versao === null || input.versao === "" ? undefined : Number(input.versao);
+    const d = await lerDaMemoria(slug, versao);
+    if (!d) {
+      if (versao !== undefined && (await lerDaMemoria(slug))) throw new InputError(`O documento "${slug}" não tem a versão ${versao}.`);
+      throw new DocNaoEncontrado(slug);
+    }
+    // Teto para caber na resposta da ferramenta; os documentos da Memória ficam bem abaixo disso.
+    const TETO = 40_000;
+    const cortado = d.conteudo.length > TETO;
+    const cabecalho = [
+      `${d.titulo} (${d.slug}) · ${TIPO_ROTULO[d.tipo]} · ${FRENTE_ROTULO[d.frente]}${d.mercado ? ` · ${d.mercado}` : ""}`,
+      `Versão ${d.versao}, de ${d.autor}, em ${d.atualizadoEm.slice(0, 10)}.`,
+      ...(d.precisaRevisao ? [`Precisa de revisão${typeof d.metadados.motivoRevisao === "string" ? `: ${d.metadados.motivoRevisao}` : "."}`] : []),
+    ].join("\n");
+    const aviso = cortado ? `\n\n[Cortado: o documento tem ${d.conteudo.length.toLocaleString("pt-BR")} caracteres e só os primeiros ${TETO.toLocaleString("pt-BR")} vieram. Use memoria_buscar com palavras do trecho que falta.]` : "";
+    return { content: `${cabecalho}\n\n${d.conteudo.slice(0, TETO)}${aviso}`, summary: `leu ${cut(d.slug, 40)}` };
+  },
 };
 
 export const CLIENT_TOOLS = definitions;
@@ -1351,5 +1423,5 @@ export function toolDetail(name: string, input: unknown): string {
   const pick = (...keys: string[]) => keys.map((k) => str(i[k])).find(Boolean) ?? "";
   if (name === "web_search") return pick("query");
   if (name === "web_fetch") return pick("url");
-  return cut(pick("prompt", "text", "script", "title", "search", "family", "tool", "generation_id", "project_id", "name", "action", "agent", "chat_id", "language"), 140);
+  return cut(pick("prompt", "text", "script", "title", "search", "consulta", "slug", "family", "tool", "generation_id", "project_id", "name", "action", "agent", "chat_id", "language"), 140);
 }

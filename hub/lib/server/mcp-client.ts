@@ -60,7 +60,7 @@ export const MCP_SERVICES: Record<McpServiceId, ServiceConfig> = {
 };
 
 // Endereço público onde o ElevenLabs lê os metadados do hub (CIMD). Precisa ser HTTPS e público: o hub no Railway.
-export const PUBLIC_URL = (process.env.HUB_PUBLIC_URL || "https://hub-criativos-production.up.railway.app").replace(/\/$/, "");
+export const PUBLIC_URL = (process.env.HUB_PUBLIC_URL || "https://hub-production-797d.up.railway.app").replace(/\/$/, "");
 export const clientMetadataUrl = (id: McpServiceId) => `${PUBLIC_URL}/oauth/${id}-client.json`;
 export const callbackPath = (id: McpServiceId) => `/api/integracoes/mcp/${id}/callback`;
 

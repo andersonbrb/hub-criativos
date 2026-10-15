@@ -10,4 +10,4 @@ export const GET = route(async (request: Request, { params }: { params: Promise<
   const volta = q.get("volta") ?? "/integracoes";
   const safe = volta.startsWith("/") && !volta.startsWith("//") ? volta : "/integracoes";
   return Response.redirect(await mcp(service).startLogin(originOf(request), safe, q.get("para") === "nuvem" ? "nuvem" : undefined), 302);
-});
+}, { chave: "integracoes" });

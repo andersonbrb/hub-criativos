@@ -20,4 +20,4 @@ export const POST = route(async (request: Request) => {
     options.srtFile = null;
   }
   return Response.json({ generations: await runTranslation(options) });
-});
+}, { chave: "estudios" });

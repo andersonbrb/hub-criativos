@@ -4,10 +4,12 @@ import { connection } from "next/server";
 import { ChatView } from "@/components/chat/chat-view";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { brainReady } from "@/lib/server/chat/claude-code";
+import { exigirPagina } from "@/features/acesso/servicos/sessao";
 
 // Conversa real com um agente (lib/agent-profiles.ts): mesmas ferramentas do chat principal,
 // no Claude ou, com o Modo Black, na Venice. /agentes/<id>?c=<conversa> abre uma conversa.
 export default async function AgentPage({ params, searchParams }: PageProps<"/agentes/[id]">) {
+  await exigirPagina("chat");
   await connection();
   const { id } = await params;
   const { c } = await searchParams;

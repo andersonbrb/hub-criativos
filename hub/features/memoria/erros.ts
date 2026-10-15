@@ -10,12 +10,15 @@ export class DocNaoEncontrado extends InputError {
 }
 
 export class ConflitoDeVersao extends InputError {
+  // A rota devolve 409 com a versão atual, para a tela oferecer recarregar sem perder o texto digitado.
+  versaoAtual: number;
   constructor(slug: string, atual: number, esperada: number | null) {
     super(
       esperada === null
         ? `Já existe um documento "${slug}". Leia ele e acrescente ou edite, em vez de criar outro.`
         : `O documento "${slug}" mudou desde que você leu (você leu a versão ${esperada}, agora é a ${atual}). Leia de novo e reaplique só a sua mudança.`,
     );
+    this.versaoAtual = atual;
   }
 }
 

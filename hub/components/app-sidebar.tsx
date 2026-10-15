@@ -2,8 +2,26 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Clapperboard, Film, Languages, LayoutGrid, Library, MessageSquare, Mic, Plug, Scissors, Sparkles, UserRound, WandSparkles } from "lucide-react";
+import {
+  BookOpen,
+  Cable,
+  Clapperboard,
+  Film,
+  Languages,
+  LayoutGrid,
+  Library,
+  MessageSquare,
+  Mic,
+  Plug,
+  Scissors,
+  Sparkles,
+  UserRound,
+  Users,
+  WandSparkles,
+  type LucideIcon,
+} from "lucide-react";
 
+import { podeUsar, telaInicial, type Chave, type Usuario } from "@/features/acesso/contrato";
 import {
   Sidebar,
   SidebarContent,
@@ -18,24 +36,63 @@ import {
 } from "@/components/ui/sidebar";
 import { agents } from "@/lib/data";
 
-const production = [
-  { href: "/chat", label: "Chat principal (Produção)", icon: MessageSquare },
-  { href: "/criativo-automatico", label: "Criativo automático", icon: WandSparkles },
-  { href: "/", label: "Fluxo", icon: LayoutGrid },
-  { href: "/editor", label: "Editor", icon: Film },
-  { href: "/biblioteca", label: "Biblioteca", icon: Library },
-  { href: "/integracoes", label: "Integrações", icon: Plug },];
+type Item = { href: string; label: string; icon: LucideIcon; chave: Chave; tool?: string };
 
-const studios = [
-  { href: "/estudios/geracao", label: "Geração", tool: "FLORA", icon: Sparkles },
-  { href: "/estudios/voz", label: "Voz", tool: "ElevenLabs", icon: Mic },
-  { href: "/estudios/avatar", label: "Avatar", tool: "HeyGen", icon: UserRound },
-  { href: "/estudios/traducao", label: "Tradução", tool: "HeyGen", icon: Languages },
-  { href: "/estudios/edicao", label: "Edição", tool: "Local", icon: Scissors },
+const production: Item[] = [
+  { href: "/chat", label: "Chat principal (Produção)", icon: MessageSquare, chave: "chat" },
+  { href: "/criativo-automatico", label: "Criativo automático", icon: WandSparkles, chave: "criativo-automatico" },
+  { href: "/", label: "Fluxo", icon: LayoutGrid, chave: "fluxo" },
+  { href: "/editor", label: "Editor", icon: Film, chave: "editor" },
+  { href: "/biblioteca", label: "Biblioteca", icon: Library, chave: "biblioteca" },
 ];
 
-export function AppSidebar() {
+const studios: Item[] = [
+  { href: "/estudios/geracao", label: "Geração", tool: "FLORA", icon: Sparkles, chave: "estudios" },
+  { href: "/estudios/voz", label: "Voz", tool: "ElevenLabs", icon: Mic, chave: "estudios" },
+  { href: "/estudios/avatar", label: "Avatar", tool: "HeyGen", icon: UserRound, chave: "estudios" },
+  { href: "/estudios/traducao", label: "Tradução", tool: "HeyGen", icon: Languages, chave: "estudios" },
+  { href: "/estudios/edicao", label: "Edição", tool: "Local", icon: Scissors, chave: "estudios" },
+];
+
+const memory: Item[] = [
+  { href: "/memoria", label: "Memória", icon: BookOpen, chave: "memoria" },
+  { href: "/conector", label: "Conector do Claude", icon: Cable, chave: "conector_claude" },
+];
+
+const admin: Item[] = [
+  { href: "/integracoes", label: "Integrações", icon: Plug, chave: "integracoes" },
+  { href: "/membros", label: "Membros", icon: Users, chave: "membros" },
+];
+
+// Menu lateral: cada pessoa só vê as telas que a conta dela pode abrir (a página também confere no servidor).
+export function AppSidebar({ usuario }: { usuario: Usuario }) {
   const pathname = usePathname();
+  const liberados = (itens: Item[]) => itens.filter((i) => podeUsar(usuario, i.chave));
+
+  const grupo = (titulo: string, itens: Item[]) => {
+    const visiveis = liberados(itens);
+    if (!visiveis.length) return null;
+    return (
+      <SidebarGroup>
+        <SidebarGroupLabel>{titulo}</SidebarGroupLabel>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            {visiveis.map((item) => (
+              <SidebarMenuItem key={item.href}>
+                <SidebarMenuButton asChild isActive={pathname === item.href} tooltip={item.tool ? `${item.label} · ${item.tool}` : item.label}>
+                  <Link href={item.href}>
+                    <item.icon />
+                    <span>{item.label}</span>
+                  </Link>
+                </SidebarMenuButton>
+                {item.tool && <SidebarMenuBadge className="font-mono text-[0.625rem] text-muted-foreground">{item.tool}</SidebarMenuBadge>}
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+    );
+  };
 
   return (
     <Sidebar collapsible="icon">
@@ -43,7 +100,7 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <Link href="/">
+              <Link href={telaInicial(usuario) ?? "/"}>
                 <div className="flex size-8 items-center justify-center rounded-md bg-rec text-white">
                   <Clapperboard className="size-4" />
                 </div>
@@ -58,65 +115,33 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Produção</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {production.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild isActive={pathname === item.href} tooltip={item.label}>
-                    <Link href={item.href}>
-                      <item.icon />
-                      <span>{item.label}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {grupo("Produção", production)}
+        {grupo("Estúdios", studios)}
+        {grupo("Memória", memory)}
+        {grupo("Administração", admin)}
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Estúdios</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {studios.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton asChild isActive={pathname === item.href} tooltip={`${item.label} · ${item.tool}`}>
-                    <Link href={item.href}>
-                      <item.icon />
-                      <span>{item.label}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                  <SidebarMenuBadge className="font-mono text-[0.625rem] text-muted-foreground">{item.tool}</SidebarMenuBadge>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel>Agentes</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {agents.map((agent) => {
-                const href = `/agentes/${agent.id}`;
-                return (
-                  <SidebarMenuItem key={agent.id}>
-                    <SidebarMenuButton asChild isActive={pathname === href} tooltip={agent.name}>
-                      <Link href={href}>
-                        <span className="flex size-4 items-center justify-center font-mono text-[0.625rem] font-semibold">
-                          {agent.short}
-                        </span>
-                        <span>{agent.name}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {podeUsar(usuario, "chat") && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Agentes</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {agents.map((agent) => {
+                  const href = `/agentes/${agent.id}`;
+                  return (
+                    <SidebarMenuItem key={agent.id}>
+                      <SidebarMenuButton asChild isActive={pathname === href} tooltip={agent.name}>
+                        <Link href={href}>
+                          <span className="flex size-4 items-center justify-center font-mono text-[0.625rem] font-semibold">{agent.short}</span>
+                          <span>{agent.name}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
     </Sidebar>
   );

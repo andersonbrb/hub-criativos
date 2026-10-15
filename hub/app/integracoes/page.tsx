@@ -10,6 +10,7 @@ import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader,
 import type { AppId } from "@/lib/apps";
 import { hasKey, KEYS, type Provider } from "@/lib/server/env";
 import { mcp } from "@/lib/server/mcp-client";
+import { exigirPagina } from "@/features/acesso/servicos/sessao";
 
 type Integration = {
   name: string;
@@ -41,6 +42,7 @@ async function viaMcp(service: McpService, base: Omit<Integration, "status" | "d
 }
 
 export default async function IntegrationsPage() {
+  await exigirPagina("integracoes");
   await connection();
 
   // Edição final: o pipeline do playbook de edição (o mesmo do "sandbox do Higgsfield") roda nesta máquina, sem custo.

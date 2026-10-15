@@ -30,7 +30,10 @@ COPY hub/ ./
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-# Banco, mídias e modelos do Whisper ficam no volume do Railway montado em /app/.data.
+# Mídias, arquivos do hub e modelos do Whisper ficam no volume do Railway montado em /app/.data.
+# O banco (contas, memória) fica no Postgres do Railway (DATABASE_URL).
 ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000 HF_HOME=/app/.data/hf
 EXPOSE 3000
-CMD ["npm", "start"]
+# Aplica as migrações pendentes (db/migrations, copiadas junto com hub/) antes de o servidor subir.
+# Se a migração falhar, o servidor não sobe: melhor do que rodar com o banco pela metade.
+CMD ["sh", "-c", "npm run db:migrar && npm start"]

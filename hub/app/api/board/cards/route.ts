@@ -13,4 +13,4 @@ export const POST = route(async (request: Request) => {
     generationIds: body.generationIds as string[] | undefined,
   });
   return Response.json({ card });
-});
+}, { chave: "fluxo" });

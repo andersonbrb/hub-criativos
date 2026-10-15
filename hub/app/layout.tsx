@@ -6,6 +6,7 @@ import "./globals.css";
 import { AppSidebar } from "@/components/app-sidebar";
 import { McpLoginToast } from "@/components/mcp-connect";
 import { Topbar } from "@/components/topbar";
+import { usuarioDaSessao } from "@/features/acesso/servicos/sessao";
 import { THEME_SCRIPT } from "@/lib/theme-script";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
@@ -20,7 +21,11 @@ export const metadata: Metadata = {
   description: "Hub de produção de criativos para anúncios, com um agente por etapa.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  // Sem ninguém logado (telas de entrar e de convite) não há menu: só o conteúdo. A proteção de cada tela fica
+  // em exigirPagina(); aqui é só a moldura.
+  const usuario = await usuarioDaSessao();
+
   return (
     <html
       lang="pt-BR"
@@ -34,17 +39,23 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="min-h-full">
         <TooltipProvider>
-          <SidebarProvider>
-            <AppSidebar />
-            <SidebarInset className="min-w-0">
-              <Topbar />
-              {children}
-            </SidebarInset>
-          </SidebarProvider>
+          {usuario ? (
+            <SidebarProvider>
+              <AppSidebar usuario={usuario} />
+              <SidebarInset className="min-w-0">
+                <Topbar usuario={usuario} />
+                {children}
+              </SidebarInset>
+            </SidebarProvider>
+          ) : (
+            children
+          )}
           <Toaster position="bottom-center" />
-          <Suspense>
-            <McpLoginToast />
-          </Suspense>
+          {usuario && (
+            <Suspense>
+              <McpLoginToast />
+            </Suspense>
+          )}
         </TooltipProvider>
       </body>
     </html>

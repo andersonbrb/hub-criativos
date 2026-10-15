@@ -5,6 +5,7 @@ import { Clapperboard, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { mediaUrl } from "@/lib/generations";
 import { getGeneration } from "@/lib/server/store";
+import { exigirPagina } from "@/features/acesso/servicos/sessao";
 
 const TOOL_NAMES: Record<string, string> = {
   flora: "FLORA",
@@ -19,6 +20,7 @@ const TOOL_NAMES: Record<string, string> = {
 
 // Visualização de uma geração em tela cheia (link aberto a partir dos cards do chat, estúdios e quadro).
 export default async function VerPage({ params }: PageProps<"/ver/[id]">) {
+  await exigirPagina();
   const { id } = await params;
   const g = await getGeneration(id);
   const url = g && mediaUrl(g);
