@@ -308,7 +308,7 @@ const definitions: Anthropic.Beta.BetaTool[] = [
   {
     name: "hub_montage",
     description:
-      "EDIÇÃO FINAL do criativo no padrão de qualidade (playbook infoproduto-edicao-video): junta os vídeos do avatar na ordem, corta os silêncios (jump cuts), transcreve com Whisper, coloca os b-rolls já criados com dissolve (2,8s na tela) e queima a legenda Montserrat MAIÚSCULA. B-roll nos momentos certos: em broll_cues, a palavra falada em que cada b-roll entra (sem deixa, segue a grade: 1º aos 6s, depois a cada 7s). Use hub_transcribe/hub_view_video antes para escolher as deixas. Roda local, sem custo. Assíncrono (1 a 3 min): acompanhe com hub_check_generations.",
+      "EDIÇÃO FINAL do criativo no padrão de qualidade (playbook infoproduto-edicao-video): junta os vídeos do avatar na ordem, corta os silêncios (jump cuts), transcreve com o ElevenLabs Scribe, coloca os b-rolls já criados com dissolve (2,8s na tela) e queima a legenda Montserrat MAIÚSCULA. B-roll nos momentos certos: em broll_cues, a palavra falada em que cada b-roll entra (sem deixa, segue a grade: 1º aos 6s, depois a cada 7s). Use hub_transcribe/hub_view_video antes para escolher as deixas. Roda local, sem custo. Assíncrono (1 a 3 min): acompanhe com hub_check_generations.",
     input_schema: objectSchema(
       {
         avatar_generation_id: { type: "string", description: "Vídeo pronto do avatar falando (HeyGen). Para vários, use avatar_generation_ids." },
@@ -434,11 +434,11 @@ const definitions: Anthropic.Beta.BetaTool[] = [
   {
     name: "hub_transcribe",
     description:
-      "Transcreve um vídeo ou áudio do hub (inclusive o anexado no chat) e identifica o idioma falado. Devolve o idioma (código ISO e nome), a confiança da detecção, a duração, o texto completo e a transcrição com tempo [mm:ss] por frase. Motor: Whisper local (padrão, grátis) com ElevenLabs Scribe (cobra créditos) só se o local falhar; o resultado fica em cache e qualquer agente reaproveita sem custo. Pode levar de segundos a alguns minutos.",
+      "Transcreve um vídeo ou áudio do hub (inclusive o anexado no chat) e identifica o idioma falado. Devolve o idioma (código ISO e nome), a confiança da detecção, a duração, o texto completo e a transcrição com tempo [mm:ss] por frase. Motor: ElevenLabs Scribe (padrão fixo do usuário, rápido); o Whisper local só entra se o ElevenLabs falhar. O resultado fica em cache e qualquer agente reaproveita sem custo. Pode levar de segundos a alguns minutos.",
     input_schema: objectSchema(
       {
         generation_id: { type: "string", description: "Vídeo ou áudio pronto do hub (ex.: o id do anexo na nota de anexos)." },
-        engine: { type: "string", enum: ["auto", "elevenlabs", "local"], description: "Padrão auto (Whisper local, com reserva no ElevenLabs). elevenlabs só se o usuário pedir mais precisão." },
+        engine: { type: "string", enum: ["auto", "elevenlabs", "local"], description: "Deixe em auto (ElevenLabs Scribe). local (Whisper) só se o usuário pedir explicitamente." },
       },
       ["generation_id"],
     ),
@@ -446,7 +446,7 @@ const definitions: Anthropic.Beta.BetaTool[] = [
   {
     name: "hub_view_video",
     description:
-      "Assiste a um vídeo do hub (anexado no chat, gerado ou importado do FLORA). Devolve a ficha técnica (duração, tamanho, fps), os cortes de cena, a fala transcrita com tempo [mm:ss] (Whisper local, grátis, em cache) e quadros-chave como imagens: abertura e primeiros 3s (gancho), um por corte e o resto espalhado. Se o vídeo já tiver decupagem salva (hub_save_analysis), ela vem junto: use-a e peça quadros só se faltar algo. Custo: só os tokens das imagens. Comece com poucos quadros e use start/end para olhar um trecho de perto.",
+      "Assiste a um vídeo do hub (anexado no chat, gerado ou importado do FLORA). Devolve a ficha técnica (duração, tamanho, fps), os cortes de cena, a fala transcrita com tempo [mm:ss] (ElevenLabs Scribe, em cache) e quadros-chave como imagens: abertura e primeiros 3s (gancho), um por corte e o resto espalhado. Se o vídeo já tiver decupagem salva (hub_save_analysis), ela vem junto: use-a e peça quadros só se faltar algo. Custo: só os tokens das imagens. Comece com poucos quadros e use start/end para olhar um trecho de perto.",
     input_schema: objectSchema(
       {
         generation_id: { type: "string" },

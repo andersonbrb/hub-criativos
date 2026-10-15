@@ -139,9 +139,31 @@ export async function transcriptOf(id: string, engine: Engine = "auto", waitMs?:
   }
 }
 
+// Palavras com tempo pelo ElevenLabs Scribe (a montagem corta e legenda com elas). Reaproveita a transcrição salva
+// quando ela já tem as palavras; transcrições antigas (Whisper, ou Scribe de antes de guardar palavras) são refeitas.
+export async function scribeWords(id: string): Promise<NonNullable<Transcript["words"]>> {
+  const key = `${id}:words`;
+  let job = inflight.get(key);
+  if (!job) {
+    job = (async (): Promise<TranscriptResult> => {
+      const a = await getAnalysis(id);
+      if (a.transcript?.engine === "elevenlabs" && a.transcript.words?.length) return { transcript: a.transcript, cached: true };
+      const transcript = await transcribeGeneration(id, "elevenlabs");
+      await patchAnalysis(id, { transcript });
+      return { transcript, cached: false };
+    })().finally(() => inflight.delete(key));
+    inflight.set(key, job);
+  }
+  const words = (await job).transcript?.words;
+  if (!words?.length) throw new Error("o ElevenLabs não devolveu as palavras");
+  return words;
+}
+
 async function runTranscript(id: string, engine: Engine): Promise<TranscriptResult> {
   const a = await getAnalysis(id);
-  if (a.transcript && (engine === "auto" || a.transcript.engine === engine)) return { transcript: a.transcript, cached: true };
+  // Transcrição antiga do Whisper não vale como cache no modo padrão: refaz no ElevenLabs Scribe (padrão do usuário).
+  const usable = a.transcript && (engine === "auto" ? a.transcript.engine === "elevenlabs" : a.transcript.engine === engine);
+  if (usable) return { transcript: a.transcript!, cached: true };
   if (a.noSpeech && engine === "auto") return { transcript: null, noSpeech: a.noSpeech, cached: true };
   let transcript: Transcript;
   try {

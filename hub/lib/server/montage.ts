@@ -10,6 +10,7 @@ import { InputError } from "@/lib/server/http";
 import { applyGraphics, sanitizeGraphics, type GraphicRequest } from "@/lib/server/motion";
 import { MEDIA_DIR } from "@/lib/server/media";
 import { createGeneration, DATA_DIR, getGeneration, updateGeneration } from "@/lib/server/store";
+import { scribeWords } from "@/lib/server/video";
 
 // Montagem automática do infoproduto (hub/playbooks/infoproduto-edicao-video.md), rodando nesta máquina:
 // Python + faster-whisper + ffmpeg (scripts/montagem.py). Não gasta créditos de nenhuma ferramenta.
@@ -129,31 +130,50 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
   const outName = `${randomUUID()}.mp4`;
   const jobFile = path.join(LOG_DIR, `${gen.id}.json`);
   const timelineFile = path.join(LOG_DIR, `${gen.id}.timeline.json`);
-  await writeFile(
-    jobFile,
-    JSON.stringify({
-      name,
-      avatar: avatar.file,
-      avatars: avatars.map((a) => a.file),
-      brolls: brolls.map((b) => b.file),
-      broll_cues: brollCues,
-      lang,
-      fx,
-      out: path.join(MEDIA_DIR, outName),
-      workdir: path.join(DATA_DIR, "tmp", gen.id),
-      fontsdir: FONTS,
-      timeline_out: timelineFile,
-    }),
-  );
+  // Em segundo plano: primeiro as palavras com tempo de cada vídeo do avatar pelo ElevenLabs Scribe (padrão do
+  // usuário; fica em cache por vídeo), depois o Python. Se o Scribe falhar, o script cai para o Whisper local.
+  running.add(gen.id);
+  void (async () => {
+    const avatarWords = await Promise.all(
+      avatarIds.map(async (id) => {
+        const words = await scribeWords(id);
+        return words.map((w) => [w.text, w.start, w.end] as const);
+      }),
+    ).catch((err) => {
+      console.warn(`[hub] montagem ${gen.id}: Scribe indisponível (${err instanceof Error ? err.message : err}), usando o Whisper local`);
+      return null;
+    });
 
-  launch(gen.id, SCRIPT, jobFile, outName, "Montagem", async (line) => {
-    // Gráficos animados (opcionais) depois da edição; se falharem, o vídeo sai sem eles e o log explica.
-    if (!graphics.length) return;
-    try {
-      await applyGraphics({ video: path.join(MEDIA_DIR, outName), timelineFile, graphics, workdir: path.join(DATA_DIR, "tmp", `${gen.id}-gfx`), log: line });
-    } catch (err) {
-      line(`gráficos animados falharam (${err instanceof Error ? err.message.slice(0, 200) : "erro"}); vídeo entregue sem eles`);
-    }
+    await writeFile(
+      jobFile,
+      JSON.stringify({
+        name,
+        ...(avatarWords ? { avatar_words: avatarWords } : {}),
+        avatar: avatar.file,
+        avatars: avatars.map((a) => a.file),
+        brolls: brolls.map((b) => b.file),
+        broll_cues: brollCues,
+        lang,
+        fx,
+        out: path.join(MEDIA_DIR, outName),
+        workdir: path.join(DATA_DIR, "tmp", gen.id),
+        fontsdir: FONTS,
+        timeline_out: timelineFile,
+      }),
+    );
+
+    launch(gen.id, SCRIPT, jobFile, outName, "Montagem", async (line) => {
+      // Gráficos animados (opcionais) depois da edição; se falharem, o vídeo sai sem eles e o log explica.
+      if (!graphics.length) return;
+      try {
+        await applyGraphics({ video: path.join(MEDIA_DIR, outName), timelineFile, graphics, workdir: path.join(DATA_DIR, "tmp", `${gen.id}-gfx`), log: line });
+      } catch (err) {
+        line(`gráficos animados falharam (${err instanceof Error ? err.message.slice(0, 200) : "erro"}); vídeo entregue sem eles`);
+      }
+    });
+  })().catch(async (err) => {
+    running.delete(gen.id);
+    await updateGeneration(gen.id, { status: "failed", error: `Montagem: ${err instanceof Error ? err.message : "erro"}` });
   });
 
   return gen;

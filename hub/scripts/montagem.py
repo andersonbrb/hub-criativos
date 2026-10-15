@@ -91,6 +91,43 @@ def words(model, path, lang):
     return [(w.word.strip(), w.start, w.end) for s in segments if s.words for w in s.words if w.word.strip()]
 
 
+def audio_duration(path):
+    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=duration",
+                        "-of", "csv=p=0", path], capture_output=True, text=True)
+    try:
+        return float(r.stdout.strip().splitlines()[0])
+    except (ValueError, IndexError):
+        return duration(path)
+
+
+def scribe_words(job, paths):
+    """Palavras com tempo vindas do ElevenLabs Scribe (o hub transcreve antes e manda no job), uma lista por vídeo
+    do avatar; somadas pela duração do áudio de cada vídeo, viram a linha do tempo do avatar juntado."""
+    lists = job.get("avatar_words")
+    if not lists or len(lists) != len(paths):
+        return None
+    out, off = [], 0.0
+    for p, lst in zip(paths, lists):
+        out += [(str(w), off + float(s), off + float(e)) for w, s, e in lst if str(w).strip()]
+        off += audio_duration(p)
+    return out
+
+
+def remap(ws, merged):
+    """Leva os tempos das palavras para a linha do tempo depois dos cortes de silêncio (sem transcrever de novo)."""
+    out, acc = [], 0.0
+    spans = []
+    for a, b in merged:
+        spans.append((a, b, acc))
+        acc += b - a
+    for w, s, e in ws:
+        for a, b, off in spans:
+            if a - 0.05 <= s < b:
+                out.append((w, off + max(0.0, s - a), off + max(0.0, min(e, b) - a)))
+                break
+    return out
+
+
 def ts(t):
     h = int(t // 3600); m = int((t % 3600) // 60); s = int(t % 60); c = int(round((t % 1) * 100))
     if c >= 100: s += 1; c = 0
@@ -383,12 +420,16 @@ def process(job):
     du = duration(av)
     log(f"duração do avatar: {du:.1f}s")
 
-    log(f"carregando Whisper '{WHISPER_MODEL}' (o primeiro uso baixa o modelo, ~500 MB)")
-    model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
-
-    # 1ª transcrição: onde há fala
-    ws = words(model, av, lang)
-    log(f"palavras: {len(ws)}")
+    # Palavras com tempo: do ElevenLabs Scribe (padrão, feito pelo hub antes); o Whisper local só como reserva.
+    ws = scribe_words(job, avatars)
+    model = None
+    if ws is not None:
+        log(f"transcrição: ElevenLabs Scribe ({len(ws)} palavras)")
+    else:
+        log(f"transcrição: Whisper local '{WHISPER_MODEL}' (o ElevenLabs não respondeu)")
+        model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
+        ws = words(model, av, lang)
+        log(f"palavras: {len(ws)}")
     if not ws:
         raise RuntimeError("nenhuma fala encontrada no avatar")
 
@@ -408,7 +449,8 @@ def process(job):
             merged.append([a, b])
 
     jc = os.path.join(w, "jc.mp4")
-    if len(merged) == 1 and merged[0][0] < 0.1 and merged[0][1] > du - 0.5:
+    copied = len(merged) == 1 and merged[0][0] < 0.1 and merged[0][1] > du - 0.5
+    if copied:
         shutil.copy(av, jc)
         log("sem silêncios para cortar")
     else:
@@ -435,8 +477,8 @@ def process(job):
         acc += b - a
         cuts.append(round(acc, 2))
 
-    # 2ª transcrição: tempos depois dos cortes, para a legenda bater
-    ws2 = words(model, jc, lang)
+    # Tempos depois dos cortes, para a legenda bater: com o Scribe, remapeia as palavras; com o Whisper, transcreve de novo.
+    ws2 = (ws if copied else remap(ws, merged)) if model is None else words(model, jc, lang)
 
     # Linha do tempo das palavras depois dos cortes (o hub usa para os gráficos animados entrarem na palavra certa).
     if job.get("timeline_out"):

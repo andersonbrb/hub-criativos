@@ -25,6 +25,7 @@ export type Transcript = {
   duration: number | null; // segundos
   text: string;
   segments: TranscriptSegment[];
+  words?: { text: string; start: number; end: number }[]; // palavra a palavra (Scribe); a montagem usa para cortar e legendar
 };
 
 function run(bin: string, args: string[], timeout: number): Promise<string> {
@@ -86,6 +87,7 @@ async function scribe(file: string): Promise<Transcript> {
     duration: words.length ? words[words.length - 1].end : null,
     text: (data.text || words.map((w) => w.text).join(" ")).trim(),
     segments: wordsToSegments(words),
+    words,
   };
 }
 
@@ -128,13 +130,16 @@ export async function transcribeGeneration(generationId: string, engine: Engine 
       throw new InputError("Não encontrei áudio nesse arquivo para transcrever.");
     });
 
-    const useScribe = engine === "elevenlabs" || (engine === "auto" && (await elevenlabsConnected()));
-    if (!useScribe) return await whisper(audio);
+    // Padrão fixo do usuário: sempre o ElevenLabs Scribe. O Whisper local só roda se pedirem engine=local
+    // explicitamente pela tela de transcrição, ou como último recurso no modo auto quando o ElevenLabs falha.
+    if (engine === "local") return await whisper(audio);
+    if (engine === "auto" && !(await elevenlabsConnected())) return await whisper(audio);
     try {
       return await scribe(audio);
     } catch (err) {
       if (engine === "elevenlabs") throw err;
-      return await whisper(audio); // ElevenLabs falhou (créditos, rede…): cai para o Whisper local
+      console.warn(`[hub] ElevenLabs Scribe falhou, usando o Whisper local: ${err instanceof Error ? err.message : err}`);
+      return await whisper(audio);
     }
   } finally {
     await rm(tmp, { recursive: true, force: true });
