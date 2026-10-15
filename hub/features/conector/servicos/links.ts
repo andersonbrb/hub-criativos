@@ -16,6 +16,8 @@ import { podeUsar } from "@/features/acesso/contrato";
 import { buscarUsuario } from "@/features/acesso/servicos/sessao";
 import { json, SEM_CACHE } from "@/features/conector/servicos/http";
 import { PREFIXO_LINK, hashDe, novo } from "@/features/conector/servicos/segredos";
+import { ArquivoForaDoDrive } from "@/features/drive/servicos/arquivos";
+import { guardarNoDriveEmSegundoPlano, lerDoDrive } from "@/features/drive/servicos/videos";
 import { downloadName, type MediaKind } from "@/lib/generations";
 import { CONTENT_TYPES, MEDIA_DIR } from "@/lib/server/media";
 import { createGeneration, getGeneration } from "@/lib/server/store";
@@ -71,6 +73,7 @@ export async function criarLinkDeDownload(usuarioId: string, generationId: strin
 
 const MSG_LINK_INVALIDO = "Link inválido, vencido ou já usado. Peça outro ao Claude.";
 const MSG_DONO_SEM_ACESSO = "Quem pediu este link não tem mais acesso à Biblioteca pelo conector. Peça a um admin.";
+const MSG_APAGADO_NO_DRIVE = "Este vídeo foi apagado no Google Drive e não existe mais no Hub.";
 const recusa = (mensagem: string, status: number) => json({ error: mensagem }, status, SEM_CACHE);
 
 async function linkValido(token: string, tipo: "envio" | "download") {
@@ -144,6 +147,8 @@ export async function receberEnvio(request: Request, token: string): Promise<Res
     });
     await db.update(conectorLinks).set({ generationId: geracao.id }).where(eq(conectorLinks.id, link.id));
     console.info(`[conector] envio por link: ${nome} (${total} bytes) virou a geração ${geracao.id}`);
+    // Vídeo entregue vai para a pasta "Entregas do Claude" no Google Drive, em segundo plano: o curl não espera.
+    guardarNoDriveEmSegundoPlano(geracao);
     return json({ ok: true, generation_id: geracao.id, nome, tamanho_bytes: total, mensagem: "Arquivo recebido e salvo na Biblioteca do Hub." }, 201, SEM_CACHE);
   } catch (err) {
     await unlink(caminho).catch(() => undefined);
@@ -158,30 +163,46 @@ export async function receberEnvio(request: Request, token: string): Promise<Res
   }
 }
 
-// GET do curl -o: o arquivo atual da geração, como anexo, em stream.
+// GET do curl -o: o arquivo atual da geração, como anexo, em stream. Vídeo guardado no Google Drive vem de lá, também
+// em stream (sem cópia no disco do hub).
 export async function entregarDownload(token: string): Promise<Response> {
   const link = await linkValido(token, "download");
   if (!link) return recusa(MSG_LINK_INVALIDO, 404);
   if (!(await donoPodeUsar(link.usuarioId))) return recusa(MSG_DONO_SEM_ACESSO, 403);
   const geracao = link.generationId ? await getGeneration(link.generationId) : undefined;
   if (!geracao?.file || !/^[\w-]+\.\w+$/.test(geracao.file)) return recusa("Este arquivo não existe mais no Hub.", 404);
+  if (geracao.foraDoDrive) return recusa(MSG_APAGADO_NO_DRIVE, 404);
   const caminho = path.join(MEDIA_DIR, geracao.file);
-  const info = await stat(caminho).catch(() => null);
-  if (!info?.isFile()) return recusa("Este arquivo não existe mais no Hub.", 404);
+  const info = geracao.drive ? null : await stat(caminho).catch(() => null);
+  if (!geracao.drive && !info?.isFile()) return recusa("Este arquivo não existe mais no Hub.", 404);
   // Primeiro uso fica registrado (auditoria); não impede o próximo dentro do prazo.
   await banco()
     .update(conectorLinks)
     .set({ usadoEm: new Date() })
     .where(and(eq(conectorLinks.id, link.id), isNull(conectorLinks.usadoEm)));
 
+  let corpo: ReadableStream;
+  let tamanho: number | null;
+  if (geracao.drive) {
+    try {
+      ({ corpo, tamanho } = await lerDoDrive(geracao));
+    } catch (err) {
+      if (err instanceof ArquivoForaDoDrive) return recusa(MSG_APAGADO_NO_DRIVE, 404);
+      console.error("[conector] download do Drive falhou:", err instanceof Error ? err.message : err);
+      return recusa(`Não deu para trazer o arquivo do Google Drive agora. ${err instanceof Error ? err.message : ""}`.trim(), 502);
+    }
+  } else {
+    corpo = Readable.toWeb(createReadStream(caminho)) as unknown as ReadableStream;
+    tamanho = info!.size;
+  }
+
   const nome = downloadName(geracao);
   const ascii = nome.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
   const tipo = CONTENT_TYPES[geracao.file.split(".").pop()!.toLowerCase()] ?? "application/octet-stream";
-  const corpo = Readable.toWeb(createReadStream(caminho)) as unknown as ReadableStream;
   return new Response(corpo, {
     headers: {
       "Content-Type": tipo,
-      "Content-Length": String(info.size),
+      ...(tamanho === null ? {} : { "Content-Length": String(tamanho) }),
       "Content-Disposition": `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(nome)}`,
       "X-Content-Type-Options": "nosniff",
       ...SEM_CACHE,

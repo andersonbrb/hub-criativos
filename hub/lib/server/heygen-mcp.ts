@@ -18,12 +18,15 @@ export const disconnect = heygen.disconnect;
 export const callTool = heygen.callTool;
 
 // Sobe um arquivo do hub para o HeyGen (upload direto ao S3 assinado pelo MCP) e devolve o asset_id.
-export async function uploadAsset(filePath: string, fileKey: string, contentType: string): Promise<string> {
+// `filePath` pode ser uma função: o caminho só é pedido se o HeyGen ainda não tem o arquivo (um vídeo que está só no
+// Google Drive não é baixado à toa).
+export async function uploadAsset(filePath: string | (() => Promise<string>), fileKey: string, contentType: string): Promise<string> {
   const cached = await heygen.cachedAsset(fileKey);
   if (cached) return cached;
-  const bytes = await readFile(filePath);
+  const caminho = typeof filePath === "function" ? await filePath() : filePath;
+  const bytes = await readFile(caminho);
   const up = await callTool<{ asset_id: string; upload_url: string; upload_headers?: Record<string, string>; max_bytes?: number }>("create_asset_upload", {
-    filename: path.basename(filePath),
+    filename: path.basename(caminho),
     contentType,
     sizeBytes: bytes.length,
   });

@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
+import { arquivoLocal, guardarNoDriveEmSegundoPlano } from "@/features/drive/servicos/videos";
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
 import { applyGraphics, sanitizeGraphics, type GraphicRequest } from "@/lib/server/motion";
@@ -73,7 +74,7 @@ async function cleanFx(fx: MontageFx | undefined) {
   if (fx.musicId) {
     const m = await getGeneration(String(fx.musicId));
     if (!m?.file || m.kind !== "audio") throw new InputError("A música precisa ser um áudio pronto do hub.");
-    out.musica = path.join(MEDIA_DIR, m.file);
+    out.musica = await arquivoLocal(m.file);
     out.musica_volume = Math.min(1, Math.max(0.02, Number(fx.musica_volume) || 0.18));
     labels.push("música de fundo");
   }
@@ -83,10 +84,13 @@ async function cleanFx(fx: MontageFx | undefined) {
 const MAX_AVATARS = 20;
 const MAX_BROLLS = 40;
 
+// Vídeo pronto do hub. `file` é o nome; o caminho no disco sai de arquivoLocal já em segundo plano, porque um vídeo
+// que está só no Google Drive é baixado antes e o pedido não espera o download.
 async function videoFile(id: string, label: string) {
   const g = await getGeneration(id);
+  if (g?.foraDoDrive) throw new InputError(`${label} foi apagado no Drive.`);
   if (!g || g.kind !== "video" || g.status !== "done" || !g.file) throw new InputError(`${label} precisa ser um vídeo pronto do hub.`);
-  return { g, file: path.join(MEDIA_DIR, g.file) };
+  return { g, file: g.file };
 }
 
 export async function runMontage(req: MontageRequest): Promise<Generation> {
@@ -143,15 +147,18 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
       console.warn(`[hub] montagem ${gen.id}: Scribe indisponível (${err instanceof Error ? err.message : err}), usando o Whisper local`);
       return null;
     });
+    // Caminhos no disco para o Python (vídeo que está só no Drive vira uma cópia temporária).
+    const avatarFiles = await Promise.all(avatars.map((a) => arquivoLocal(a.file)));
+    const brollFiles = await Promise.all(brolls.map((b) => arquivoLocal(b.file)));
 
     await writeFile(
       jobFile,
       JSON.stringify({
         name,
         ...(avatarWords ? { avatar_words: avatarWords } : {}),
-        avatar: avatar.file,
-        avatars: avatars.map((a) => a.file),
-        brolls: brolls.map((b) => b.file),
+        avatar: avatarFiles[0],
+        avatars: avatarFiles,
+        brolls: brollFiles,
         broll_cues: brollCues,
         lang,
         fx,
@@ -181,6 +188,7 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
 
 // Roda um script Python da edição em segundo plano: o log fica em .data/montagem/<id>.log e o status da geração é
 // atualizado ao terminar. `after` roda depois de um DONE (ex.: gráficos animados), antes de marcar como pronta.
+// Pronto, o vídeo segue para o Google Drive (features/drive), também em segundo plano.
 function launch(id: string, script: string, jobFile: string, outName: string, label: string, after?: (line: (m: string) => void) => Promise<void>) {
   const log: string[] = [];
   const python = process.env.PYTHON_BIN || "python";
@@ -202,7 +210,7 @@ function launch(id: string, script: string, jobFile: string, outName: string, la
     if (code === 0 && text.includes("DONE")) {
       if (after) await after((m: string) => collect(Buffer.from(`[${new Date().toLocaleTimeString("pt-BR")}] ${m}\n`)));
       running.delete(id);
-      await updateGeneration(id, { status: "done", file: outName });
+      guardarNoDriveEmSegundoPlano(await updateGeneration(id, { status: "done", file: outName }));
     } else {
       running.delete(id);
       const missing = /No module named '(torch|cv2)'/.exec(text)?.[1];
@@ -240,7 +248,7 @@ export async function runBeatEdit(req: BeatRequest): Promise<Generation> {
   if (req.songId) {
     const m = await getGeneration(String(req.songId));
     if (!m?.file || m.kind !== "audio") throw new InputError("A música precisa ser um áudio pronto do hub.");
-    song = path.join(MEDIA_DIR, m.file);
+    song = await arquivoLocal(m.file);
   }
   const cut = (s: unknown, n = 18) => String(s ?? "").replace(/[{}\\]/g, "").trim().slice(0, n);
   const clipIdx = (c: unknown) => (Number.isInteger(c) && (c as number) >= 0 && (c as number) < clips.length ? (c as number) : null);
@@ -274,25 +282,33 @@ export async function runBeatEdit(req: BeatRequest): Promise<Generation> {
   await mkdir(MEDIA_DIR, { recursive: true });
   const outName = `${randomUUID()}.mp4`;
   const jobFile = path.join(LOG_DIR, `${gen.id}.json`);
-  await writeFile(
-    jobFile,
-    JSON.stringify({
-      name,
-      clips: clips.map((c) => c.file),
-      song,
-      song_start: Math.max(0, Number(req.songStart) || 0),
-      dur: duration,
-      bpm,
-      words,
-      cta,
-      cta_clip: clipIdx(req.cta?.clip),
-      accent,
-      out: path.join(MEDIA_DIR, outName),
-      workdir: path.join(DATA_DIR, "tmp", gen.id),
-      fontsdir: FONTS,
-    }),
-  );
-  launch(gen.id, BEAT_SCRIPT, jobFile, outName, "Edição na batida");
+  // Em segundo plano: uma cena que está só no Google Drive é baixada antes, e o pedido não espera o download.
+  running.add(gen.id);
+  void (async () => {
+    const clipFiles = await Promise.all(clips.map((c) => arquivoLocal(c.file)));
+    await writeFile(
+      jobFile,
+      JSON.stringify({
+        name,
+        clips: clipFiles,
+        song,
+        song_start: Math.max(0, Number(req.songStart) || 0),
+        dur: duration,
+        bpm,
+        words,
+        cta,
+        cta_clip: clipIdx(req.cta?.clip),
+        accent,
+        out: path.join(MEDIA_DIR, outName),
+        workdir: path.join(DATA_DIR, "tmp", gen.id),
+        fontsdir: FONTS,
+      }),
+    );
+    launch(gen.id, BEAT_SCRIPT, jobFile, outName, "Edição na batida");
+  })().catch(async (err) => {
+    running.delete(gen.id);
+    await updateGeneration(gen.id, { status: "failed", error: `Edição na batida: ${err instanceof Error ? err.message : "erro"}` });
+  });
   return gen;
 }
 
@@ -322,16 +338,27 @@ export async function runRemoveCaptions(req: CaptionRemovalRequest): Promise<Gen
     status: "running",
     name,
     prompt: `Sem legenda: ${g.prompt}`.slice(0, 600),
-    params: { formato: "sem-legenda", origem: g.id, regiao: region, modo: mode, duracao: Math.round((await seconds(file)) || Number(g.params.duration) || 0) || null },
+    params: { formato: "sem-legenda", origem: g.id, regiao: region, modo: mode, duracao: Math.round(Number(g.params.duration) || 0) || null },
   });
   await mkdir(LOG_DIR, { recursive: true });
   const outName = `${randomUUID()}.mp4`;
   const jobFile = path.join(LOG_DIR, `${gen.id}.json`);
-  await writeFile(
-    jobFile,
-    JSON.stringify({ input: file, out: path.join(MEDIA_DIR, outName), workdir: path.join(DATA_DIR, "tmp", gen.id), model: LAMA_MODEL, region, mode }),
-  );
-  launch(gen.id, CAPTION_SCRIPT, jobFile, outName, "Remover legenda");
+  // Em segundo plano: um vídeo que está só no Google Drive é baixado antes, e o pedido não espera o download.
+  running.add(gen.id);
+  void (async () => {
+    const input = await arquivoLocal(file);
+    // Duração medida no arquivo, para a previsão de tempo da barra de progresso.
+    const duracao = Math.round(await seconds(input)) || null;
+    if (duracao && duracao !== gen.params.duracao) await updateGeneration(gen.id, { params: { ...gen.params, duracao } });
+    await writeFile(
+      jobFile,
+      JSON.stringify({ input, out: path.join(MEDIA_DIR, outName), workdir: path.join(DATA_DIR, "tmp", gen.id), model: LAMA_MODEL, region, mode }),
+    );
+    launch(gen.id, CAPTION_SCRIPT, jobFile, outName, "Remover legenda");
+  })().catch(async (err) => {
+    running.delete(gen.id);
+    await updateGeneration(gen.id, { status: "failed", error: `Remover legenda: ${err instanceof Error ? err.message : "erro"}` });
+  });
   return gen;
 }
 

@@ -1,14 +1,14 @@
 import "server-only";
 
 import { readFile } from "node:fs/promises";
-import path from "node:path";
 
+import { arquivoLocal, guardarNoDriveEmSegundoPlano } from "@/features/drive/servicos/videos";
 import { DEFAULT_ELEVEN_MODEL, getElevenModel, resolveElevenModel, stripAudioTags } from "@/lib/elevenlabs-models";
 import { applyRules, FLORA_FAMILIES, type FloraFamily, getFamily, MAX_REFERENCES, type Operation, paramsFor } from "@/lib/flora-models";
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
 import { McpNotConnected } from "@/lib/server/mcp-client";
-import { CONTENT_TYPES, downloadMedia, MEDIA_DIR, saveMedia } from "@/lib/server/media";
+import { CONTENT_TYPES, downloadMedia, saveMedia } from "@/lib/server/media";
 import { montageStatus } from "@/lib/server/montage";
 import { textToSpeech } from "@/lib/server/providers/elevenlabs";
 import { generate, getRun, getTarget, organizeCanvas, quote, uploadReference, type FloraReference } from "@/lib/server/providers/flora";
@@ -146,7 +146,7 @@ async function referenceFromGeneration(id: string, projectId: string): Promise<F
   }
   if (!ref.file) throw new InputError("A imagem de referência ainda não está pronta.");
   const ext = ref.file.split(".").pop()!.toLowerCase();
-  const bytes = await readFile(path.join(MEDIA_DIR, ref.file));
+  const bytes = await readFile(await arquivoLocal(ref.file));
   return uploadReference(new File([bytes], ref.file, { type: CONTENT_TYPES[ext] ?? "image/png" }), projectId);
 }
 
@@ -273,7 +273,8 @@ export async function quoteFlora(req: {
 
 // ---------- Status dos jobs ----------
 
-// Consulta a ferramenta; quando o job termina, baixa o resultado para hub/.data/media.
+// Consulta a ferramenta; quando o job termina, baixa o resultado para hub/.data/media. Vídeo pronto segue para o
+// Google Drive em segundo plano (features/drive): a geração devolvida aqui ainda usa a cópia local.
 export async function refreshGeneration(gen: Generation): Promise<Generation> {
   if (gen.tool === "montagem") return montageStatus(gen); // processo local, atualiza o próprio status
   if (gen.tool === "heygen-traducao") return refreshTranslation(gen); // pelo MCP do HeyGen
@@ -287,7 +288,9 @@ export async function refreshGeneration(gen: Generation): Promise<Generation> {
       if (!out) return fail("FLORA não devolveu mídia.");
       const file = await downloadMedia(out.url, out.type === "videoUrl" ? "mp4" : "png");
       const params = { ...gen.params, cost: run.charged_cost ?? gen.params.cost ?? null };
-      return (await updateGeneration(gen.id, { status: "done", file, remoteUrl: out.url, params })) ?? gen;
+      const pronta = await updateGeneration(gen.id, { status: "done", file, remoteUrl: out.url, params });
+      guardarNoDriveEmSegundoPlano(pronta);
+      return pronta ?? gen;
     }
     if (run.status === "failed") return fail(run.error_message ?? "FLORA: falhou");
     return gen;
@@ -297,7 +300,9 @@ export async function refreshGeneration(gen: Generation): Promise<Generation> {
     const video = await getVideo(gen.jobId);
     if (video.status === "completed" && video.url) {
       const file = await downloadMedia(video.url, "mp4");
-      return (await updateGeneration(gen.id, { status: "done", file, remoteUrl: video.url })) ?? gen;
+      const pronta = await updateGeneration(gen.id, { status: "done", file, remoteUrl: video.url });
+      guardarNoDriveEmSegundoPlano(pronta);
+      return pronta ?? gen;
     }
     if (video.status === "failed") return fail(video.error ?? "HeyGen: falhou");
     return gen;
@@ -307,7 +312,9 @@ export async function refreshGeneration(gen: Generation): Promise<Generation> {
     const job = await getJob(gen.jobId);
     if (DONE.has(job.status) && job.result_url) {
       const file = await downloadMedia(job.result_url, gen.kind === "video" ? "mp4" : "png");
-      return (await updateGeneration(gen.id, { status: "done", file, remoteUrl: job.result_url })) ?? gen;
+      const pronta = await updateGeneration(gen.id, { status: "done", file, remoteUrl: job.result_url });
+      guardarNoDriveEmSegundoPlano(pronta);
+      return pronta ?? gen;
     }
     if (FAILED.has(job.status)) {
       return fail(job.status === "nsfw" ? "Bloqueado pelo filtro de conteúdo do Higgsfield." : `Higgsfield: ${job.status}`);

@@ -1,9 +1,7 @@
 import "server-only";
 
-import path from "node:path";
-
+import { arquivoLocal } from "@/features/drive/servicos/videos";
 import { callTool, uploadAsset } from "@/lib/server/heygen-mcp";
-import { MEDIA_DIR } from "@/lib/server/media";
 
 // HeyGen pelo MCP (mcp.heygen.com, login da conta em Integrações): avatares, vozes e vídeo do avatar falando.
 // Consome os créditos do plano web do HeyGen, não o saldo da API.
@@ -69,7 +67,7 @@ export async function listVoices(language?: string): Promise<HeyVoice[]> {
 
 // Sobe um áudio gerado no hub (ex.: narração do ElevenLabs) para usar no lipsync.
 export async function uploadAudio(file: string): Promise<string> {
-  return uploadAsset(path.join(MEDIA_DIR, file), `audio:${file}`, file.endsWith(".wav") ? "audio/wav" : "audio/mpeg");
+  return uploadAsset(() => arquivoLocal(file), `audio:${file}`, file.endsWith(".wav") ? "audio/wav" : "audio/mpeg");
 }
 
 export type CreateVideoInput = {

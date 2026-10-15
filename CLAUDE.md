@@ -33,7 +33,7 @@ Edição, transcrição e "remover legenda" precisam de programas fora do Node: 
 
 ### Dados: arquivos JSON em `hub/.data/`, sem banco
 - `db.json`: todas as gerações (`lib/server/store.ts`). Uma fila serializa as escritas, então passe sempre por `createGeneration`/`updateGeneration`.
-- `media/`: os arquivos, servidos por `/api/media/<arquivo>`.
+- `media/`: imagens, áudios e arquivos enviados pelas pessoas, servidos por `/api/media/<arquivo>`. **Vídeos gerados não ficam aqui:** veja "Vídeos no Google Drive" abaixo.
 - `chats/<id>.json`, `board.json` (Fluxo), `editor/`, `analysis/` (decupagens em cache), `agents/` (personalização dos agentes), `montagem/` (logs) e `<serviço>-mcp.json` (sessões OAuth).
 
 No Railway essa pasta é o volume montado em `/app/.data`. Ela nunca vai para o git.
@@ -42,6 +42,13 @@ Em andamento (leia `PLANO-HUB.md`): Postgres pelo Drizzle (`hub/db/`) e funciona
 
 ### Geração: a unidade de tudo
 Tudo que é gerado ou enviado vira uma `Generation` (`lib/generations.ts`), com `tool`, `kind`, `status` e `file`. Os jobs assíncronos (FLORA, HeyGen, tradução, montagem) são atualizados por `refreshGeneration` (`lib/server/actions.ts`), que baixa o resultado para `media/` porque os links das ferramentas expiram. Montagem, exportação do editor e tradução prontas entram sozinhas na Biblioteca (`autoSave` em `store.ts`).
+
+### Vídeos no Google Drive (regra do dono)
+Todo vídeo gerado mora **só** no Drive de uma conta Google, na pasta "Hub de Criativos/<tipo>" (`features/drive`). Ao ficar pronto, `guardarNoDrive` (`features/drive/servicos/videos.ts`) sobe o vídeo, grava `drive: { id, pasta }` na geração e apaga a cópia local. Sem Drive conectado, o vídeo fica no disco marcado `params.paraDrive` até o botão "Levar vídeos antigos para o Drive" (Integrações).
+- **Ler vídeo do disco:** sempre por `await arquivoLocal(file)`, que baixa uma cópia temporária do Drive (`.data/tmp/drive`, limpa sozinha). Nunca `path.join(MEDIA_DIR, file)` para vídeo.
+- **Mostrar:** `/api/media/<file>` repassa do Drive com Range. Os componentes não mudam.
+- **Espelho:** `sincronizarComDrive` marca `foraDoDrive` o que foi apagado ou foi para a lixeira no Drive (e acompanha nomes); as listas escondem. Apagar no hub manda para a lixeira do Drive.
+- **Acesso:** escopo `drive.file` (o hub só vê o que criou; não exige verificação do Google). Tokens cifrados com `HUB_CHAVE_SEGREDOS`. Passo a passo e variáveis em `docs/google-drive.md`.
 
 `lib/server/actions.ts` concentra as ações dos estúdios. As rotas da interface e as ferramentas do chat usam esse mesmo arquivo, então mude a regra lá e não em um dos lados.
 

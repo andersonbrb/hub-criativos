@@ -7,6 +7,7 @@ import path from "node:path";
 
 import sharp from "sharp";
 
+import { arquivoLocal, guardarNoDriveEmSegundoPlano } from "@/features/drive/servicos/videos";
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
 import { downloadMedia, MEDIA_DIR } from "@/lib/server/media";
@@ -75,7 +76,7 @@ export async function readyMedia(id: string, kinds: Generation["kind"][] = ["vid
 }
 
 async function probe(file: string): Promise<VideoMeta> {
-  const { stdout } = await run(FFPROBE, ["-v", "error", "-print_format", "json", "-show_streams", "-show_format", path.join(MEDIA_DIR, file)]);
+  const { stdout } = await run(FFPROBE, ["-v", "error", "-print_format", "json", "-show_streams", "-show_format", await arquivoLocal(file)]);
   const data = JSON.parse(stdout) as {
     streams?: { codec_type: string; width?: number; height?: number; avg_frame_rate?: string; duration?: string }[];
     format?: { duration?: string };
@@ -94,7 +95,7 @@ async function probe(file: string): Promise<VideoMeta> {
 // Mudança de cena pelo filtro scene do ffmpeg (em baixa resolução: rápido).
 async function detectCuts(file: string): Promise<number[]> {
   const { stderr } = await run(FFMPEG, [
-    "-hide_banner", "-nostats", "-i", path.join(MEDIA_DIR, file), "-an",
+    "-hide_banner", "-nostats", "-i", await arquivoLocal(file), "-an",
     "-vf", "scale=320:-2,select='gt(scene,0.3)',showinfo", "-f", "null", "-",
   ]);
   const times = [...stderr.matchAll(/pts_time:\s*([\d.]+)/g)].map((m) => Math.round(Number(m[1]) * 100) / 100);
@@ -204,7 +205,7 @@ export async function frameAt(g: Generation & { file: string }, t: number, maxSi
   const out = path.join(MEDIA_DIR, name);
   if (!(await exists(out))) {
     await run(FFMPEG, [
-      "-y", "-loglevel", "error", "-ss", t.toFixed(3), "-i", path.join(MEDIA_DIR, g.file), "-frames:v", "1",
+      "-y", "-loglevel", "error", "-ss", t.toFixed(3), "-i", await arquivoLocal(g.file), "-frames:v", "1",
       "-vf", `scale=w=${maxSide}:h=${maxSide}:force_original_aspect_ratio=decrease:force_divisible_by=2`, "-q:v", "4", out,
     ]);
     if (!(await exists(out))) throw new Error(`Não consegui extrair o quadro em ${t.toFixed(1)}s.`);
@@ -262,7 +263,7 @@ export async function contactSheet(tiles: { file: string; label: string }[]): Pr
   const rows = Math.ceil(tiles.length / cols);
   const composites = await Promise.all(
     tiles.map(async (tile, i) => {
-      const img = await sharp(path.join(MEDIA_DIR, tile.file))
+      const img = await sharp(await arquivoLocal(tile.file))
         .rotate()
         .resize({ width: TILE.w, height: TILE.h, fit: "contain", background: "#111111" })
         .composite([
@@ -320,6 +321,8 @@ export async function importFloraMedia(projectId: string, projectName: string, k
       remoteUrl: n.url,
       params: { modelName: "FLORA (importado)", floraProjectId: projectId, nodeId: n.nodeId, assetId: n.assetId, imported: true },
     });
+    // Vídeo importado é b-roll do FLORA como os gerados: segue para o Google Drive em segundo plano.
+    guardarNoDriveEmSegundoPlano(generation);
     items.push({ generation, imported: true });
   }
   return { total: nodes.length, items };

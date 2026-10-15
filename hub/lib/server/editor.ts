@@ -6,6 +6,7 @@ import { mkdir, mkdtemp, readdir, readFile, rename, rm, unlink, writeFile } from
 import os from "node:os";
 import path from "node:path";
 
+import { arquivoLocal, guardarNoDriveEmSegundoPlano } from "@/features/drive/servicos/videos";
 import {
   DEFAULT_STYLE,
   newId,
@@ -80,7 +81,7 @@ export async function deleteProject(id: string) {
 async function probe(gen: Generation): Promise<EditorSource> {
   if (gen.kind !== "video" || !gen.file) throw new InputError("Escolha um vídeo pronto do hub.");
   const out = JSON.parse(
-    await run(FFPROBE, ["-v", "error", "-print_format", "json", "-show_streams", "-show_format", path.join(MEDIA_DIR, gen.file)]),
+    await run(FFPROBE, ["-v", "error", "-print_format", "json", "-show_streams", "-show_format", await arquivoLocal(gen.file)]),
   ) as { streams: { codec_type: string; width?: number; height?: number; tags?: { rotate?: string }; side_data_list?: { rotation?: number }[] }[]; format: { duration?: string } };
   const video = out.streams.find((s) => s.codec_type === "video");
   if (!video?.width || !video.height) throw new InputError("Não consegui ler as dimensões do vídeo.");
@@ -224,7 +225,7 @@ export async function autoCaptions(projectId: string, opts: { sourceId?: string;
     for (const sourceId of ids) {
       const source = project.sources[sourceId];
       if (!source?.hasAudio) continue;
-      const input = path.join(MEDIA_DIR, path.basename(source.url));
+      const input = await arquivoLocal(path.basename(source.url));
       const audio = path.join(tmp, `${sourceId}.mp3`);
       await run(FFMPEG, ["-y", "-loglevel", "error", "-i", input, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k", audio], { timeout: 300_000 });
       const { words } = await transcribe(await readFile(audio), `${sourceId}.mp3`);
@@ -317,13 +318,18 @@ async function encode(project: EditorProject, generationId: string) {
   const { width: W, height: H, fps } = project;
   const tmp = await mkdtemp(path.join(os.tmpdir(), "hub-render-"));
   try {
+    // Caminho no disco de cada fonte (vídeo que está só no Google Drive vira uma cópia temporária).
+    const entradas = new Map<string, string>();
+    for (const c of clips) {
+      if (!entradas.has(c.sourceId)) entradas.set(c.sourceId, await arquivoLocal(path.basename(project.sources[c.sourceId].url)));
+    }
     const args = ["-y", "-loglevel", "error"];
     const filters: string[] = [];
     const concatInputs: string[] = [];
     let input = 0;
     clips.forEach((c, i) => {
       const src = project.sources[c.sourceId];
-      args.push("-ss", c.in.toFixed(3), "-t", c.duration.toFixed(3), "-i", path.join(MEDIA_DIR, path.basename(src.url)));
+      args.push("-ss", c.in.toFixed(3), "-t", c.duration.toFixed(3), "-i", entradas.get(c.sourceId)!);
       const vi = input++;
       filters.push(
         `[${vi}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${fps},format=yuv420p,setpts=PTS-STARTPTS[v${i}]`,
@@ -363,7 +369,8 @@ async function encode(project: EditorProject, generationId: string) {
       child.on("error", (e) => reject((e as NodeJS.ErrnoException).code === "ENOENT" ? new Error("ffmpeg não encontrado. Instale o ffmpeg ou defina FFMPEG_BIN.") : e));
       child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg: ${stderr.trim().split("\n").slice(-3).join(" ")}`))));
     });
-    await updateGeneration(generationId, { status: "done", file: outName });
+    // Pronta, a exportação segue para o Google Drive em segundo plano (features/drive).
+    guardarNoDriveEmSegundoPlano(await updateGeneration(generationId, { status: "done", file: outName }));
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }

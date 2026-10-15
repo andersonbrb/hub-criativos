@@ -5,8 +5,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { arquivoLocal } from "@/features/drive/servicos/videos";
 import { InputError } from "@/lib/server/http";
-import { MEDIA_DIR } from "@/lib/server/media";
 import { elevenlabsConnected, transcribeFull } from "@/lib/server/providers/elevenlabs";
 import { getGeneration } from "@/lib/server/store";
 
@@ -126,7 +126,9 @@ export async function transcribeGeneration(generationId: string, engine: Engine 
   try {
     // Só o áudio, mono 16 kHz: upload pequeno e o mesmo formato que o editor usa.
     const audio = path.join(tmp, "audio.mp3");
-    await run(FFMPEG, ["-y", "-loglevel", "error", "-i", path.join(MEDIA_DIR, g.file), "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k", audio], 600_000).catch(() => {
+    // Vídeo que está só no Google Drive vira uma cópia temporária (erro do Drive sobe com a mensagem dele).
+    const entrada = await arquivoLocal(g.file);
+    await run(FFMPEG, ["-y", "-loglevel", "error", "-i", entrada, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k", audio], 600_000).catch(() => {
       throw new InputError("Não encontrei áudio nesse arquivo para transcrever.");
     });
 

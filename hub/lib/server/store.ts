@@ -43,10 +43,16 @@ function withDb<T>(fn: (db: Db) => T | Promise<T>): Promise<T> {
   return run;
 }
 
-export async function listGenerations(tool?: GenerationTool): Promise<Generation[]> {
+// Esconde os vídeos apagados ou mandados para a lixeira direto no Drive (`foraDoDrive`, marcado pelo espelho em
+// features/drive/servicos/videos.ts). Fica aqui, e não em cada tela, para todas as listas (estúdios, Biblioteca,
+// editor, Fluxo, chat e conector) pararem de mostrar o vídeo de uma vez. Só o espelho e a migração pedem tudo.
+// getGeneration continua achando: a rota de mídia responde "apagado no Drive" e a lixeira do hub ainda apaga o registro.
+export async function listGenerations(tool?: GenerationTool, opcoes: { incluirForaDoDrive?: boolean } = {}): Promise<Generation[]> {
   await queue;
   const db = await load();
-  return db.generations.filter((g) => !tool || g.tool === tool).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return db.generations
+    .filter((g) => (!tool || g.tool === tool) && (opcoes.incluirForaDoDrive || !g.foraDoDrive))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function getGeneration(id: string): Promise<Generation | undefined> {
@@ -93,9 +99,11 @@ export function deleteGeneration(id: string): Promise<boolean> {
 }
 
 // "Limpar" de um estúdio: apaga tudo da ferramenta, menos o que está gerando e o que está na Biblioteca.
-export function clearGenerations(tool: GenerationTool): Promise<Generation[]> {
+// `ids`: só estas (a rota manda antes os vídeos do Drive para a lixeira de lá e deixa de fora os que falharam).
+export function clearGenerations(tool: GenerationTool, opcoes: { ids?: string[] } = {}): Promise<Generation[]> {
   return withDb((db) => {
-    const removable = (g: Generation) => g.tool === tool && !g.saved && (g.status === "done" || g.status === "failed");
+    const removable = (g: Generation) =>
+      g.tool === tool && !g.saved && (g.status === "done" || g.status === "failed") && (!opcoes.ids || opcoes.ids.includes(g.id));
     const removed = db.generations.filter(removable);
     db.generations = db.generations.filter((g) => !removable(g));
     return removed;

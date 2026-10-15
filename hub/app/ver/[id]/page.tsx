@@ -28,7 +28,8 @@ export default async function VerPage({ params }: PageProps<"/ver/[id]">) {
   const { id } = await params;
   const g = await getGeneration(id);
   const url = g && mediaUrl(g);
-  if (!g || !url) notFound();
+  // Vídeo apagado direto no Drive: o hub esconde, como nas listas.
+  if (!g || !url || g.foraDoDrive) notFound();
 
   return (
     <main className="flex h-workspace flex-col">

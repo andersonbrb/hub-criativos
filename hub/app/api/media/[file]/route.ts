@@ -3,8 +3,14 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 
+import { abrirTrecho, ArquivoForaDoDrive } from "@/features/drive/servicos/arquivos";
+import { geracaoDoArquivo } from "@/features/drive/servicos/videos";
 import { route } from "@/lib/server/http";
 import { CHAVES_DE_PRODUCAO, CONTENT_TYPES, MEDIA_DIR } from "@/lib/server/media";
+
+// O vídeo foi apagado (ou mandado para a lixeira) direto no Drive: o hub não tem outra cópia.
+const apagadoNoDrive = () =>
+  new Response("Esse vídeo foi apagado no Drive.", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
 
 // Intervalo pedido no cabeçalho Range. null: manda o arquivo inteiro. "invalido": 416.
 function intervaloPedido(cabecalho: string | null, tamanho: number): { inicio: number; fim: number } | null | "invalido" {
@@ -32,13 +38,13 @@ function intervaloPedido(cabecalho: string | null, tamanho: number): { inicio: n
 // Serve os arquivos gerados (hub/.data/media) com suporte a Range, para o player de vídeo conseguir avançar.
 // Vai em stream: nem o vídeo inteiro nem o pedaço pedido passam inteiros pela memória.
 // Exige uma das telas de produção (chat, estúdios, Fluxo, editor, Biblioteca, Criativo automático): todas mostram mídia.
+// Vídeo guardado no Google Drive (features/drive): o endereço é o mesmo, e o vídeo vem do Drive, repassando o Range.
 export const GET = route(async (request: Request, { params }: { params: Promise<{ file: string }> }) => {
   const { file } = await params;
   if (!/^[\w-]+\.\w+$/.test(file)) return new Response("Arquivo inválido", { status: 400 });
 
   const filePath = path.join(MEDIA_DIR, file);
   const info = await stat(filePath).catch(() => null);
-  if (!info?.isFile()) return new Response("Não encontrado", { status: 404 });
 
   const tipo = CONTENT_TYPES[file.split(".").pop()!.toLowerCase()];
   const cabecalhos: Record<string, string> = {
@@ -50,6 +56,27 @@ export const GET = route(async (request: Request, { params }: { params: Promise<
     // Tipo que não é mídia conhecida (texto, html, svg…): só baixa, nunca abre no hub.
     ...(tipo ? {} : { "Content-Disposition": "attachment" }),
   };
+
+  // Vídeo (ou arquivo que não está no disco): o Drive é a cópia que vale. Imagens e áudios nem consultam as gerações.
+  if (!info?.isFile() || !tipo || tipo.startsWith("video/")) {
+    const geracao = await geracaoDoArquivo(file);
+    if (geracao?.foraDoDrive) return apagadoNoDrive();
+    if (geracao?.drive) {
+      let trecho;
+      try {
+        trecho = await abrirTrecho(geracao.drive.id, request.headers.get("range"));
+      } catch (err) {
+        if (err instanceof ArquivoForaDoDrive) return apagadoNoDrive();
+        throw err;
+      }
+      // Os cabeçalhos do Drive (tamanho, Content-Range) com as travas do hub por cima.
+      const headers = new Headers(trecho.cabecalhos);
+      for (const [nome, valor] of Object.entries(cabecalhos)) headers.set(nome, valor);
+      if (trecho.status === 416) headers.set("Cache-Control", "no-store");
+      return new Response(trecho.corpo, { status: trecho.status, headers });
+    }
+  }
+  if (!info?.isFile()) return new Response("Não encontrado", { status: 404 });
 
   const intervalo = intervaloPedido(request.headers.get("range"), info.size);
   if (intervalo === "invalido") {

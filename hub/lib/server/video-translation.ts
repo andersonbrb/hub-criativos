@@ -1,11 +1,10 @@
 import "server-only";
 
-import path from "node:path";
-
+import { arquivoLocal, guardarNoDriveEmSegundoPlano } from "@/features/drive/servicos/videos";
 import type { Generation } from "@/lib/generations";
 import { callTool, uploadAsset } from "@/lib/server/heygen-mcp";
 import { InputError } from "@/lib/server/http";
-import { CONTENT_TYPES, downloadMedia, MEDIA_DIR } from "@/lib/server/media";
+import { CONTENT_TYPES, downloadMedia } from "@/lib/server/media";
 import { createGeneration, getGeneration, updateGeneration } from "@/lib/server/store";
 
 // Tradução de vídeo do HeyGen (voz clonada + lipsync) pelo MCP do HeyGen: mesmas opções do app.
@@ -39,7 +38,8 @@ export type TranslateRequest = {
 
 const extOf = (file: string) => file.split(".").pop()!.toLowerCase();
 const typeOf = (file: string) => (extOf(file) === "srt" ? "application/x-subrip" : (CONTENT_TYPES[extOf(file)] ?? "application/octet-stream"));
-const asset = async (file: string) => ({ type: "asset_id", asset_id: await uploadAsset(path.join(MEDIA_DIR, file), file, typeOf(file)) });
+// O vídeo pode estar só no Google Drive: a cópia temporária só é baixada se o HeyGen ainda não tem o arquivo.
+const asset = async (file: string) => ({ type: "asset_id", asset_id: await uploadAsset(() => arquivoLocal(file), file, typeOf(file)) });
 const optNum = (v: unknown) => (v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
 
 let languagesCache: { at: number; list: string[] } | null = null;
@@ -158,7 +158,8 @@ type Detail = {
   duration?: number | null;
 };
 
-// Consulta a tradução; quando termina, baixa o vídeo (e a legenda .srt) para o hub.
+// Consulta a tradução; quando termina, baixa o vídeo (e a legenda .srt) para o hub. O vídeo segue para o Google
+// Drive em segundo plano (features/drive); a legenda e a tradução só de áudio ficam no disco.
 export async function refreshTranslation(gen: Generation): Promise<Generation> {
   if (!gen.jobId || gen.status === "done" || gen.status === "failed") return gen;
   const raw = await callTool<Detail & { data?: Detail }>("get_video_translation", { videoTranslationId: gen.jobId });
@@ -169,13 +170,13 @@ export async function refreshTranslation(gen: Generation): Promise<Generation> {
   if (!url) return (await updateGeneration(gen.id, { status: "failed", error: "HeyGen não devolveu o vídeo traduzido." })) ?? gen;
   const file = await downloadMedia(url, d.video_url ? "mp4" : "mp3");
   const srtFile = d.srt_caption_url ? await downloadMedia(d.srt_caption_url, "srt").catch(() => null) : null;
-  return (
-    (await updateGeneration(gen.id, {
-      status: "done",
-      file,
-      remoteUrl: url,
-      kind: d.video_url ? "video" : "audio",
-      params: { ...gen.params, srtFile, duration: d.duration ?? null, outputLanguage: d.output_language ?? gen.params.language ?? null },
-    })) ?? gen
-  );
+  const pronta = await updateGeneration(gen.id, {
+    status: "done",
+    file,
+    remoteUrl: url,
+    kind: d.video_url ? "video" : "audio",
+    params: { ...gen.params, srtFile, duration: d.duration ?? null, outputLanguage: d.output_language ?? gen.params.language ?? null },
+  });
+  guardarNoDriveEmSegundoPlano(pronta);
+  return pronta ?? gen;
 }

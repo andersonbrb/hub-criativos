@@ -16,6 +16,7 @@ import {
   type Ferramenta,
 } from "@/features/conector/servicos/ferramentas/comum";
 import { criarLinkDeDownload, criarLinkDeEnvio, extensoesAceitas, tipoDoArquivo } from "@/features/conector/servicos/links";
+import { sincronizarComDrive } from "@/features/drive/servicos/videos";
 import { downloadName, generationTitle, type Generation } from "@/lib/generations";
 import { MEDIA_DIR } from "@/lib/server/media";
 import { getGeneration, listGenerations } from "@/lib/server/store";
@@ -33,11 +34,16 @@ function tamanhoLegivel(bytes: number) {
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
+// Tamanho do arquivo em bytes; null = sem arquivo no hub. Vídeo no Google Drive: o tamanho anotado no envio.
 async function tamanhoDe(g: Generation): Promise<number | null> {
-  if (!g.file || !/^[\w-]+\.\w+$/.test(g.file)) return null;
+  if (!g.file || !/^[\w-]+\.\w+$/.test(g.file) || g.foraDoDrive) return null;
+  if (g.drive) return typeof g.params.tamanhoNoDrive === "number" ? g.params.tamanhoNoDrive : null;
   const info = await stat(path.join(MEDIA_DIR, g.file)).catch(() => null);
   return info?.isFile() ? info.size : null;
 }
+
+// Tem arquivo para baixar: no disco do hub ou no Google Drive.
+const temArquivo = async (g: Generation) => Boolean(g.drive && !g.foraDoDrive && g.file) || (await tamanhoDe(g)) !== null;
 
 const bibliotecaListar: Ferramenta = {
   chave: "biblioteca",
@@ -55,6 +61,9 @@ const bibliotecaListar: Ferramenta = {
     annotations: { title: "Listar a Biblioteca", ...SO_LEITURA },
   },
   async executar(_ctx, args) {
+    // Espelho do Drive em segundo plano (no máximo 1 vez por minuto): o que foi apagado ou renomeado lá aparece na
+    // próxima listagem. Os vídeos apagados no Drive já não vêm em listGenerations.
+    void sincronizarComDrive();
     const busca = semAcento(texto(args, "busca", { max: 200 })?.trim() ?? "");
     const kind = umDe(args, "tipo", KINDS);
     const limite = inteiro(args, "limite", { max: 200, padrao: 30 })!;
@@ -137,7 +146,8 @@ const linkDeDownload: Ferramenta = {
     const id = texto(args, "generation_id", { obrigatorio: true, max: 100 }).trim();
     const geracao = await getGeneration(id);
     if (!geracao) throw new ErroDaFerramenta(`Não existe arquivo com o id "${id}". Use biblioteca_listar para achar o certo.`);
-    if (geracao.status !== "done" || (await tamanhoDe(geracao)) === null) {
+    if (geracao.foraDoDrive) throw new ErroDaFerramenta("Este vídeo foi apagado no Google Drive e não existe mais no Hub.");
+    if (geracao.status !== "done" || !(await temArquivo(geracao))) {
       throw new ErroDaFerramenta("Este item ainda não tem arquivo pronto no Hub (está gerando, falhou ou ficou só como link externo).");
     }
     const nome = downloadName(geracao);

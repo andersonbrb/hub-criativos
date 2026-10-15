@@ -3,6 +3,7 @@ import { access } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 
+import { lerDoDrive } from "@/features/drive/servicos/videos";
 import { downloadName } from "@/lib/generations";
 import { getBoard } from "@/lib/server/board";
 import { InputError, route } from "@/lib/server/http";
@@ -21,8 +22,9 @@ export const GET = route(async (_request: Request, { params }: Ctx) => {
   const card = (await getBoard()).cards[id];
   if (!card) throw new InputError("Card não encontrado.");
 
+  // Vídeo apagado direto no Drive não entra (o hub não tem outra cópia).
   const videos = (await Promise.all(card.generationIds.map((g) => getGeneration(g)))).filter(
-    (g): g is NonNullable<typeof g> => Boolean(g && g.kind === "video" && g.status === "done" && (g.file || g.remoteUrl)),
+    (g): g is NonNullable<typeof g> => Boolean(g && g.kind === "video" && g.status === "done" && !g.foraDoDrive && (g.file || g.remoteUrl)),
   );
   if (!videos.length) throw new InputError("Esse card não tem vídeo pronto para baixar.");
 
@@ -30,6 +32,8 @@ export const GET = route(async (_request: Request, { params }: Ctx) => {
   const entries: ZipEntry[] = videos.map((g, i) => ({
     name: names[i],
     open: async () => {
+      // No Drive: vem em stream de lá, sem cópia no disco.
+      if (g.drive) return Readable.fromWeb((await lerDoDrive(g)).corpo as never) as AsyncIterable<Uint8Array>;
       if (g.file) {
         const file = path.join(MEDIA_DIR, path.basename(g.file));
         if (await access(file).then(() => true, () => false)) return createReadStream(file) as AsyncIterable<Uint8Array>;

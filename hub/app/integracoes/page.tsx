@@ -11,6 +11,8 @@ import type { AppId } from "@/lib/apps";
 import { hasKey, KEYS, type Provider } from "@/lib/server/env";
 import { mcp } from "@/lib/server/mcp-client";
 import { exigirPagina } from "@/features/acesso/servicos/sessao";
+import { oQueFaltaParaConectar, statusDrive } from "@/features/drive/servicos/conta";
+import { CardGoogleDrive } from "@/features/drive/tela/card-google-drive";
 
 type Integration = {
   name: string;
@@ -41,9 +43,17 @@ async function viaMcp(service: McpService, base: Omit<Integration, "status" | "d
   };
 }
 
-export default async function IntegrationsPage() {
+// Primeiro valor de um parâmetro da URL (?drive=...&motivo=..., a volta do login do Google).
+const primeiro = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? null;
+
+export default async function IntegrationsPage({ searchParams }: PageProps<"/integracoes">) {
   await exigirPagina("integracoes");
   await connection();
+
+  // Google Drive: onde os vídeos gerados moram. Card próprio (conectar, espaço, levar os vídeos antigos).
+  const drive = await statusDrive();
+  const q = await searchParams;
+  const retornoDoDrive = { drive: primeiro(q.drive), motivo: primeiro(q.motivo) };
 
   // Edição final: o pipeline do playbook de edição (o mesmo do "sandbox do Higgsfield") roda nesta máquina, sem custo.
   const edicao: Integration = {
@@ -106,9 +116,10 @@ export default async function IntegrationsPage() {
     <main className="flex max-w-7xl flex-col gap-6 px-4 py-6 md:px-6">
       <PageHeader
         title="Integrações"
-        description="Status real das conexões deste hub. HeyGen, FLORA e ElevenLabs entram pelo MCP, com o login da sua conta; Claude e Venice usam chave em hub/.env.local."
+        description="Status real das conexões deste hub. O Google Drive guarda os vídeos gerados. HeyGen, FLORA e ElevenLabs entram pelo MCP, com o login da sua conta; Claude e Venice usam chave em hub/.env.local."
       />
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <CardGoogleDrive status={drive} falta={oQueFaltaParaConectar()} retorno={retornoDoDrive} />
         {integrations.map((i) => (
           <Card key={i.name} className="gap-3 py-4">
             <CardHeader className="px-4">
