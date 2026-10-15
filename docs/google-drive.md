@@ -81,22 +81,27 @@ um valor que não tem 32 bytes), o hub recusa conectar: ele não grava a autoriz
 3. Na tela do Google, deixe **marcada** a opção de acesso ao Google Drive. Sem ela o hub recusa a conexão e avisa.
 4. O hub volta para Integrações com "Google Drive conectado". O card mostra a conta e o espaço usado.
 
-Os vídeos que já estavam no disco do hub antes da conexão vão para o Drive pelo botão **Levar vídeos antigos para o
+Os vídeos que já estavam no disco do hub antes da conexão vão para o Drive sozinhos, um por vez, enquanto o hub é
+usado. O card mostra quantos ainda estão no hub. Para começar na hora, use o botão **Levar vídeos antigos para o
 Drive**, no mesmo card. O progresso aparece ali e atualiza sozinho.
 
 ## O que acontece se a conta for desconectada
 
 - **Pelo botão Desconectar (Integrações):** o hub tira o próprio acesso na conta Google e apaga a autorização dele.
-  Os vídeos continuam no Drive, mas o hub não toca nem baixa esses vídeos até uma conta ser conectada de novo. Os
-  vídeos gerados nesse meio-tempo ficam no disco do hub, sem se perder, e vão para o Drive pelo botão **Levar vídeos
-  antigos para o Drive** depois que a conta voltar.
+  Os vídeos continuam no Drive, mas o hub não toca nem baixa esses vídeos até a mesma conta ser conectada de novo.
+  Os vídeos gerados nesse meio-tempo ficam no disco do hub, sem se perder, e vão sozinhos para o Drive depois que a
+  conta voltar.
 - **Pela própria conta Google** (acesso removido em [myaccount.google.com/permissions](https://myaccount.google.com/permissions),
   troca de senha ou conta suspensa): na próxima vez que o hub precisar do Drive, o Google recusa. O hub então
   desconecta sozinho e o card volta a mostrar **Conectar**.
 - **Reconectar a mesma conta:** tudo volta a funcionar. Os arquivos foram criados por este cliente OAuth, então o
   hub volta a enxergá-los.
-- **Conectar outra conta:** a nova passa a receber os vídeos. Os que estão na conta antiga continuam lá, mas o hub
-  não os abre mais. Troque de conta só se não precisar dos vídeos antigos pelo hub.
+- **Conectar outra conta:** a nova passa a receber os vídeos. Os da conta antiga continuam no Drive dela, mas o hub
+  não os abre e eles **somem das listas do hub** (estúdios, Biblioteca, Fluxo). Eles voltam quando a conta antiga for
+  conectada de novo: o hub não apaga esses registros, nem pelo botão "Limpar" dos estúdios. Por precaução, se a troca
+  fizer sumir mais da metade dos vídeos de uma vez, o hub não esconde nenhum e só registra o aviso no log; nesse caso
+  eles continuam nas listas, mas não tocam até a conta antiga voltar. Troque de conta só se não precisar dos vídeos
+  antigos pelo hub.
 - **Trocar a `HUB_CHAVE_SEGREDOS`:** o hub não consegue mais abrir a autorização guardada. O card pede para conectar
   de novo. Os vídeos não se perdem.
 - **Apagar o projeto ou o cliente no Google Cloud:** o hub perde o acesso aos vídeos que já estão no Drive (veja o

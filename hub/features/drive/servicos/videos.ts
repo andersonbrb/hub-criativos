@@ -4,12 +4,20 @@ import { access, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 
 import type { ArquivoDrive, PastaDoDrive } from "@/features/drive/contrato";
-import { abrirTrecho, ArquivoForaDoDrive, baixarParaTemp, enviarArquivo, moverParaLixeira, renomear, situacao } from "@/features/drive/servicos/arquivos";
-import { DriveNaoConectado } from "@/features/drive/servicos/conta";
+import {
+  abrirTrecho,
+  ArquivoForaDoDrive,
+  baixarParaTemp,
+  enviarArquivo,
+  listarArquivosDoHub,
+  moverParaLixeira,
+  renomear,
+} from "@/features/drive/servicos/arquivos";
+import { DriveNaoConectado, tokenDeAcesso } from "@/features/drive/servicos/conta";
 import { downloadName, type Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
 import { CONTENT_TYPES, MEDIA_DIR } from "@/lib/server/media";
-import { getGeneration, listGenerations, updateGeneration } from "@/lib/server/store";
+import { DATA_DIR, getGeneration, listGenerations, updateGeneration } from "@/lib/server/store";
 
 // Ponte entre as gerações do hub e o Drive. Contrato estável: as assinaturas não mudam.
 //
@@ -24,17 +32,27 @@ const ESPERA_DO_ESPELHO_MS = 60_000;
 // Cópia local que alguém acabou de pedir (ffmpeg, Python) não é apagada logo depois do envio: um script da montagem
 // pode passar horas lendo o vídeo. A limpeza do espelho apaga depois desse prazo.
 const SEGURA_MS = 6 * 60 * 60 * 1000;
+// A fila que o espelho leva sozinho terminou com erro: espera antes de tentar de novo, para não subir o mesmo vídeo
+// de centenas de MB a cada minuto.
+const ESPERA_APOS_FALHA_MS = 10 * 60_000;
+// Proteção do espelho contra conta trocada: se mais da metade dos vídeos (e pelo menos estes) some de uma vez, nada
+// é marcado.
+const MINIMO_PARA_DESCONFIAR = 5;
+const ARQUIVO_DO_BANCO = path.join(DATA_DIR, "db.json");
 
 const mensagem = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const existe = (caminho: string) => access(caminho).then(() => true, () => false);
 const extensao = (file: string) => (file.split(".").pop() ?? "").toLowerCase();
 
 // Estado do processo (sobrevive ao hot reload do dev, como as montagens em lib/server/montage.ts).
+// Os campos opcionais chegaram depois: depois de um hot reload, o objeto antigo ainda não os tem.
 type Memoria = {
   envios: Map<string, Promise<Resultado>>;
   emUso: Map<string, number>;
   espelho: { ultima: number; emCurso: Promise<void> | null };
   migracao: EstadoDaMigracao;
+  proximaFilaSozinha?: number;
+  indice?: { chave: string; porArquivo: Promise<Map<string, MidiaDoArquivo>> };
 };
 const memoria: Memoria = ((globalThis as { __videosNoDrive?: Memoria }).__videosNoDrive ??= {
   envios: new Map(),
@@ -121,13 +139,25 @@ async function levar(original: Generation): Promise<Resultado> {
     } catch (err) {
       const naoConectado = err instanceof DriveNaoConectado;
       console.warn(`[drive] o vídeo ${gen.id} ficou no disco do hub e vai para o Drive depois: ${mensagem(err)}`);
-      const marcada = gen.params.paraDrive === true ? gen : ((await updateGeneration(gen.id, { params: { ...gen.params, paraDrive: true } })) ?? gen);
-      return { geracao: marcada, erro: mensagem(err), naoConectado };
+      return { geracao: await marcarParaDepois(gen), erro: mensagem(err), naoConectado };
     }
 
-    const params: Generation["params"] = { ...gen.params, tamanhoNoDrive: info.size };
+    // Antes de a cópia local sair: o Drive precisa ter o vídeo inteiro, e o arquivo do disco não pode ter mudado
+    // durante o envio. Se não bater, a cópia do Drive vai para a lixeira e o vídeo fica no hub para ir de novo.
+    const tamanhoLocal = (await stat(caminho).catch(() => null))?.size ?? info.size;
+    if (arquivo.tamanho !== info.size || tamanhoLocal !== info.size) {
+      console.warn(
+        `[drive] o vídeo ${gen.id} chegou ao Drive com ${arquivo.tamanho} bytes, mas tem ${tamanhoLocal} no hub: ficou no disco e vai de novo depois.`,
+      );
+      await moverParaLixeira(arquivo.id).catch((err) => console.warn(`[drive] não consegui tirar do Drive a cópia incompleta ${arquivo.id}:`, mensagem(err)));
+      return { geracao: await marcarParaDepois(gen), erro: "O vídeo não chegou inteiro ao Google Drive. Ele continua no hub e vai de novo depois." };
+    }
+
+    // Relê logo antes de gravar: o envio leva minutos, e outra parte do hub pode ter mudado os params nesse tempo.
+    const atual = await getGeneration(gen.id);
+    const params: Generation["params"] = { ...(atual ?? gen).params, tamanhoNoDrive: info.size };
     delete params.paraDrive;
-    const salva = await updateGeneration(gen.id, { drive: { id: arquivo.id, pasta }, params });
+    const salva = atual ? await updateGeneration(gen.id, { drive: { id: arquivo.id, pasta }, params }) : undefined;
     if (!salva) {
       // Apagada no hub durante o envio: o arquivo novo no Drive ficaria sem dono. Vai para a lixeira de lá.
       await moverParaLixeira(arquivo.id).catch((err) => console.warn(`[drive] não consegui tirar do Drive o vídeo ${arquivo.id}, apagado no hub:`, mensagem(err)));
@@ -148,12 +178,53 @@ async function levar(original: Generation): Promise<Resultado> {
   }
 }
 
+// Marca para levar depois. Relê a geração: os params podem ter mudado durante o envio.
+async function marcarParaDepois(gen: Generation): Promise<Generation> {
+  const atual = await getGeneration(gen.id);
+  if (!atual) return gen;
+  if (atual.params.paraDrive === true) return atual;
+  return (await updateGeneration(gen.id, { params: { ...atual.params, paraDrive: true } })) ?? atual;
+}
+
 // ---------- Ler o vídeo ----------
 
 // Geração dona de um arquivo de mídia (o `file`), inclusive as escondidas pelo espelho.
 export async function geracaoDoArquivo(file: string): Promise<Generation | undefined> {
   const nome = path.basename(file);
   return (await listGenerations(undefined, { incluirForaDoDrive: true })).find((g) => g.file === nome);
+}
+
+// O que a rota de mídia e o arquivoLocal precisam saber de um arquivo.
+export type MidiaDoArquivo = Pick<Generation, "drive" | "foraDoDrive" | "kind">;
+
+// Como geracaoDoArquivo, mas por um índice em memória: o player pede o vídeo em muitos pedaços, e cada pedaço
+// relia o db.json inteiro. O índice vale enquanto o db.json não muda (data de modificação e tamanho).
+export async function midiaDoArquivo(file: string): Promise<MidiaDoArquivo | undefined> {
+  return (await indiceDaMidia()).get(path.basename(file));
+}
+
+async function indiceDaMidia(): Promise<Map<string, MidiaDoArquivo>> {
+  const info = await stat(ARQUIVO_DO_BANCO).catch(() => null);
+  // Sem db.json (servidor novo) não há o que guardar: lê direto.
+  if (!info) return montarIndice();
+  const chave = `${info.mtimeMs}:${info.size}`;
+  if (memoria.indice?.chave === chave) return memoria.indice.porArquivo;
+  // Os pedaços que chegam juntos esperam a mesma leitura. Se ela falhar, o próximo pedido tenta de novo.
+  const porArquivo = montarIndice();
+  memoria.indice = { chave, porArquivo };
+  porArquivo.catch(() => {
+    if (memoria.indice?.porArquivo === porArquivo) memoria.indice = undefined;
+  });
+  return porArquivo;
+}
+
+async function montarIndice(): Promise<Map<string, MidiaDoArquivo>> {
+  const porArquivo = new Map<string, MidiaDoArquivo>();
+  for (const g of await listGenerations(undefined, { incluirForaDoDrive: true })) {
+    // Mesmo arquivo em duas gerações: vale a primeira da lista, como em geracaoDoArquivo.
+    if (g.file && !porArquivo.has(g.file)) porArquivo.set(g.file, { drive: g.drive, foraDoDrive: g.foraDoDrive, kind: g.kind });
+  }
+  return porArquivo;
 }
 
 function segurar(nome: string) {
@@ -177,7 +248,7 @@ export async function arquivoLocal(file: string): Promise<string> {
   segurar(nome);
   if (await existe(local)) return local;
   memoria.emUso.delete(nome);
-  const gen = await geracaoDoArquivo(nome);
+  const gen = await midiaDoArquivo(nome);
   if (gen?.foraDoDrive) throw new InputError("Esse vídeo foi apagado no Drive.");
   // Sem Drive: devolve o caminho de sempre e quem chamou dá o erro de arquivo não encontrado, como antes.
   if (!gen?.drive) return local;
@@ -238,7 +309,8 @@ function mudancaDoEspelho(g: Generation, arquivo: ArquivoDrive | undefined): Par
   return Object.keys(patch).length ? patch : null;
 }
 
-// Espelho: confere no Drive as gerações que estão lá (apagadas, na lixeira, renomeadas) e atualiza o hub.
+// Espelho: confere no Drive as gerações que estão lá (apagadas, na lixeira, renomeadas) e atualiza o hub. Depois
+// leva para o Drive, em segundo plano, os vídeos que ficaram no disco do hub (a fila).
 // Leve e com intervalo mínimo: pode ser chamada a cada abertura de lista.
 export async function sincronizarComDrive(): Promise<void> {
   const { espelho } = memoria;
@@ -253,27 +325,59 @@ export async function sincronizarComDrive(): Promise<void> {
 
 async function espelhar(): Promise<void> {
   try {
-    // Inclui as escondidas: um vídeo que volta da lixeira reaparece no hub.
+    // Inclui as escondidas: um vídeo que volta da lixeira (ou da conta antiga) reaparece no hub.
     const noDrive = (await listGenerations(undefined, { incluirForaDoDrive: true })).filter((g) => g.drive);
+    let conectado = false;
     if (noDrive.length) {
-      let achados: ArquivoDrive[];
+      let arquivos: ArquivoDrive[];
       try {
-        achados = await situacao(noDrive.map((g) => g.drive!.id));
+        // Uma lista só (paginada), com a lixeira: o que não está nela foi apagado de vez.
+        arquivos = await listarArquivosDoHub();
       } catch (err) {
         // Login vencido, Drive desconectado ou Google fora: não dá para saber o que mudou, então nada muda.
         if (!(err instanceof DriveNaoConectado)) console.warn("[drive] espelho: não consegui conferir o Drive:", mensagem(err));
         return;
       }
-      const porId = new Map(achados.map((a) => [a.id, a]));
+      conectado = true;
+      const porId = new Map(arquivos.map((a) => [a.id, a]));
+      // Outra conta conectada (ou uma lista que veio pela metade) faria sumir quase tudo de uma vez e esconderia os
+      // vídeos da conta antiga. Nesse caso nada é marcado, e o aviso fica no log.
+      const visiveis = noDrive.filter((g) => !g.foraDoDrive);
+      const sumidos = visiveis.filter((g) => !porId.has(g.drive!.id)).length;
+      if (sumidos >= MINIMO_PARA_DESCONFIAR && sumidos > visiveis.length / 2) {
+        console.warn(`[drive] espelho: ${sumidos} de ${visiveis.length} vídeos sumiram do Drive de uma vez (conta trocada?). Nada foi marcado.`);
+        return;
+      }
       for (const g of noDrive) {
         const patch = mudancaDoEspelho(g, porId.get(g.drive!.id));
         if (patch) await updateGeneration(g.id, patch);
       }
     }
     await limparCopiasLocais();
+    await levarAFila(conectado);
   } catch (err) {
     console.error("[drive] espelho:", mensagem(err));
   }
+}
+
+// Fila: vídeos que ficaram no disco do hub (Drive desconectado ou falha na hora do envio) vão sozinhos para o Drive
+// quando ele está conectado. Um por vez, pela mesma migração do botão de Integrações.
+async function levarAFila(conectado: boolean): Promise<void> {
+  if (memoria.migracao.rodando || Date.now() < (memoria.proximaFilaSozinha ?? 0)) return;
+  if (!(await filaDaMigracao()).length) return;
+  if (!conectado) {
+    try {
+      await tokenDeAcesso();
+    } catch {
+      return; // sem Drive conectado, a fila espera
+    }
+  }
+  await iniciarMigracao();
+}
+
+// Quantos vídeos ainda estão no disco do hub esperando para ir ao Drive (card do Drive em Integrações).
+export async function videosNaFila(): Promise<number> {
+  return (await filaDaMigracao()).length;
 }
 
 // Cópias locais que sobraram de vídeos que já estão no Drive (estavam em uso na hora do envio, ou o Windows não
@@ -342,14 +446,17 @@ async function migrar(fila: Generation[]): Promise<void> {
     estado.ultimoErro = mensagem(err);
   } finally {
     estado.rodando = false;
+    if (estado.ultimoErro) memoria.proximaFilaSozinha = Date.now() + ESPERA_APOS_FALHA_MS;
   }
 }
 
-// Só para os testes: esquece o estado do processo (espelho, migração, cópias em uso).
+// Só para os testes: esquece o estado do processo (espelho, migração, cópias em uso, índice da mídia).
 export function zerarVideosNoDrive() {
   memoria.envios.clear();
   memoria.emUso.clear();
   memoria.espelho.ultima = 0;
   memoria.espelho.emCurso = null;
   Object.assign(memoria.migracao, { rodando: false, total: 0, feitos: 0, falhas: 0, ultimoErro: null });
+  memoria.proximaFilaSozinha = 0;
+  memoria.indice = undefined;
 }

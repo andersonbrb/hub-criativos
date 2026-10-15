@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
+import { segurarTemp, soltarTemp } from "@/features/drive/servicos/arquivos";
 import { arquivoLocal, guardarNoDriveEmSegundoPlano } from "@/features/drive/servicos/videos";
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
@@ -28,6 +29,23 @@ export const logPath = (id: string) => path.join(LOG_DIR, `${id}.log`);
 
 // Montagens rodando neste processo do servidor (sobrevive ao hot reload do dev).
 const running: Set<string> = ((globalThis as { __montagens?: Set<string> }).__montagens ??= new Set());
+
+// Cópias temporárias do Drive (arquivoLocal) ficam seguras da limpeza enquanto o Python trabalha: um trabalho longo
+// passa horas sem tocar no arquivo. Soltas no fim, com sucesso ou com erro. Se algo impedir de soltar, a trava vence
+// sozinha depois de 12 h.
+const SEGURA_COPIAS_MS = 12 * 60 * 60 * 1000;
+
+async function copiaSegura(file: string, copias: string[]): Promise<string> {
+  const caminho = await arquivoLocal(file);
+  segurarTemp(caminho, SEGURA_COPIAS_MS);
+  copias.push(caminho);
+  return caminho;
+}
+
+// Esvazia a lista: chamar duas vezes (erro e fim do processo) solta cada cópia uma vez só.
+function soltarCopias(copias: string[]) {
+  for (const caminho of copias.splice(0)) soltarTemp(caminho);
+}
 
 // avatarIds: vários vídeos do avatar, juntados na ordem antes dos cortes (gancho + body, várias tomadas).
 // avatarId continua valendo (um só), para o chat e chamadas antigas.
@@ -56,8 +74,8 @@ export type MontageRequest = {
   graphics?: GraphicRequest[];
 };
 
-// Só o que é válido e diferente do padrão do script.
-async function cleanFx(fx: MontageFx | undefined) {
+// Só o que é válido e diferente do padrão do script. A música entra em `copias` (soltas no fim do trabalho).
+async function cleanFx(fx: MontageFx | undefined, copias: string[]) {
   if (!fx || typeof fx !== "object") return { fx: {}, labels: [] as string[] };
   const out: Record<string, unknown> = {};
   const labels: string[] = [];
@@ -74,7 +92,7 @@ async function cleanFx(fx: MontageFx | undefined) {
   if (fx.musicId) {
     const m = await getGeneration(String(fx.musicId));
     if (!m?.file || m.kind !== "audio") throw new InputError("A música precisa ser um áudio pronto do hub.");
-    out.musica = await arquivoLocal(m.file);
+    out.musica = await copiaSegura(m.file, copias);
     out.musica_volume = Math.min(1, Math.max(0.02, Number(fx.musica_volume) || 0.18));
     labels.push("música de fundo");
   }
@@ -107,7 +125,8 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
   const brolls = await Promise.all(brollIds.map((id, i) => videoFile(id, `O b-roll ${i + 1}`)));
   const lang = LANGS.includes(req.lang as (typeof LANGS)[number]) ? (req.lang as string) : "es";
   const name = (String(req.name ?? "").trim() || "AD").replace(/[^\w-]+/g, "_").slice(0, 40);
-  const { fx, labels } = await cleanFx(req.fx);
+  const copias: string[] = [];
+  const { fx, labels } = await cleanFx(req.fx, copias);
   const graphics = sanitizeGraphics(req.graphics);
 
   const gen = await createGeneration({
@@ -147,9 +166,9 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
       console.warn(`[hub] montagem ${gen.id}: Scribe indisponível (${err instanceof Error ? err.message : err}), usando o Whisper local`);
       return null;
     });
-    // Caminhos no disco para o Python (vídeo que está só no Drive vira uma cópia temporária).
-    const avatarFiles = await Promise.all(avatars.map((a) => arquivoLocal(a.file)));
-    const brollFiles = await Promise.all(brolls.map((b) => arquivoLocal(b.file)));
+    // Caminhos no disco para o Python (vídeo que está só no Drive vira uma cópia temporária, segura até o fim).
+    const avatarFiles = await Promise.all(avatars.map((a) => copiaSegura(a.file, copias)));
+    const brollFiles = await Promise.all(brolls.map((b) => copiaSegura(b.file, copias)));
 
     await writeFile(
       jobFile,
@@ -169,7 +188,7 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
       }),
     );
 
-    launch(gen.id, SCRIPT, jobFile, outName, "Montagem", async (line) => {
+    launch(gen.id, SCRIPT, jobFile, outName, "Montagem", copias, async (line) => {
       // Gráficos animados (opcionais) depois da edição; se falharem, o vídeo sai sem eles e o log explica.
       if (!graphics.length) return;
       try {
@@ -180,6 +199,7 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
     });
   })().catch(async (err) => {
     running.delete(gen.id);
+    soltarCopias(copias);
     await updateGeneration(gen.id, { status: "failed", error: `Montagem: ${err instanceof Error ? err.message : "erro"}` });
   });
 
@@ -188,8 +208,17 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
 
 // Roda um script Python da edição em segundo plano: o log fica em .data/montagem/<id>.log e o status da geração é
 // atualizado ao terminar. `after` roda depois de um DONE (ex.: gráficos animados), antes de marcar como pronta.
-// Pronto, o vídeo segue para o Google Drive (features/drive), também em segundo plano.
-function launch(id: string, script: string, jobFile: string, outName: string, label: string, after?: (line: (m: string) => void) => Promise<void>) {
+// Pronto, o vídeo segue para o Google Drive (features/drive), também em segundo plano. As `copias` seguras são
+// soltas quando o processo termina, com sucesso ou com erro.
+function launch(
+  id: string,
+  script: string,
+  jobFile: string,
+  outName: string,
+  label: string,
+  copias: string[],
+  after?: (line: (m: string) => void) => Promise<void>,
+) {
   const log: string[] = [];
   const python = process.env.PYTHON_BIN || "python";
   const child = spawn(python, ["-W", "ignore", script, jobFile], { windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
@@ -203,9 +232,12 @@ function launch(id: string, script: string, jobFile: string, outName: string, la
   child.stderr.on("data", collect);
   child.on("error", (err) => {
     running.delete(id);
+    soltarCopias(copias);
     updateGeneration(id, { status: "failed", error: `Não consegui rodar o Python (${err.message}). Defina PYTHON_BIN no .env.local.` });
   });
   child.on("close", async (code) => {
+    // O Python já não lê as cópias (os gráficos do `after` usam só o vídeo novo).
+    soltarCopias(copias);
     const text = log.join("");
     if (code === 0 && text.includes("DONE")) {
       if (after) await after((m: string) => collect(Buffer.from(`[${new Date().toLocaleTimeString("pt-BR")}] ${m}\n`)));
@@ -244,11 +276,12 @@ export async function runBeatEdit(req: BeatRequest): Promise<Generation> {
   const ids = [...new Set((req.clipIds ?? []).map(String).filter(Boolean))].slice(0, MAX_BEAT_CLIPS);
   if (!ids.length) throw new InputError("Escolha pelo menos um vídeo de cena.");
   const clips = await Promise.all(ids.map((id, i) => videoFile(id, `A cena ${i + 1}`)));
+  const copias: string[] = [];
   let song: string | null = null;
   if (req.songId) {
     const m = await getGeneration(String(req.songId));
     if (!m?.file || m.kind !== "audio") throw new InputError("A música precisa ser um áudio pronto do hub.");
-    song = await arquivoLocal(m.file);
+    song = await copiaSegura(m.file, copias);
   }
   const cut = (s: unknown, n = 18) => String(s ?? "").replace(/[{}\\]/g, "").trim().slice(0, n);
   const clipIdx = (c: unknown) => (Number.isInteger(c) && (c as number) >= 0 && (c as number) < clips.length ? (c as number) : null);
@@ -285,7 +318,7 @@ export async function runBeatEdit(req: BeatRequest): Promise<Generation> {
   // Em segundo plano: uma cena que está só no Google Drive é baixada antes, e o pedido não espera o download.
   running.add(gen.id);
   void (async () => {
-    const clipFiles = await Promise.all(clips.map((c) => arquivoLocal(c.file)));
+    const clipFiles = await Promise.all(clips.map((c) => copiaSegura(c.file, copias)));
     await writeFile(
       jobFile,
       JSON.stringify({
@@ -304,9 +337,10 @@ export async function runBeatEdit(req: BeatRequest): Promise<Generation> {
         fontsdir: FONTS,
       }),
     );
-    launch(gen.id, BEAT_SCRIPT, jobFile, outName, "Edição na batida");
+    launch(gen.id, BEAT_SCRIPT, jobFile, outName, "Edição na batida", copias);
   })().catch(async (err) => {
     running.delete(gen.id);
+    soltarCopias(copias);
     await updateGeneration(gen.id, { status: "failed", error: `Edição na batida: ${err instanceof Error ? err.message : "erro"}` });
   });
   return gen;
@@ -345,8 +379,9 @@ export async function runRemoveCaptions(req: CaptionRemovalRequest): Promise<Gen
   const jobFile = path.join(LOG_DIR, `${gen.id}.json`);
   // Em segundo plano: um vídeo que está só no Google Drive é baixado antes, e o pedido não espera o download.
   running.add(gen.id);
+  const copias: string[] = [];
   void (async () => {
-    const input = await arquivoLocal(file);
+    const input = await copiaSegura(file, copias);
     // Duração medida no arquivo, para a previsão de tempo da barra de progresso.
     const duracao = Math.round(await seconds(input)) || null;
     if (duracao && duracao !== gen.params.duracao) await updateGeneration(gen.id, { params: { ...gen.params, duracao } });
@@ -354,9 +389,10 @@ export async function runRemoveCaptions(req: CaptionRemovalRequest): Promise<Gen
       jobFile,
       JSON.stringify({ input, out: path.join(MEDIA_DIR, outName), workdir: path.join(DATA_DIR, "tmp", gen.id), model: LAMA_MODEL, region, mode }),
     );
-    launch(gen.id, CAPTION_SCRIPT, jobFile, outName, "Remover legenda");
+    launch(gen.id, CAPTION_SCRIPT, jobFile, outName, "Remover legenda", copias);
   })().catch(async (err) => {
     running.delete(gen.id);
+    soltarCopias(copias);
     await updateGeneration(gen.id, { status: "failed", error: `Remover legenda: ${err instanceof Error ? err.message : "erro"}` });
   });
   return gen;

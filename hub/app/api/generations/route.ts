@@ -29,12 +29,14 @@ const DE_CADA_VEZ = 8;
 
 // Botão "Limpar" do estúdio: só quem tem os Estúdios. Os vídeos do Drive vão antes para a lixeira de lá; o que o Drive
 // recusar continua no estúdio e a tela recebe o erro.
+// Os escondidos pelo espelho (`foraDoDrive`) nunca saem por aqui: podem ser de uma conta do Drive que foi trocada e
+// voltam quando ela volta. Sem o registro, o vídeo ficaria perdido no Drive.
 export const DELETE = route(async (request: Request) => {
   const tool = new URL(request.url).searchParams.get("tool") as GenerationTool | null;
   if (!tool) throw new InputError("Informe a ferramenta (?tool=).");
   if (!FERRAMENTAS_DOS_ESTUDIOS.includes(tool)) throw new InputError(`Só dá para limpar o histórico de um estúdio (${FERRAMENTAS_DOS_ESTUDIOS.join(", ")}).`);
 
-  const candidatas = (await listGenerations(tool, { incluirForaDoDrive: true })).filter((g) => !g.saved && (g.status === "done" || g.status === "failed"));
+  const candidatas = (await listGenerations(tool)).filter((g) => !g.saved && !g.foraDoDrive && (g.status === "done" || g.status === "failed"));
   const saem: string[] = [];
   let falhas = 0;
   let motivo = "";

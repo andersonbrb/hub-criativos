@@ -40,14 +40,13 @@ afterEach(() => {
 });
 
 describe("drive: rotas da conta", () => {
-  it("só quem tem a chave Integrações conecta e desconecta", async () => {
+  it("só quem tem a chave Integrações conecta, desconecta e lê o status", async () => {
     expect((await rotaEntrar(pedir("/api/integracoes/google-drive/login"))).status).toBe(401);
     await entrarComo(["biblioteca"]);
     expect((await rotaEntrar(pedir("/api/integracoes/google-drive/login"))).status).toBe(403);
     expect((await rotaVolta(pedir("/api/integracoes/google-drive/callback?code=x&state=y"))).status).toBe(403);
     expect((await rotaDesconectar(pedir("/api/integracoes/google-drive/status", { method: "DELETE" }))).status).toBe(403);
-    // Ler o status basta estar logado.
-    expect((await rotaStatus(pedir("/api/integracoes/google-drive/status"))).status).toBe(200);
+    expect((await rotaStatus(pedir("/api/integracoes/google-drive/status"))).status).toBe(403);
   });
 
   it("Conectar leva ao Google e a volta grava a conta e retorna para Integrações", async () => {

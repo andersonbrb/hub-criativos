@@ -3,6 +3,7 @@ import { access } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 
+import { DriveNaoConectado, tokenDeAcesso } from "@/features/drive/servicos/conta";
 import { lerDoDrive } from "@/features/drive/servicos/videos";
 import { downloadName } from "@/lib/generations";
 import { getBoard } from "@/lib/server/board";
@@ -28,18 +29,34 @@ export const GET = route(async (_request: Request, { params }: Ctx) => {
   );
   if (!videos.length) throw new InputError("Esse card não tem vídeo pronto para baixar.");
 
+  // Confere o Drive antes de começar: depois que o zip começa a descer, um erro só aparece como um arquivo cortado.
+  if (videos.some((g) => g.drive)) {
+    try {
+      await tokenDeAcesso();
+    } catch (err) {
+      throw new InputError(
+        err instanceof DriveNaoConectado
+          ? "Os vídeos desse card estão no Google Drive, e ele não está conectado. Um admin precisa conectar em Integrações → Google Drive."
+          : "Não deu para falar com o Google Drive agora, então o zip não foi montado. Tente de novo em instantes.",
+      );
+    }
+  }
+
   const names = uniqueNames(videos.map((g, i) => `${String(i + 1).padStart(2, "0")} ${downloadName(g)}`));
   const entries: ZipEntry[] = videos.map((g, i) => ({
     name: names[i],
     open: async () => {
-      // No Drive: vem em stream de lá, sem cópia no disco.
-      if (g.drive) return Readable.fromWeb((await lerDoDrive(g)).corpo as never) as AsyncIterable<Uint8Array>;
-      if (g.file) {
-        const file = path.join(MEDIA_DIR, path.basename(g.file));
+      // Relê: o zip desce um vídeo por vez, e nesse meio-tempo um vídeo pode ter ido para o Drive (e saído do disco).
+      const atual = (await getGeneration(g.id)) ?? g;
+      if (atual.foraDoDrive) throw new Error(`${names[i]} foi apagado no Drive.`);
+      if (atual.file) {
+        const file = path.join(MEDIA_DIR, path.basename(atual.file));
         if (await access(file).then(() => true, () => false)) return createReadStream(file) as AsyncIterable<Uint8Array>;
       }
-      if (!g.remoteUrl) throw new Error(`Arquivo de ${names[i]} não encontrado.`);
-      const res = await fetch(g.remoteUrl);
+      // No Drive: vem em stream de lá, sem cópia no disco.
+      if (atual.drive) return Readable.fromWeb((await lerDoDrive(atual)).corpo as never) as AsyncIterable<Uint8Array>;
+      if (!atual.remoteUrl) throw new Error(`Arquivo de ${names[i]} não encontrado.`);
+      const res = await fetch(atual.remoteUrl);
       if (!res.ok || !res.body) throw new Error(`Não consegui baixar ${names[i]} (${res.status}).`);
       return Readable.fromWeb(res.body as never) as AsyncIterable<Uint8Array>;
     },

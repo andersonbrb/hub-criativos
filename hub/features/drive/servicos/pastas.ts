@@ -10,13 +10,16 @@ export const API_DRIVE = "https://www.googleapis.com/drive/v3";
 export const UPLOAD_DRIVE = "https://www.googleapis.com/upload/drive/v3";
 const MIME_PASTA = "application/vnd.google-apps.folder";
 
-// Erro do Google já traduzido. `status` 0 = o Google nem respondeu (rede).
+// Erro do Google já traduzido. `status` 0 = o Google nem respondeu (rede). `motivo` é o motivo que o Google deu
+// ("rateLimitExceeded", "storageQuotaExceeded"...), ou vazio: serve para decidir se vale tentar de novo.
 export class ErroDoDrive extends Error {
   readonly status: number;
-  constructor(mensagem: string, status: number, opcoes?: ErrorOptions) {
+  readonly motivo: string;
+  constructor(mensagem: string, status: number, opcoes?: ErrorOptions & { motivo?: string }) {
     super(mensagem, opcoes);
     this.name = "ErroDoDrive";
     this.status = status;
+    this.motivo = opcoes?.motivo ?? "";
   }
 }
 
@@ -76,7 +79,7 @@ export async function erroDoDrive(resposta: Response, acao: string): Promise<Err
               : s >= 500
                 ? `O Google Drive está instável agora e não deu para ${acao}. Tente de novo em instantes.`
                 : `Não deu para ${acao} no Google Drive (erro ${s}${detalhe ? `: ${detalhe}` : ""}).`;
-  return new ErroDoDrive(mensagem, s);
+  return new ErroDoDrive(mensagem, s, { motivo });
 }
 
 // ---------- Pastas ----------
@@ -85,9 +88,15 @@ export async function erroDoDrive(resposta: Response, acao: string): Promise<Err
 
 type ChaveDaPasta = PastaDoDrive | "raiz";
 
-const ids = new Map<ChaveDaPasta, string>();
-// Uma promessa por pasta: dois envios ao mesmo tempo esperam a mesma busca/criação em vez de criar duas pastas.
-const garantindo = new Map<ChaveDaPasta, Promise<string>>();
+// Memória do processo. Em globalThis porque o Next pode carregar este arquivo mais de uma vez (rotas compiladas à
+// parte, recarga no desenvolvimento): com um mapa por cópia do módulo, dois envios criariam duas pastas iguais.
+type MemoriaDasPastas = {
+  ids: Map<ChaveDaPasta, string>;
+  // Uma promessa por pasta: dois envios ao mesmo tempo esperam a mesma busca/criação em vez de criar duas pastas.
+  garantindo: Map<ChaveDaPasta, Promise<string>>;
+};
+const g = globalThis as typeof globalThis & { __hubDrivePastas?: MemoriaDasPastas };
+const { ids, garantindo } = (g.__hubDrivePastas ??= { ids: new Map(), garantindo: new Map() });
 
 // Id da subpasta do tipo, dentro de "Hub de Criativos". Cria o que faltar.
 export async function pastaDoDrive(pasta: PastaDoDrive): Promise<string> {

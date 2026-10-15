@@ -4,7 +4,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 
 import { abrirTrecho, ArquivoForaDoDrive } from "@/features/drive/servicos/arquivos";
-import { geracaoDoArquivo } from "@/features/drive/servicos/videos";
+import { midiaDoArquivo, sincronizarComDrive } from "@/features/drive/servicos/videos";
 import { route } from "@/lib/server/http";
 import { CHAVES_DE_PRODUCAO, CONTENT_TYPES, MEDIA_DIR } from "@/lib/server/media";
 
@@ -39,6 +39,7 @@ function intervaloPedido(cabecalho: string | null, tamanho: number): { inicio: n
 // Vai em stream: nem o vídeo inteiro nem o pedaço pedido passam inteiros pela memória.
 // Exige uma das telas de produção (chat, estúdios, Fluxo, editor, Biblioteca, Criativo automático): todas mostram mídia.
 // Vídeo guardado no Google Drive (features/drive): o endereço é o mesmo, e o vídeo vem do Drive, repassando o Range.
+// Enquanto a cópia local existir (o envio acabou de terminar, ou ela está em uso), ela serve, sem depender do Drive.
 export const GET = route(async (request: Request, { params }: { params: Promise<{ file: string }> }) => {
   const { file } = await params;
   if (!/^[\w-]+\.\w+$/.test(file)) return new Response("Arquivo inválido", { status: 400 });
@@ -57,16 +58,22 @@ export const GET = route(async (request: Request, { params }: { params: Promise<
     ...(tipo ? {} : { "Content-Disposition": "attachment" }),
   };
 
-  // Vídeo (ou arquivo que não está no disco): o Drive é a cópia que vale. Imagens e áudios nem consultam as gerações.
+  // Vídeo (ou arquivo que não está no disco): confere no índice das gerações se foi para o Drive. Imagens e áudios
+  // que estão no disco nem consultam.
   if (!info?.isFile() || !tipo || tipo.startsWith("video/")) {
-    const geracao = await geracaoDoArquivo(file);
-    if (geracao?.foraDoDrive) return apagadoNoDrive();
-    if (geracao?.drive) {
+    const midia = await midiaDoArquivo(file);
+    if (midia?.foraDoDrive) return apagadoNoDrive();
+    if (midia?.drive && !info?.isFile()) {
       let trecho;
       try {
-        trecho = await abrirTrecho(geracao.drive.id, request.headers.get("range"));
+        // Com o signal: o navegador que desiste do pedaço (o player pulou para outro ponto) fecha a conexão com o Drive.
+        trecho = await abrirTrecho(midia.drive.id, request.headers.get("range"), request.signal);
       } catch (err) {
-        if (err instanceof ArquivoForaDoDrive) return apagadoNoDrive();
+        if (err instanceof ArquivoForaDoDrive) {
+          // Não marca na hora (pode ser outra conta conectada): o espelho confere a lista do Drive e marca se confirmar.
+          void sincronizarComDrive();
+          return apagadoNoDrive();
+        }
         throw err;
       }
       // Os cabeçalhos do Drive (tamanho, Content-Range) com as travas do hub por cima.

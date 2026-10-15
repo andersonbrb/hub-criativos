@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
+import { existsSync, readdirSync, statSync, type StatsFs } from "node:fs";
+import { mkdir, readFile, readdir, rm, statfs, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,10 +12,13 @@ import {
   baixarParaTemp,
   enviarArquivo,
   limparTemp,
+  listarArquivosDoHub,
   moverParaLixeira,
   PASTA_TEMP,
   renomear,
+  segurarTemp,
   situacao,
+  soltarTemp,
 } from "@/features/drive/servicos/arquivos";
 import { tokenDeAcesso } from "@/features/drive/servicos/conta";
 import { esquecerPastas, pastaDoDrive } from "@/features/drive/servicos/pastas";
@@ -33,8 +37,14 @@ vi.mock("@/lib/server/store", async () => {
   const caminho = await import("node:path");
   return { DATA_DIR: mkdtempSync(caminho.join(os.tmpdir(), "hub-drive-arquivos-")) };
 });
+// O espaço livre no disco é o que o teste mandar (veja `disco`). O resto do disco é o de verdade.
+vi.mock("node:fs/promises", async (original) => {
+  const real = await original<typeof import("node:fs/promises")>();
+  return { ...real, default: real, statfs: vi.fn(real.statfs) };
+});
 
 const KiB = 1024;
+const GiB = 1024 ** 3;
 const HORA = 60 * 60 * 1000;
 const RAIZ_DO_DRIVE = "id-raiz-do-drive";
 const MIME_PASTA = "application/vnd.google-apps.folder";
@@ -55,6 +65,9 @@ type PedidoFeito = { metodo: string; url: URL; headers: Headers; tamanhoDoCorpo:
 // O que fazer com um pedaço que chegou: guardar tudo, guardar só o começo, responder 503, cair a rede antes de
 // guardar ou guardar e cair a rede antes da resposta.
 type Destino = "guardar" | "503" | "rede" | "guardar-e-cair" | { guardarSo: number };
+// O que fazer com um pedido de download: entregar, responder 503, cair a rede antes da resposta, cair no meio do
+// corpo, pedir pausa (403 de limite de pedidos) ou negar o acesso (403 que não passa sozinho).
+type Entrega = "entregar" | "503" | "rede" | "cair-no-meio" | "403-limite" | "403";
 
 const bytes = (b: Buffer) => new Uint8Array(b);
 const erro = (status: number, message: string, reason = "erro") =>
@@ -71,6 +84,7 @@ class DriveFalso {
   downloads = 0;
   cortarDownload = false;
   aoReceberPedaco: (n: number) => Destino = () => "guardar";
+  aoBaixar: (n: number) => Entrega = () => "entregar";
   atrasoMs = 0;
   simultaneos = 0;
   maxSimultaneos = 0;
@@ -93,6 +107,8 @@ class DriveFalso {
   pedidosDe = (metodo: string, caminho: string) => this.pedidos.filter((p) => p.metodo === metodo && p.url.pathname === caminho);
 
   atender = async (entrada: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    // Como o fetch de verdade: pedido cancelado nem sai.
+    init?.signal?.throwIfAborted();
     const pedido = new Request(entrada, init);
     const url = new URL(pedido.url);
     const corpo = pedido.body ? Buffer.from(await pedido.arrayBuffer()) : Buffer.alloc(0);
@@ -149,11 +165,26 @@ class DriveFalso {
 
   private listar(url: URL) {
     const q = url.searchParams.get("q") ?? "";
+    const marca = q.match(/^appProperties has \{ key='(\w+)' and value='(\w+)' \}$/);
+    if (marca) return this.listarPorMarca(url, marca[1], marca[2]);
     const nome = desescapar(q.match(/name = '((?:[^'\\]|\\.)*)'/)?.[1]);
     const pai = desescapar(q.match(/'((?:[^'\\]|\\.)*)' in parents/)?.[1]);
     const paiReal = pai === "root" ? RAIZ_DO_DRIVE : pai;
     const achados = this.pastas().filter((a) => a.name === nome && !a.trashed && paiReal && a.parents.includes(paiReal));
     return Response.json({ files: achados.map((a) => ({ id: a.id })) });
+  }
+
+  // Busca por appProperties, em páginas (o pageToken é a posição do próximo). Como no Google, a busca sem
+  // "trashed = false" traz também os da lixeira.
+  private listarPorMarca(url: URL, chave: string, valor: string) {
+    const todos = [...this.arquivos.values()].filter((a) => a.appProperties?.[chave] === valor);
+    const porPagina = Number(url.searchParams.get("pageSize") ?? 100);
+    const inicio = Number(url.searchParams.get("pageToken") ?? 0);
+    const fim = inicio + porPagina;
+    return Response.json({
+      ...(fim < todos.length ? { nextPageToken: String(fim) } : {}),
+      files: todos.slice(inicio, fim).map((a) => this.meta(a)),
+    });
   }
 
   private abrirSessao(headers: Headers, corpo: Buffer) {
@@ -198,6 +229,19 @@ class DriveFalso {
   private conteudo(a: ArquivoFalso, headers: Headers): Response {
     this.downloads++;
     const total = a.conteudo.length;
+    const entrega = this.aoBaixar(this.downloads);
+    if (entrega === "rede") throw new TypeError("fetch failed");
+    if (entrega === "503") return erro(503, "Backend Error", "backendError");
+    if (entrega === "403-limite") return erro(403, "User Rate Limit Exceeded", "userRateLimitExceeded");
+    if (entrega === "403") return erro(403, "The user does not have sufficient permissions for this file.", "insufficientFilePermissions");
+    if (entrega === "cair-no-meio") {
+      const metade = bytes(a.conteudo.subarray(0, total / 2));
+      const corpo = new ReadableStream<Uint8Array>({
+        start: (c) => c.enqueue(metade),
+        pull: (c) => c.error(new TypeError("terminated")),
+      });
+      return new Response(corpo, { headers: { "Content-Type": a.mimeType, "Content-Length": String(total) } });
+    }
     const range = headers.get("range");
     if (!range) {
       const corpo = this.cortarDownload ? a.conteudo.subarray(0, total / 2) : a.conteudo;
@@ -230,12 +274,42 @@ async function arquivoLocal(tamanho: number) {
 
 const corpoDe = async (corpo: ReadableStream<Uint8Array> | null) => Buffer.from(await new Response(corpo).arrayBuffer());
 
+// Cópia na pasta temporária, sem uso há `horasSemUso` horas.
+async function copia(nome: string, horasSemUso: number, tamanho = 1000) {
+  await mkdir(PASTA_TEMP, { recursive: true });
+  const caminho = path.join(PASTA_TEMP, nome);
+  await writeFile(caminho, Buffer.alloc(tamanho));
+  const quando = new Date(Date.now() - horasSemUso * HORA);
+  await utimes(caminho, quando, quando);
+  return caminho;
+}
+
+const nomesNaPastaTemp = async () => (await readdir(PASTA_TEMP)).sort();
+
+// Disco de mentira com `capacidade` bytes: o livre é a capacidade menos o que está na pasta temporária (os ".parcial"
+// em gravação contam), então apagar uma cópia libera espaço de verdade para a conta.
+function disco(capacidade: number) {
+  vi.mocked(statfs).mockImplementation(async () => {
+    let usados = 0;
+    for (const nome of existsSync(PASTA_TEMP) ? readdirSync(PASTA_TEMP) : []) {
+      try {
+        usados += statSync(path.join(PASTA_TEMP, nome)).size;
+      } catch {
+        // renomeado ou apagado entre a listagem e a conta
+      }
+    }
+    const livre = capacidade - usados;
+    return { type: 0, bsize: 1, blocks: capacidade, bfree: livre, bavail: livre, files: 0, ffree: 0 } satisfies StatsFs;
+  });
+}
+
 beforeEach(async () => {
   drive = new DriveFalso();
   vi.stubGlobal("fetch", vi.fn(drive.atender));
   vi.mocked(tokenDeAcesso).mockReset().mockResolvedValue("token-bom");
   esquecerPastas();
   ajustes.esperaInicialMs = 1;
+  disco(1024 * GiB);
   await rm(PASTA_TEMP, { recursive: true, force: true });
 });
 
@@ -409,6 +483,19 @@ describe("drive: abrirTrecho", () => {
   it("vídeo apagado do Drive vira mensagem legível", async () => {
     await expect(abrirTrecho("sumiu", "bytes=0-")).rejects.toThrow("Esse vídeo não está mais no Drive.");
   });
+
+  it("leva o signal do navegador até o fetch: player fechado cancela o pedido ao Google", async () => {
+    const video = preparar();
+    const controle = new AbortController();
+
+    await abrirTrecho(video.id, "bytes=0-99", controle.signal);
+    expect(vi.mocked(fetch).mock.calls.at(-1)![1]!.signal).toBe(controle.signal);
+
+    controle.abort();
+    const cancelado = abrirTrecho(video.id, "bytes=0-99", controle.signal);
+    await expect(cancelado).rejects.toMatchObject({ name: "AbortError" });
+    await expect(cancelado).rejects.not.toThrow("Sem conexão"); // cancelar não vira erro de rede
+  });
 });
 
 describe("drive: baixarParaTemp", () => {
@@ -452,15 +539,153 @@ describe("drive: baixarParaTemp", () => {
   });
 });
 
-describe("drive: limpeza da pasta temporária", () => {
-  async function copia(nome: string, horasSemUso: number, tamanho = 1000) {
-    await mkdir(PASTA_TEMP, { recursive: true });
-    const caminho = path.join(PASTA_TEMP, nome);
-    await writeFile(caminho, Buffer.alloc(tamanho));
-    const quando = new Date(Date.now() - horasSemUso * HORA);
-    await utimes(caminho, quando, quando);
-  }
+describe("drive: baixarParaTemp com falhas e fila", () => {
+  it("tenta de novo depois de 503, de pausa pedida pelo Google e de quedas de rede", async () => {
+    const video = drive.criar({ name: "v.mp4", conteudo: randomBytes(200 * KiB) });
+    const falhas: Entrega[] = ["503", "rede", "cair-no-meio", "403-limite"];
+    drive.aoBaixar = (n) => falhas[n - 1] ?? "entregar";
 
+    const caminho = await baixarParaTemp(video.id, "mp4");
+
+    expect(drive.downloads).toBe(5);
+    expect((await readFile(caminho)).equals(video.conteudo)).toBe(true);
+    expect(await readdir(PASTA_TEMP)).toEqual([`${video.id}.mp4`]); // nada de ".parcial" sobrando
+  });
+
+  it("desiste depois de 5 tentativas a mais, com mensagem legível", async () => {
+    const video = drive.criar({ name: "v.mp4", conteudo: randomBytes(10 * KiB) });
+    drive.aoBaixar = () => "503";
+
+    await expect(baixarParaTemp(video.id, "mp4")).rejects.toThrow("O Google Drive está instável agora e não deu para baixar o vídeo");
+    expect(drive.downloads).toBe(6); // a primeira + 5 tentativas
+    expect(await readdir(PASTA_TEMP)).toEqual([]);
+
+    drive.aoBaixar = () => "rede";
+    await expect(baixarParaTemp(video.id, "mp4")).rejects.toThrow("Sem conexão com o Google Drive");
+    expect(drive.downloads).toBe(12);
+  });
+
+  it("não insiste no que não passa sozinho (acesso negado, arquivo apagado)", async () => {
+    const video = drive.criar({ name: "v.mp4", conteudo: randomBytes(10 * KiB) });
+    drive.aoBaixar = () => "403";
+
+    await expect(baixarParaTemp(video.id, "mp4")).rejects.toThrow("negou o acesso");
+    expect(drive.downloads).toBe(1);
+
+    await expect(baixarParaTemp("sumiu", "mp4")).rejects.toThrow("não está mais no Drive");
+    expect(drive.pedidos.filter((p) => p.url.pathname.endsWith("/sumiu"))).toHaveLength(1);
+  });
+
+  it("no máximo 3 downloads ao mesmo tempo: os 60 de uma montagem esperam a vez e todos chegam", async () => {
+    const videos = Array.from({ length: 60 }, (_, i) => drive.criar({ name: `v${i}.mp4`, conteudo: randomBytes(KiB + i) }));
+    drive.atrasoMs = 5;
+
+    const caminhos = await Promise.all(videos.map((v) => baixarParaTemp(v.id, "mp4")));
+
+    expect(drive.downloads).toBe(60);
+    expect(drive.maxSimultaneos).toBeLessThanOrEqual(3);
+    expect(drive.maxSimultaneos).toBeGreaterThan(1);
+    for (const [i, caminho] of caminhos.entries()) expect((await readFile(caminho)).equals(videos[i].conteudo)).toBe(true);
+  });
+});
+
+describe("drive: espaço no disco do servidor", () => {
+  const SEM_ESPACO = "Sem espaço no servidor para trabalhar com esse vídeo agora. Tente de novo em alguns minutos.";
+
+  it("o teto da pasta temporária baixa quando o disco tem pouco espaço livre", async () => {
+    await copia("a.mp4", 5);
+    await copia("b.mp4", 4);
+    await copia("c.mp4", 3);
+    await copia("d.mp4", 0);
+
+    // Disco folgado: nada sai (todas têm menos de 6 horas).
+    await limparTemp();
+    expect(await nomesNaPastaTemp()).toEqual(["a.mp4", "b.mp4", "c.mp4", "d.mp4"]);
+
+    // Ocupa 4000 e há 2000 livres: o teto vira metade de 6000. Sai a mais antiga.
+    disco(6000);
+    await limparTemp();
+    expect(await nomesNaPastaTemp()).toEqual(["b.mp4", "c.mp4", "d.mp4"]);
+  });
+
+  it("recusa antes de gravar a cópia que não cabe deixando 2 GB livres, depois de tentar limpar", async () => {
+    const video = drive.criar({ name: "v.mp4", conteudo: randomBytes(100 * KiB) });
+    await copia("velha.mp4", 7, 10 * KiB); // sai pela idade na limpeza
+    await copia("em-uso.mp4", 0, 10 * KiB); // usada agora: fica
+    disco(2 * GiB + 60 * KiB); // livre: 2 GB + 40 KiB, nem com a limpeza cabem 100 KiB
+
+    await expect(baixarParaTemp(video.id, "mp4")).rejects.toThrow(SEM_ESPACO);
+
+    expect(await nomesNaPastaTemp()).toEqual(["em-uso.mp4"]); // limpou antes de recusar e não gravou nada
+    expect(drive.downloads).toBe(1); // falta de espaço não é motivo para tentar de novo
+  });
+
+  it("a limpeza abre espaço apagando as cópias mais antigas e o download segue", async () => {
+    const video = drive.criar({ name: "v.mp4", conteudo: randomBytes(100 * KiB) });
+    await copia("antiga.mp4", 3, 100 * KiB); // dentro das 6 horas, mas pode sair para abrir espaço
+    await copia("recente.mp4", 0, 10 * KiB);
+    disco(2 * GiB + 200 * KiB); // livre: 2 GB + 90 KiB, faltam 10 KiB
+
+    const caminho = await baixarParaTemp(video.id, "mp4");
+
+    expect((await readFile(caminho)).equals(video.conteudo)).toBe(true);
+    expect(await nomesNaPastaTemp()).toEqual([`${video.id}.mp4`, "recente.mp4"].sort());
+  });
+
+  it("downloads ao mesmo tempo entram na conta um do outro", async () => {
+    const [um, dois] = [drive.criar({ name: "1.mp4", conteudo: randomBytes(100 * KiB) }), drive.criar({ name: "2.mp4", conteudo: randomBytes(100 * KiB) })];
+    // Atraso folgado: os dois downloads precisam se sobrepor. O disco do teste não diminui quando um termina (o de
+    // verdade diminuiria), então com a máquina carregada o primeiro acabava antes de o segundo conferir o espaço.
+    drive.atrasoMs = 300;
+    disco(2 * GiB + 150 * KiB); // cabe um, não os dois
+
+    const resultados = await Promise.allSettled([baixarParaTemp(um.id, "mp4"), baixarParaTemp(dois.id, "mp4")]);
+
+    expect(resultados.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(resultados.find((r) => r.status === "rejected")).toMatchObject({ reason: { message: SEM_ESPACO } });
+  });
+});
+
+describe("drive: cópias seguradas", () => {
+  it("a limpeza não apaga uma cópia segurada, nem pela idade nem pelo espaço", async () => {
+    const longa = await copia("longa.mp4", 7);
+    await copia("solta.mp4", 7);
+    // Dois trabalhos usando a mesma cópia (uma montagem e uma remoção de legenda).
+    segurarTemp(longa, 2 * HORA);
+    segurarTemp(longa, 4 * HORA);
+
+    await limparTemp();
+    await limparTemp({ tamanhoMaximo: 0 });
+    expect(await nomesNaPastaTemp()).toEqual(["longa.mp4"]);
+
+    soltarTemp(longa); // um terminou, o outro ainda usa
+    await limparTemp({ tamanhoMaximo: 0 });
+    expect(await nomesNaPastaTemp()).toEqual(["longa.mp4"]);
+
+    soltarTemp(longa);
+    await limparTemp();
+    expect(await nomesNaPastaTemp()).toEqual([]);
+  });
+
+  it("a marca vence sozinha no prazo", async () => {
+    const esquecida = await copia("esquecida.mp4", 7);
+    segurarTemp(esquecida, 2 * HORA);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.now() + HORA);
+      await limparTemp();
+      expect(await nomesNaPastaTemp()).toEqual(["esquecida.mp4"]);
+
+      vi.setSystemTime(Date.now() + 2 * HORA);
+      await limparTemp();
+      expect(await nomesNaPastaTemp()).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("drive: limpeza da pasta temporária", () => {
   it("apaga o que está sem uso há mais de 6 horas", async () => {
     await copia("velho.mp4", 7);
     await copia("velho.mp4.parcial", 8);
@@ -547,5 +772,42 @@ describe("drive: situacao (espelho)", () => {
   it("lista vazia não chama o Google", async () => {
     expect(await situacao([])).toEqual([]);
     expect(drive.pedidos).toHaveLength(0);
+  });
+});
+
+describe("drive: listarArquivosDoHub (espelho)", () => {
+  it("pagina de 1000 em 1000, inclui os da lixeira e só traz o que o hub guardou", async () => {
+    const videos = Array.from({ length: 2345 }, (_, i) =>
+      drive.criar({ name: `v${i}.mp4`, appProperties: { hub: "1" }, trashed: i % 100 === 7, conteudo: Buffer.alloc(i % 5) }),
+    );
+    drive.criar({ name: PASTA_RAIZ, mimeType: MIME_PASTA, appProperties: { hub: "pasta", chave: "raiz" } });
+    drive.criar({ name: "posto à mão.mp4" });
+
+    const lista = await listarArquivosDoHub();
+
+    expect(lista.map((a) => a.id)).toEqual(videos.map((v) => v.id));
+    expect(lista.filter((a) => a.noLixo)).toHaveLength(24);
+    expect(lista[7]).toMatchObject({ nome: "v7.mp4", noLixo: true, tamanho: 2, mimeType: "video/mp4", modificadoEm: "2026-10-15T12:00:00.000Z" });
+    const pedidos = drive.pedidosDe("GET", "/drive/v3/files");
+    expect(pedidos.map((p) => p.url.searchParams.get("pageToken"))).toEqual([null, "1000", "2000"]);
+    for (const { url } of pedidos) {
+      expect(url.searchParams.get("q")).toBe("appProperties has { key='hub' and value='1' }");
+      expect(url.searchParams.get("fields")).toBe("nextPageToken,files(id,name,mimeType,size,modifiedTime,trashed)");
+      expect(url.searchParams.get("pageSize")).toBe("1000");
+    }
+  });
+
+  it("login recusado ou rede fora lançam erro (e não devolvem lista vazia)", async () => {
+    drive.criar({ name: "v.mp4", appProperties: { hub: "1" } });
+    drive.tokenValido = "outro";
+    await expect(listarArquivosDoHub()).rejects.toThrow("conectar de novo");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("fetch failed");
+      }),
+    );
+    await expect(listarArquivosDoHub()).rejects.toThrow("Sem conexão com o Google Drive");
   });
 });

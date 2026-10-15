@@ -40,6 +40,13 @@ async function consultarMigracao(init?: RequestInit): Promise<ProgressoDaMigraca
   return dados as ProgressoDaMigracao;
 }
 
+// Quantos vídeos ainda estão no disco do hub esperando para ir ao Drive (eles vão sozinhos, aos poucos).
+async function consultarFila(): Promise<number> {
+  const res = await fetch("/api/integracoes/google-drive/status");
+  const dados = (await res.json().catch(() => ({}))) as { naFila?: unknown };
+  return res.ok && typeof dados.naFila === "number" ? dados.naFila : 0;
+}
+
 type Retorno = { drive: string | null; motivo: string | null };
 
 export function CardGoogleDrive({ status, falta, retorno }: { status: StatusDrive; falta: string | null; retorno: Retorno }) {
@@ -49,6 +56,7 @@ export function CardGoogleDrive({ status, falta, retorno }: { status: StatusDriv
   const [migracao, setMigracao] = useState<ProgressoDaMigracao | null>(null);
   const [comecando, setComecando] = useState(false);
   const [semAcompanhar, setSemAcompanhar] = useState(false);
+  const [naFila, setNaFila] = useState(0);
   const rodavaAntes = useRef(false);
 
   // Aviso da volta do Google (?drive=conectado ou ?drive=erro&motivo=...). Depois limpa a URL, para o aviso não
@@ -64,25 +72,31 @@ export function CardGoogleDrive({ status, falta, retorno }: { status: StatusDriv
     router.replace(resto.size ? `${pathname}?${resto}` : pathname, { scroll: false });
   }, [retorno.drive, retorno.motivo, pathname, router]);
 
-  // Ao abrir a tela: se uma mudança de vídeos antigos já está rodando (começada aqui ou em outra aba), mostra o
-  // progresso dela.
+  // Ao abrir a tela: se uma mudança de vídeos antigos já está rodando (começada aqui, em outra aba ou sozinha pelo
+  // hub), mostra o progresso dela. E quantos vídeos ainda estão no hub esperando o Drive.
   useEffect(() => {
     if (!status.conectado) return;
     let ativo = true;
     consultarMigracao()
       .then((m) => ativo && setMigracao(m))
       .catch(() => undefined);
+    consultarFila()
+      .then((n) => ativo && setNaFila(n))
+      .catch(() => undefined);
     return () => {
       ativo = false;
     };
   }, [status.conectado]);
 
-  // Enquanto roda, pergunta o progresso a cada 3 s. Quando termina, avisa e atualiza o espaço usado.
+  // Enquanto roda, pergunta o progresso a cada 3 s. Quando termina, avisa e atualiza o espaço usado e a fila.
   useEffect(() => {
     if (!migracao) return;
     if (rodavaAntes.current && !migracao.rodando) {
       const falhas = migracao.falhas ? ` ${migracao.falhas} deram erro.` : "";
       toast.success(`Pronto: ${migracao.feitos} vídeos antigos levados para o Drive.${falhas}`);
+      consultarFila()
+        .then(setNaFila)
+        .catch(() => undefined);
       router.refresh();
     }
     rodavaAntes.current = migracao.rodando;
@@ -112,7 +126,7 @@ export function CardGoogleDrive({ status, falta, retorno }: { status: StatusDriv
     const quem = status.conta?.email ?? "a conta";
     if (
       !confirm(
-        `Desconectar o Google Drive (${quem})? Os vídeos continuam no Drive, mas o hub só volta a abri-los quando uma conta for conectada de novo. Até lá, os vídeos novos ficam guardados no hub.`,
+        `Desconectar o Google Drive (${quem})? Os vídeos continuam no Drive, e o hub volta a abri-los quando esta mesma conta for conectada de novo. Com outra conta, eles somem das listas do hub até esta voltar. Sem conta conectada, os vídeos novos ficam guardados no hub.`,
       )
     )
       return;
@@ -189,6 +203,11 @@ export function CardGoogleDrive({ status, falta, retorno }: { status: StatusDriv
                 {comecando ? <Loader2 className="animate-spin" /> : <CloudUpload />}
                 Levar vídeos antigos para o Drive
               </Button>
+            )}
+            {!migracao?.rodando && naFila > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {naFila === 1 ? "1 vídeo ainda no hub, indo para o Drive." : `${naFila} vídeos ainda no hub, indo para o Drive.`}
+              </p>
             )}
             {!migracao?.rodando && migracao && migracao.total > 0 && (
               <p className="text-xs text-muted-foreground">
