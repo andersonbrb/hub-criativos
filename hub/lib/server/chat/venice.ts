@@ -31,7 +31,7 @@ let capsCache: { at: number; vision: Map<string, boolean> } | null = null;
 async function supportsVision(model: string): Promise<boolean> {
   if (!capsCache || Date.now() - capsCache.at > 3_600_000) {
     try {
-      const res = await fetch("https://api.venice.ai/api/v1/models?type=text", { headers: { Authorization: `Bearer ${requireKey("venice")}` } });
+      const res = await fetch("https://api.venice.ai/api/v1/models?type=text", { headers: { Authorization: `Bearer ${await requireKey("venice")}` } });
       const data = (await res.json()) as { data?: { id: string; model_spec?: { capabilities?: { supportsVision?: boolean } } }[] };
       capsCache = { at: Date.now(), vision: new Map((data.data ?? []).map((m) => [m.id, Boolean(m.model_spec?.capabilities?.supportsVision)])) };
     } catch {
@@ -147,7 +147,7 @@ async function step(system: string, messages: OaiMessage[], tools: unknown[], em
   const res = await fetch(URL, {
     method: "POST",
     signal,
-    headers: { Authorization: `Bearer ${requireKey("venice")}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${await requireKey("venice")}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: veniceModel(),
       stream: true,
@@ -165,7 +165,7 @@ async function step(system: string, messages: OaiMessage[], tools: unknown[], em
       detail = j.error?.message ?? j.error ?? j.message ?? body;
     } catch {}
     throw new VeniceError(
-      res.status === 401 ? "A chave VENICE_API_KEY foi recusada. Confira o hub/.env.local." : `Venice respondeu ${res.status}: ${String(detail).slice(0, 300)}`,
+      res.status === 401 ? "A chave da Venice foi recusada. Troque em Integrações → Venice." : `Venice respondeu ${res.status}: ${String(detail).slice(0, 300)}`,
     );
   }
 

@@ -14,8 +14,8 @@ O disco do hub guarda apenas cópias temporárias enquanto processa um vídeo.
 - O espaço é o da conta Google. No plano gratuito são 15 GB, divididos com o Gmail e o Google Fotos. O card do Drive em
   Integrações mostra quanto já foi usado.
 
-A configuração tem três partes: criar o cliente OAuth no Google Cloud (uma vez), pôr as variáveis no servidor e
-conectar a conta na tela Integrações.
+A configuração tem três partes: criar o cliente OAuth no Google Cloud (uma vez), colar o ID e a chave secreta dele
+no card do Drive (tela Integrações) e conectar a conta no mesmo card.
 
 ## 1. Criar o cliente OAuth no Google Cloud
 
@@ -50,13 +50,18 @@ caminho abaixo é o de outubro de 2026.
 **Não apague esse projeto nem o cliente depois.** Para o Google, os arquivos criados pelo hub pertencem a este cliente.
 Com um cliente novo, o hub deixa de enxergar os vídeos que já estão no Drive.
 
-## 2. Variáveis
+## 2. Colar o cliente no hub
+
+No hub, abra **Integrações** → card **Google Drive** e cole o **ID do cliente** (termina em
+`.apps.googleusercontent.com`) e a **Chave secreta do cliente**. Os dois ficam guardados no banco do hub, cifrados.
+Não são variáveis do servidor. (As antigas `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, se existirem, entram no
+banco sozinhas na primeira leitura e depois podem ser apagadas.)
+
+O servidor precisa de duas variáveis, postas uma vez na criação do hub:
 
 | Variável | O que é |
 |---|---|
-| `GOOGLE_CLIENT_ID` | O ID do cliente (termina em `.apps.googleusercontent.com`). |
-| `GOOGLE_CLIENT_SECRET` | A chave secreta do cliente. |
-| `HUB_CHAVE_SEGREDOS` | Chave que cifra a autorização do Google guardada no banco. 32 bytes em base64. |
+| `HUB_CHAVE_SEGREDOS` | Chave que cifra o que fica guardado no banco (chaves das integrações e autorização do Google). 32 bytes em base64. |
 | `HUB_PUBLIC_URL` | Endereço público do hub. No Railway: `https://hub-criativos-production.up.railway.app`. |
 
 Gere a `HUB_CHAVE_SEGREDOS` uma vez só:
@@ -71,8 +76,8 @@ Onde pôr:
   vazio ou `http://localhost:3000`; com o endereço do Railway, o Google mandaria a volta do login para o Railway.
   A conta do Drive fica no banco, então o PC só conecta o Drive com `DATABASE_URL` preenchida.
 
-Sem `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, o card do Drive mostra o que falta. Sem `HUB_CHAVE_SEGREDOS` (ou com
-um valor que não tem 32 bytes), o hub recusa conectar: ele não grava a autorização do Google sem cifrar.
+Sem o cliente colado, o card do Drive mostra os campos para colar. Sem `HUB_CHAVE_SEGREDOS` (ou com um valor que
+não tem 32 bytes), o hub recusa guardar o cliente e conectar: ele não grava segredo sem cifrar.
 
 ## 3. Conectar a conta
 

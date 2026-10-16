@@ -317,21 +317,21 @@ describe("drive: token de acesso", () => {
 });
 
 describe("drive: status", () => {
-  it("sem as variáveis do Google, não configurado", async () => {
+  it("sem o cliente do Google, não configurado", async () => {
     delete process.env.GOOGLE_CLIENT_ID;
     delete process.env.GOOGLE_CLIENT_SECRET;
     const chamadas = googleFalso();
     await contaConectada(30 * 60_000);
     expect(await statusDrive()).toEqual({ configurado: false, conectado: false, conta: null, espaco: null });
-    expect(oQueFaltaParaConectar()).toMatch(/GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET/);
+    expect(await oQueFaltaParaConectar()).toMatch(/cliente do Google/);
     expect(chamadas).toHaveLength(0);
   });
 
   it("configurado e sem conta: desconectado, pronto para conectar", async () => {
     expect(await statusDrive()).toEqual({ configurado: true, conectado: false, conta: null, espaco: null });
-    expect(oQueFaltaParaConectar()).toBeNull();
+    expect(await oQueFaltaParaConectar()).toBeNull();
     delete process.env.HUB_CHAVE_SEGREDOS;
-    expect(oQueFaltaParaConectar()).toMatch(/HUB_CHAVE_SEGREDOS/);
+    expect(await oQueFaltaParaConectar()).toMatch(/HUB_CHAVE_SEGREDOS/);
   });
 
   it("PC sem banco: desconectado, sem quebrar a tela", async () => {
@@ -340,7 +340,7 @@ describe("drive: status", () => {
     usarBanco(undefined);
     try {
       expect(await statusDrive()).toEqual({ configurado: true, conectado: false, conta: null, espaco: null });
-      expect(oQueFaltaParaConectar()).toMatch(/banco/);
+      expect(await oQueFaltaParaConectar()).toMatch(/banco/);
       await recusaCom(iniciarLogin("/integracoes", ORIGEM), "configuracao");
     } finally {
       if (url !== undefined) process.env.DATABASE_URL = url;

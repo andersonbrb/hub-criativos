@@ -46,9 +46,15 @@ vi.mock("@/lib/server/providers/flora", async (importOriginal) => {
   return { ...real, listProjects: vi.fn(async () => []), createProject: vi.fn(async (name: string) => ({ id: "p1", name, lastModified: null })) };
 });
 vi.mock("@/lib/server/chat/run", () => ({ runChatTurn: vi.fn(async () => undefined) }));
+// O cérebro sai da máquina: com o Claude Code instalado (o PC de quem roda os testes) o chat iria por ele. Aqui é
+// sempre o da nuvem, pela API.
+vi.mock("@/lib/server/chat/claude-code", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/server/chat/claude-code")>();
+  return { ...real, usesApiBrain: () => true };
+});
 
 const urlOriginal = process.env.DATABASE_URL;
-const ambienteOriginal = { brain: process.env.HUB_BRAIN, chave: process.env.ANTHROPIC_API_KEY };
+const chaveOriginal = process.env.ANTHROPIC_API_KEY;
 const BASE = "https://hub.teste";
 const ana = { id: null, nome: "Ana" };
 const SEGREDO = "Margem real da loja: 37%.";
@@ -195,7 +201,7 @@ describe("ferramentas do chat: chave de cada uma", () => {
 
   it("mensagem nova (modo API): conversa filtrada e a pessoa chega ao cérebro", async () => {
     await memoriaComSegredo();
-    process.env.HUB_BRAIN = "api";
+    // A variável antiga ainda serve de ponto de partida para a chave (features/integracoes/servicos/chaves.ts).
     process.env.ANTHROPIC_API_KEY = "chave-de-teste";
     try {
       const pessoa = await entrarCom(["chat"]);
@@ -212,10 +218,8 @@ describe("ferramentas do chat: chave de cada uma", () => {
       expect(conversa.toolNames).toEqual(ferramentasDaPessoa(pessoa));
       expect(conversa.system).not.toContain(SEGREDO);
     } finally {
-      for (const [nome, valor] of [["HUB_BRAIN", ambienteOriginal.brain], ["ANTHROPIC_API_KEY", ambienteOriginal.chave]] as const) {
-        if (valor === undefined) delete process.env[nome];
-        else process.env[nome] = valor;
-      }
+      if (chaveOriginal === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = chaveOriginal;
     }
   });
 });

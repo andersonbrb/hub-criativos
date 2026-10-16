@@ -7,12 +7,13 @@ import path from "node:path";
 import { InputError } from "@/lib/server/http";
 import { DATA_DIR } from "@/lib/server/store";
 
-// Cliente genérico dos MCPs remotos que o hub usa no lugar das APIs (HeyGen, FLORA, ElevenLabs), com login OAuth
-// da conta de cada serviço (PKCE). Pelo MCP o consumo sai dos créditos do plano de cada serviço, não do saldo da API.
-// Sessão de cada serviço em hub/.data/<id>-mcp.json (fora do repositório). Num servidor novo (Railway) a sessão
-// pode vir da variável <ID>_MCP_SESSION (base64 do JSON) ou de um login feito direto nele (botão em Integrações).
+// Cliente genérico dos MCPs remotos que o hub usa no lugar das APIs (HeyGen, FLORA, ElevenLabs, Higgsfield), com login
+// OAuth da conta de cada serviço (PKCE). Pelo MCP o consumo sai dos créditos do plano de cada serviço, não do saldo da API.
+// Sessão de cada serviço em hub/.data/<id>-mcp.json (fora do repositório; no Railway, no volume). O login é o botão
+// "Conectar" da tela Integrações, feito direto no servidor que vai usar a sessão. A variável <ID>_MCP_SESSION (base64
+// do JSON), de antes da tela, só é lida quando não há sessão salva: depois do primeiro uso ela pode ser apagada.
 
-export type McpServiceId = "heygen" | "flora" | "elevenlabs";
+export type McpServiceId = "heygen" | "flora" | "elevenlabs" | "higgsfield";
 
 type ServiceConfig = {
   id: McpServiceId;
@@ -56,6 +57,17 @@ export const MCP_SERVICES: Record<McpServiceId, ServiceConfig> = {
     authorize: "https://elevenlabs.io/app/oauth/authorize",
     token: "https://api.us.elevenlabs.io/v1/oauth/token",
     scope: "text_to_speech speech_history_read voice_generation flows image_video_generation",
+  },
+  higgsfield: {
+    id: "higgsfield",
+    label: "Higgsfield",
+    mcpUrl: "https://mcp.higgsfield.ai/mcp",
+    resource: "https://mcp.higgsfield.ai/mcp",
+    register: "https://clerk.higgsfield.ai/oauth/register",
+    authorize: "https://clerk.higgsfield.ai/oauth/authorize",
+    token: "https://clerk.higgsfield.ai/oauth/token",
+    userinfo: "https://clerk.higgsfield.ai/oauth/userinfo",
+    scope: "openid email offline_access",
   },
 };
 

@@ -17,7 +17,7 @@ export default async function ChatPage({ searchParams }: PageProps<"/chat">) {
   }
   return (
     <main className="h-workspace">
-      <ChatView initialId={typeof c === "string" ? c : null} initialDraft={initialDraft} configured={brainReady()} />
+      <ChatView initialId={typeof c === "string" ? c : null} initialDraft={initialDraft} configured={await brainReady()} />
     </main>
   );
 }

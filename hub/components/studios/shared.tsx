@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bookmark, BookmarkCheck, CaptionsOff, Clapperboard, Download, Eraser, Eye, KeyRound, Loader2, Pencil, Plug, Trash2 } from "lucide-react";
+import { Bookmark, BookmarkCheck, CaptionsOff, Clapperboard, Download, Eraser, Eye, Loader2, Pencil, Plug, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { MCP_LABEL, McpConnectButton, type McpService } from "@/components/mcp-connect";
@@ -32,26 +32,6 @@ import {
 } from "@/lib/generations";
 import type { Status } from "@/lib/data";
 import { cn } from "@/lib/utils";
-
-const MCP_BY_ENV: Record<string, McpService> = { HEYGEN_API_KEY: "heygen", FLORA_API_KEY: "flora", ELEVENLABS_API_KEY: "elevenlabs" };
-
-export function MissingKey({ envVar, where }: { envVar: string; where: string }) {
-  const service = MCP_BY_ENV[envVar];
-  if (service) return <McpMissing service={service} />;
-  return (
-    <div className="flex items-start gap-3 rounded-lg border border-warn/40 bg-warn/10 p-4 text-sm">
-      <KeyRound className="mt-0.5 size-4 shrink-0 text-warn" />
-      <div className="grid gap-1">
-        <p className="font-medium">Falta conectar a chave de API</p>
-        <p className="text-muted-foreground">
-          Crie uma chave em {where} e adicione no arquivo <code className="font-mono text-foreground">hub/.env.local</code>:
-        </p>
-        <code className="w-fit rounded bg-muted px-2 py-1 font-mono text-xs">{envVar}=sua_chave_aqui</code>
-        <p className="text-muted-foreground">Depois reinicie o servidor (npm run dev).</p>
-      </div>
-    </div>
-  );
-}
 
 // HeyGen, FLORA e ElevenLabs vão pelo MCP: basta entrar na conta, sem chave de API.
 export function McpMissing({ service }: { service: McpService }) {

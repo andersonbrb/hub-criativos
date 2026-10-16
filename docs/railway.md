@@ -43,13 +43,21 @@ O que mora onde:
 
 Só os nomes e para que servem. Os valores ficam no painel do Railway (serviço → Variables).
 
+**Integrações não são variáveis.** As chaves de API (Claude, Venice), o cliente do Google (Drive) e o modelo do chat
+são colados na tela **Integrações** e ficam no banco, cifrados com `HUB_CHAVE_SEGREDOS`. HeyGen, FLORA, ElevenLabs,
+Higgsfield e o Google Drive entram pelo botão **Conectar** da mesma tela (login da conta). As variáveis antigas
+(`ANTHROPIC_API_KEY`, `VENICE_API_KEY`, `HUB_API_MODEL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` e
+`<SERVIÇO>_MCP_SESSION`) só servem de ponto de partida: o hub copia o valor na primeira leitura e elas podem ser
+apagadas. `HUB_BRAIN`, `HUB_PASSWORD`, `HIGGSFIELD_API_KEY`, `ELEVENLABS_API_KEY`, `HEYGEN_API_KEY`, `FLORA_API_KEY`
+e `FLORA_WEBHOOK_SECRET` não são lidas por nada.
+
 ### Serviço `hub`
 | Variável | Para que serve |
 |---|---|
 | `DATABASE_URL` | Endereço interno do Postgres. É a referência `${{Postgres.DATABASE_URL}}`: muda sozinha se a senha do banco mudar. |
 | `HUB_PUBLIC_URL` | Endereço público do hub, em HTTPS. Usado pelo login das integrações (ElevenLabs lê `/oauth/<id>-client.json`) e pelo conector do Claude. Troque junto com o domínio. |
 | `DONOS_DA_PLATAFORMA` | E-mails dos donos da plataforma, separados por vírgula. |
-| `HUB_CHAT` | `off`: o chat interno e os agentes ficam desligados na nuvem (não há chave da Anthropic lá). O Claude Code de cada pessoa usa o hub pelo conector. |
+| `HUB_CHAVE_SEGREDOS` | Cifra o que fica guardado no banco (chaves das integrações, autorização do Google). 32 bytes em base64. Não troque: com outra, as chaves e o Drive precisam ser refeitos em Integrações. |
 | `NEXT_TELEMETRY_DISABLED` | `1`: o Next não envia telemetria. |
 | `PORT` | `3000`: porta do servidor e da checagem de saúde. |
 
@@ -57,8 +65,7 @@ Opcionais, ainda não definidas no `hub`:
 | Variável | Para que serve |
 |---|---|
 | `MCP_REDIRECTS_PERMITIDOS` | Para onde o login do conector (Claude na web) pode voltar. Vazio usa os endereços do claude.ai e do claude.com. |
-| `HUB_BRAIN` / `HUB_API_MODEL` / `ANTHROPIC_API_KEY` | Ligam o chat interno na nuvem pela API da Anthropic (`HUB_BRAIN=api`) e escolhem o modelo. Junto, apague `HUB_CHAT=off`. |
-| `<SERVIÇO>_MCP_SESSION` | Sessão OAuth de uma integração (JSON em base64). Normalmente não precisa: o login é feito na tela Integrações. |
+| `HUB_CHAT` | `off` desliga o chat interno e os agentes. Sem ela, o chat da nuvem responde pela API da Anthropic com a chave colada em Integrações → Claude. |
 
 O Railway também injeta as suas (`RAILWAY_*`), como `RAILWAY_PUBLIC_DOMAIN` e `RAILWAY_VOLUME_MOUNT_PATH`.
 
@@ -150,9 +157,9 @@ pg_dump --format=custom --no-owner --file "hub-$(Get-Date -Format yyyyMMdd-HHmm)
 ## Pendências conhecidas
 
 - **Domínio próprio:** hoje é o domínio gerado pelo Railway. Trocar exige atualizar `HUB_PUBLIC_URL`.
-- **Chat na nuvem:** sem chave da Anthropic, o chat interno fica desligado (`HUB_CHAT=off`). Para ligar, veja as
-  variáveis opcionais acima.
-- **Integrações:** depois do primeiro acesso, ligar FLORA, HeyGen e ElevenLabs na tela Integrações (login da conta).
+- **Chat na nuvem:** responde pela API da Anthropic depois que a chave é colada em Integrações → Claude.
+- **Integrações:** depois do primeiro acesso, ligar FLORA, HeyGen, ElevenLabs e Higgsfield na tela Integrações (login
+  da conta).
 - **Hub antigo:** está em outra conta do Railway. O endereço padrão de `HUB_PUBLIC_URL` no código (usado no PC
   quando a variável está vazia) já aponta para o hub novo.
 - **Backups agendados:** ainda não ligados (veja [Backups](#backups)).

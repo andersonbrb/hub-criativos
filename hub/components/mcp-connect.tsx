@@ -8,9 +8,9 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/generations";
 
-export type McpService = "heygen" | "flora" | "elevenlabs";
+export type McpService = "heygen" | "flora" | "elevenlabs" | "higgsfield";
 
-export const MCP_LABEL: Record<McpService, string> = { heygen: "HeyGen", flora: "FLORA", elevenlabs: "ElevenLabs" };
+export const MCP_LABEL: Record<McpService, string> = { heygen: "HeyGen", flora: "FLORA", elevenlabs: "ElevenLabs", higgsfield: "Higgsfield" };
 
 // Link do login MCP (OAuth) do serviço; volta para a tela atual depois de autorizar.
 export function useLoginHref(service: McpService) {

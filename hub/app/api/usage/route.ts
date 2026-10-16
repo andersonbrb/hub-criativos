@@ -3,8 +3,8 @@ import { CHAVES_DE_PRODUCAO } from "@/lib/server/media";
 import { account } from "@/lib/server/providers/higgsfield";
 import { listGenerations } from "@/lib/server/store";
 
-// Rodapé do menu: gasto real da FLORA (soma do charged_cost das gerações salvas) e créditos do Higgsfield (CLI).
-// Os créditos ficam em cache por 1 min para não chamar a CLI a cada página.
+// Rodapé do menu: gasto real da FLORA (soma do charged_cost das gerações salvas) e créditos do Higgsfield (MCP).
+// Os créditos ficam em cache por 1 min para não perguntar ao Higgsfield a cada página.
 let hfCache: { at: number; credits: number | null } | null = null;
 
 async function higgsfieldCredits(): Promise<number | null> {

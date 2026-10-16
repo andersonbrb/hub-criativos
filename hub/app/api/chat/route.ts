@@ -6,7 +6,7 @@ import type { Attachment, ChatEvent } from "@/lib/chat";
 import type { MediaKind } from "@/lib/generations";
 import { ATTACHMENTS_NOTE } from "@/lib/server/chat/display";
 import { documentRef, imageRef } from "@/lib/server/chat/images";
-import { findClaude, runClaudeCodeTurn } from "@/lib/server/chat/claude-code";
+import { runClaudeCodeTurn, usesApiBrain } from "@/lib/server/chat/claude-code";
 import { runChatTurn } from "@/lib/server/chat/run";
 import { runVeniceTurn } from "@/lib/server/chat/venice";
 import { endTurn, startTurn } from "@/lib/server/chat/running";
@@ -93,7 +93,7 @@ async function prepare(file: File): Promise<Prepared> {
 // Responde em NDJSON: uma linha por ChatEvent, até "done".
 // mode=black: o mesmo agente, com as mesmas ferramentas, rodando no modelo sem censura da Venice (lib/server/chat/venice.ts).
 // Modo normal: Claude Code local com a assinatura (lib/server/chat/claude-code.ts), sem custo por token.
-// HUB_BRAIN=api volta para a API da Anthropic com chave (lib/server/chat/run.ts).
+// Sem Claude Code na máquina (o hub da nuvem), a API da Anthropic com a chave de Integrações (lib/server/chat/run.ts).
 export const POST = route(async (request: Request) => {
   // HUB_CHAT=off: chat e agentes desligados (ex.: no Railway, onde não há Claude Code logado).
   if (process.env.HUB_CHAT?.trim() === "off") {
@@ -104,18 +104,12 @@ export const POST = route(async (request: Request) => {
   const usuario = await exigirUsuario();
   const form = await request.formData();
   const black = form.get("mode") === "black";
-  const useApi = process.env.HUB_BRAIN?.trim() === "api";
-  if (black && !hasKey("venice")) {
-    return Response.json({ error: "Falta a chave VENICE_API_KEY no hub/.env.local para o Modo Black." }, { status: 400 });
+  const useApi = usesApiBrain();
+  if (black && !(await hasKey("venice"))) {
+    return Response.json({ error: "Falta a chave da Venice para o Modo Black. Um admin cola em Integrações → Venice." }, { status: 400 });
   }
-  if (!black && useApi && !hasKey("anthropic")) {
-    return Response.json({ error: "Falta a chave ANTHROPIC_API_KEY no hub/.env.local (HUB_BRAIN=api)." }, { status: 400 });
-  }
-  if (!black && !useApi && !findClaude()) {
-    return Response.json(
-      { error: "Não encontrei o Claude Code nesta máquina. Instale a extensão do Claude Code no VS Code e entre com a sua conta do claude.ai (ou use HUB_BRAIN=api com ANTHROPIC_API_KEY)." },
-      { status: 400 },
-    );
+  if (!black && useApi && !(await hasKey("anthropic"))) {
+    return Response.json({ error: "Falta a chave da API do Claude. Um admin cola em Integrações → Claude." }, { status: 400 });
   }
   const text = String(form.get("text") ?? "").trim();
   const files = [...form.getAll("files"), ...form.getAll("images")].filter((f): f is File => f instanceof File && f.size > 0);

@@ -531,7 +531,7 @@ export function ChatView({
             <div className="mx-auto max-w-3xl">
               {!configured && !black && (
                 <p className="mb-2 text-xs text-warn">
-                  O chat roda no Claude Code desta máquina (sua assinatura): instale a extensão do Claude Code no VS Code e entre com a conta do claude.ai.
+                  O chat ainda não tem como responder. Um admin cola a chave da API do Claude em Integrações → Claude. No seu computador, o Claude Code da sua assinatura também serve: instale a extensão no VS Code e entre com a conta do claude.ai.
                 </p>
               )}
               {black && <BlackModeBanner />}

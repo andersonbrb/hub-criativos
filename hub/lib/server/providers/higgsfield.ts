@@ -1,66 +1,42 @@
 import "server-only";
 
-import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
-import path from "node:path";
+import { mcp } from "@/lib/server/mcp-client";
 
-// CLI oficial do Higgsfield (@higgsfield/cli). As edições de IA foram removidas do hub (2026-10-06; a edição final é a
-// montagem local). Ficou só o status de jobs antigos (refreshGeneration) e a conta.
-
-function binary(): string {
-  if (process.env.HIGGSFIELD_BIN) return process.env.HIGGSFIELD_BIN;
-  if (process.platform === "win32" && process.env.APPDATA) {
-    const exe = path.join(process.env.APPDATA, "npm", "node_modules", "@higgsfield", "cli", "vendor", "hf.exe");
-    if (existsSync(exe)) return exe;
-  }
-  return "higgsfield";
-}
+// Higgsfield pelo MCP oficial, com o login da conta em Integrações → Higgsfield (como HeyGen, FLORA e ElevenLabs), no
+// lugar da CLI que precisava estar instalada e logada no terminal. As edições de IA foram removidas do hub
+// (2026-10-06; a edição final é a montagem local). Ficou o status de jobs antigos (refreshGeneration) e os créditos.
 
 export class HiggsfieldError extends Error {}
 
-function run(args: string[], timeoutMs = 120_000): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const child = execFile(binary(), [...args, "--json", "--no-color"], { timeout: timeoutMs, maxBuffer: 20 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
-      if (err) {
-        const msg = (stderr || stdout || err.message).trim().split("\n").slice(0, 3).join(" ");
-        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-          return reject(new HiggsfieldError("CLI do Higgsfield não encontrada. Rode: npm i -g @higgsfield/cli"));
-        }
-        if (/auth|login|unauthor/i.test(msg)) {
-          return reject(new HiggsfieldError(`Higgsfield não autenticado. Rode no terminal: higgsfield auth login (${msg})`));
-        }
-        return reject(new HiggsfieldError(`Higgsfield: ${msg}`));
-      }
-      try {
-        resolve(JSON.parse(stdout));
-      } catch {
-        resolve(stdout.trim());
-      }
-    });
-    // Sem isso a CLI fica esperando dados na entrada padrão quando não roda num terminal.
-    child.stdin?.end();
-  });
-}
-
-export type HfJob = { id: string; status: string; result_url?: string | null; min_result_url?: string | null; job_type?: string };
+export type HfJob = { id: string; status: string; result_url?: string | null };
 
 export async function account() {
-  return (await run(["account", "status"])) as { credits: number; email: string; subscription_plan_type: string };
+  const out = await mcp("higgsfield").callTool<{ credits?: unknown; subscription_plan_type?: unknown }>("balance");
+  return { credits: Number(out.credits ?? 0), subscription_plan_type: String(out.subscription_plan_type ?? "") };
 }
 
-function firstJob(out: unknown): HfJob {
-  const candidates = Array.isArray(out)
-    ? out
-    : typeof out === "object" && out
-      ? ((out as { jobs?: unknown[]; items?: unknown[] }).jobs ?? (out as { items?: unknown[] }).items ?? [out])
-      : [];
-  const job = candidates.find((j): j is HfJob => typeof j === "object" && j !== null && "id" in j);
-  if (!job) throw new HiggsfieldError(`Resposta inesperada da CLI: ${JSON.stringify(out).slice(0, 200)}`);
-  return job;
+type Espera = { jobs?: (Record<string, unknown> & { status?: string; error?: string })[] };
+
+// Endereço do resultado pronto: o primeiro link do job, deixando miniaturas e prévias por último.
+function linkDoResultado(job: Record<string, unknown>): string | null {
+  const links: { chave: string; url: string }[] = [];
+  const visitar = (valor: unknown, chave: string) => {
+    if (typeof valor === "string" && /^https?:\/\//.test(valor)) links.push({ chave, url: valor });
+    else if (Array.isArray(valor)) valor.forEach((v) => visitar(v, chave));
+    else if (valor && typeof valor === "object") for (const [k, v] of Object.entries(valor)) visitar(v, k);
+  };
+  visitar(job, "");
+  const reduzido = (chave: string) => /min|thumb|preview/i.test(chave);
+  return (links.find((l) => !reduzido(l.chave)) ?? links[0])?.url ?? null;
 }
 
-export async function getJob(id: string) {
-  return firstJob(await run(["generate", "get", id]));
+export async function getJob(id: string): Promise<HfJob> {
+  // timeout 0: só a foto do momento; quem chama já volta a perguntar de tempos em tempos.
+  const out = await mcp("higgsfield").callTool<Espera>("jobs_wait", { jobs: [{ index: 0, job_id: id }], timeout_seconds: 0 });
+  const job = out.jobs?.[0];
+  if (!job) throw new HiggsfieldError("O Higgsfield não respondeu sobre esse job.");
+  if (job.status === "lookup_failed") throw new HiggsfieldError("O Higgsfield não achou esse job na conta conectada.");
+  return { id, status: String(job.status ?? ""), result_url: linkDoResultado(job) };
 }
 
 export const DONE = new Set(["completed"]);

@@ -5,12 +5,12 @@ import { route } from "@/lib/server/http";
 // Situação da conta do Google Drive: configurado, conectado, qual conta e o espaço (StatusDrive), mais `falta`, o
 // texto do que falta no servidor para conectar (ou null). Tudo só com a chave "integracoes": quem lê é o card do
 // Drive, na tela Integrações.
-const situacao = async () => Response.json({ ...(await statusDrive()), falta: oQueFaltaParaConectar() });
+const situacao = async () => Response.json({ ...(await statusDrive()), falta: await oQueFaltaParaConectar() });
 
 // <[Request]>: as funções não leem o pedido, mas a rota recebe um (e os testes chamam com ele).
 // O GET diz também quantos vídeos ainda estão no disco do hub esperando para ir ao Drive (`naFila`).
 export const GET = route<[Request]>(
-  async () => Response.json({ ...(await statusDrive()), falta: oQueFaltaParaConectar(), naFila: await videosNaFila() }),
+  async () => Response.json({ ...(await statusDrive()), falta: await oQueFaltaParaConectar(), naFila: await videosNaFila() }),
   { chave: "integracoes" },
 );
 

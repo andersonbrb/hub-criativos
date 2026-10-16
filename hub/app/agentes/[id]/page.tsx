@@ -18,7 +18,7 @@ export default async function AgentPage({ params, searchParams }: PageProps<"/ag
 
   return (
     <main className="h-workspace">
-      <ChatView key={agent.id} agentId={agent.id} initialId={typeof c === "string" ? c : null} initialDraft="" configured={brainReady()} />
+      <ChatView key={agent.id} agentId={agent.id} initialId={typeof c === "string" ? c : null} initialDraft="" configured={await brainReady()} />
     </main>
   );
 }

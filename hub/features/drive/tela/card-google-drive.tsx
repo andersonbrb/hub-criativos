@@ -11,6 +11,8 @@ import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader,
 import { Progress } from "@/components/ui/progress";
 import { PASTA_RAIZ, type StatusDrive } from "@/features/drive/contrato";
 import { AVISOS_DO_LOGIN, ehMotivoDoLogin } from "@/features/drive/tela/avisos";
+import type { ResumoDaChave } from "@/features/integracoes/contrato";
+import { CampoDeChave } from "@/features/integracoes/tela/campo-de-chave";
 
 // Card do Google Drive na tela Integrações: qual conta guarda os vídeos, quanto espaço ela tem, Conectar/Desconectar
 // e o botão que leva para o Drive os vídeos que ainda estão no disco do hub.
@@ -49,7 +51,21 @@ async function consultarFila(): Promise<number> {
 
 type Retorno = { drive: string | null; motivo: string | null };
 
-export function CardGoogleDrive({ status, falta, retorno }: { status: StatusDrive; falta: string | null; retorno: Retorno }) {
+// O cliente OAuth do Google (criado uma vez no Google Cloud) é colado aqui, no lugar das variáveis do servidor.
+type Cliente = { id: ResumoDaChave; segredo: ResumoDaChave };
+
+const CREDENCIAIS_DO_GOOGLE = { texto: "Google Cloud → APIs e serviços → Credenciais", href: "https://console.cloud.google.com/apis/credentials" };
+
+function CamposDoCliente({ cliente }: { cliente: Cliente }) {
+  return (
+    <div className="space-y-2">
+      <CampoDeChave nome="google-client-id" resumo={cliente.id} exemplo="....apps.googleusercontent.com" ajuda={CREDENCIAIS_DO_GOOGLE} />
+      <CampoDeChave nome="google-client-secret" resumo={cliente.segredo} exemplo="GOCSPX-..." />
+    </div>
+  );
+}
+
+export function CardGoogleDrive({ status, falta, retorno, cliente }: { status: StatusDrive; falta: string | null; retorno: Retorno; cliente: Cliente }) {
   const router = useRouter();
   const pathname = usePathname();
   const [saindo, setSaindo] = useState(false);
@@ -146,7 +162,7 @@ export function CardGoogleDrive({ status, falta, retorno }: { status: StatusDriv
 
   const { conectado, conta, espaco } = status;
   const precisaRefazer = !conectado && conta !== null;
-  const detalhe = !status.configurado ? "Falta configurar no servidor" : conectado ? `Pasta "${PASTA_RAIZ}" no Drive` : "Nenhuma conta conectada";
+  const detalhe = !status.configurado ? "Falta o cliente do Google" : conectado ? `Pasta "${PASTA_RAIZ}" no Drive` : "Nenhuma conta conectada";
   const pctEspaco = espaco?.limite ? Math.min(100, Math.round((espaco.usado / espaco.limite) * 100)) : null;
   const pctMigracao = migracao?.total ? Math.min(100, Math.round(((migracao.feitos + migracao.falhas) / migracao.total) * 100)) : 0;
 
@@ -187,6 +203,18 @@ export function CardGoogleDrive({ status, falta, retorno }: { status: StatusDriv
           <p className="text-muted-foreground">Nenhuma conta conectada. Até conectar, os vídeos novos ficam guardados no próprio hub.</p>
         )}
         {falta && <p className="break-words text-warn">{falta}</p>}
+        {!status.configurado ? (
+          <CamposDoCliente cliente={cliente} />
+        ) : (
+          !conectado && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Cliente do Google</summary>
+              <div className="pt-2">
+                <CamposDoCliente cliente={cliente} />
+              </div>
+            </details>
+          )
+        )}
 
         {conectado && (
           <div className="space-y-2 border-t pt-3">

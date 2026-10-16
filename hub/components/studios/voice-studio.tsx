@@ -5,7 +5,7 @@ import { Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { OpenAppButton } from "@/components/open-app-button";
-import { Field, GenerationCard, HistoryActions, HistoryPanel, MissingKey, useGenerations } from "@/components/studios/shared";
+import { Field, GenerationCard, HistoryActions, HistoryPanel, McpMissing, useGenerations } from "@/components/studios/shared";
 import { VoicePicker, type PickerVoice } from "@/components/studios/voice-picker";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -107,7 +107,7 @@ export function VoiceStudio({ configured }: { configured: boolean }) {
       <WorkspacePanel id="roteiro" title="Roteiro" defaultSize={68} fill minSize={20} bodyClassName="flex flex-col">
         {!configured && (
           <div className="p-4 pb-0">
-            <MissingKey envVar="ELEVENLABS_API_KEY" where="elevenlabs.io → Developers → API Keys" />
+            <McpMissing service="elevenlabs" />
           </div>
         )}
         <label htmlFor="tts-text" className="sr-only">Texto da narração</label>

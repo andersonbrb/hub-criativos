@@ -12,7 +12,7 @@ export default async function AutoCreativePage({ searchParams }: PageProps<"/cri
   const { c } = await searchParams;
   return (
     <main className="h-workspace">
-      <AutoCreative initialId={typeof c === "string" ? c : null} configured={brainReady()} />
+      <AutoCreative initialId={typeof c === "string" ? c : null} configured={await brainReady()} />
     </main>
   );
 }

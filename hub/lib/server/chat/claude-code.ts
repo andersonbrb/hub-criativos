@@ -14,6 +14,7 @@ import type { ChatEvent } from "@/lib/chat";
 import type { Generation } from "@/lib/generations";
 import { hydrateMessages } from "@/lib/server/chat/images";
 import { getChat, saveChat, type Chat } from "@/lib/server/chat/store";
+import { hasKey } from "@/lib/server/env";
 import { ferramentasDaPessoa, TOOL_NAMES, toolDetail } from "@/lib/server/chat/tools";
 import { getGeneration } from "@/lib/server/store";
 
@@ -21,7 +22,7 @@ import { getGeneration } from "@/lib/server/store";
 // (claude.ai, plano Max): sem cobrança por token. As ferramentas chegam pela MCP do próprio hub (app/api/mcp).
 //
 // USO PESSOAL: a assinatura cobre o uso do próprio dono, na máquina dele. Não sirva este backend para outras
-// pessoas (equipe, clientes); para isso use a API com chave (HUB_BRAIN=api → lib/server/chat/run.ts).
+// pessoas (equipe, clientes); para isso existe a API com chave (lib/server/chat/run.ts), que o hub da nuvem usa.
 //
 // Isolamento: o Claude Code roda numa pasta vazia FORA do projeto, sem as ferramentas embutidas de arquivo e
 // comando (só WebSearch/WebFetch), sem as MCPs da conta (--strict-mcp-config) e sem hooks/plugins/CLAUDE.md do
@@ -57,9 +58,13 @@ export function findClaude(): string | null {
     : null;
 }
 
-// O chat (modo normal) consegue responder? Claude Code instalado, ou chave da API com HUB_BRAIN=api.
-export function brainReady(): boolean {
-  return process.env.HUB_BRAIN?.trim() === "api" ? Boolean(process.env.ANTHROPIC_API_KEY?.trim()) : Boolean(findClaude());
+// Quem responde no modo normal: o Claude Code desta máquina (assinatura), quando ele está instalado; senão a API da
+// Anthropic com a chave colada em Integrações → Claude. No PC do dono é o Claude Code; no hub da nuvem, a API.
+export const usesApiBrain = () => !findClaude();
+
+// O chat (modo normal) consegue responder? Claude Code instalado, ou a chave da API salva no hub.
+export async function brainReady(): Promise<boolean> {
+  return usesApiBrain() ? hasKey("anthropic") : true;
 }
 
 // Pasta fixa fora do repositório: as sessões do Claude Code ficam ligadas a ela (o --resume precisa da mesma pasta).
@@ -114,7 +119,7 @@ function missedContext(chat: Chat): string {
 export async function runClaudeCodeTurn(chat: Chat, emit: Emit, signal: AbortSignal, origin: string, usuario: Usuario) {
   const bin = findClaude();
   if (!bin) {
-    emit({ type: "error", message: "Não encontrei o Claude Code nesta máquina. Instale a extensão do Claude Code no VS Code (ou defina CLAUDE_CODE_BIN no .env.local) e faça login com a sua conta do claude.ai." });
+    emit({ type: "error", message: "Não encontrei o Claude Code nesta máquina. Instale a extensão do Claude Code no VS Code e faça login com a sua conta do claude.ai." });
     return;
   }
 

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 import { and, eq, lt } from "drizzle-orm";
 
@@ -9,7 +9,12 @@ import { driveConta, drivePedidosLogin } from "@/db/schema";
 import { caminhoSeguro } from "@/features/acesso/contrato";
 import type { StatusDrive } from "@/features/drive/contrato";
 import type { MotivoDoLogin } from "@/features/drive/tela/avisos";
+import { lerChave } from "@/features/integracoes/servicos/chaves";
+import { cifrar, decifrar, problemaNaChave } from "@/features/integracoes/servicos/cifra";
 import { InputError } from "@/lib/server/http";
+
+// A cifra mora em features/integracoes (serve também às chaves das integrações); continua exportada daqui.
+export { cifrar, decifrar };
 
 // Conta Google do Drive (login OAuth na tela Integrações). Contrato estável: as assinaturas não mudam.
 //
@@ -73,18 +78,10 @@ const FORMULARIO = { "content-type": "application/x-www-form-urlencoded" };
 // ---------------------------------------------------------------------------------------------------------------
 // Configuração
 
-function credenciais(): { id: string; segredo: string } | null {
-  const id = process.env.GOOGLE_CLIENT_ID?.trim();
-  const segredo = process.env.GOOGLE_CLIENT_SECRET?.trim();
+// O cliente OAuth do Google (ID e chave secreta) é colado no card do Drive, na tela Integrações.
+async function credenciais(): Promise<{ id: string; segredo: string } | null> {
+  const [id, segredo] = await Promise.all([lerChave("google-client-id"), lerChave("google-client-secret")]);
   return id && segredo ? { id, segredo } : null;
-}
-
-function problemaNaChave(): string | null {
-  const bruta = process.env.HUB_CHAVE_SEGREDOS?.trim();
-  if (!bruta) return "Falta HUB_CHAVE_SEGREDOS nas variáveis do servidor: sem ela o hub não guarda a autorização do Google com segurança.";
-  if (Buffer.from(bruta, "base64").length !== 32)
-    return "HUB_CHAVE_SEGREDOS precisa ter 32 bytes em base64 (44 caracteres, terminando em \"=\"). Gere uma como explica docs/google-drive.md.";
-  return null;
 }
 
 // banco() lança quando não há DATABASE_URL (o PC sem Postgres). Aqui isso significa só "sem conta conectada".
@@ -97,8 +94,8 @@ function bancoOuNada(): Banco | null {
 }
 
 // O que falta no servidor para conectar o Drive (texto para o card), ou null quando dá para conectar.
-export function oQueFaltaParaConectar(): string | null {
-  if (!credenciais()) return "Faltam GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET nas variáveis do servidor (passo a passo em docs/google-drive.md).";
+export async function oQueFaltaParaConectar(): Promise<string | null> {
+  if (!(await credenciais())) return "Falta colar abaixo o ID e a chave secreta do cliente do Google (criado uma vez no Google Cloud).";
   const chave = problemaNaChave();
   if (chave) return chave;
   if (!bancoOuNada()) return "O Google Drive precisa do banco do hub, que só existe no hub da nuvem. Conecte por lá.";
@@ -116,39 +113,6 @@ export function origemPublica(request: Request): string {
 export function enderecoDeVolta(origem: string): string {
   const base = (process.env.HUB_PUBLIC_URL?.trim() || origem).replace(/\/+$/, "");
   return `${base}${CAMINHO_DE_VOLTA}`;
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// Cifra dos segredos guardados no banco (AES-256-GCM). Formato: v1.<iv>.<etiqueta>.<cifrado>, em base64url.
-// O GCM confere a etiqueta ao abrir: um valor adulterado no banco não decifra, em vez de virar um token errado.
-
-const VERSAO_DA_CIFRA = "v1";
-
-function chaveDosSegredos(): Buffer {
-  const problema = problemaNaChave();
-  if (problema) throw new Error(problema);
-  return Buffer.from(process.env.HUB_CHAVE_SEGREDOS!.trim(), "base64");
-}
-
-export function cifrar(texto: string): string {
-  const iv = randomBytes(12);
-  const cifra = createCipheriv("aes-256-gcm", chaveDosSegredos(), iv);
-  const corpo = Buffer.concat([cifra.update(texto, "utf8"), cifra.final()]);
-  return [VERSAO_DA_CIFRA, iv.toString("base64url"), cifra.getAuthTag().toString("base64url"), corpo.toString("base64url")].join(".");
-}
-
-export function decifrar(cifrado: string): string {
-  const chave = chaveDosSegredos();
-  const [versao, iv, etiqueta, corpo, ...resto] = cifrado.split(".");
-  try {
-    if (versao !== VERSAO_DA_CIFRA || !iv || !etiqueta || corpo === undefined || resto.length) throw new Error("formato");
-    // authTagLength fixo: sem ele o Node aceitaria uma etiqueta encurtada, mais fácil de forjar.
-    const decifra = createDecipheriv("aes-256-gcm", chave, Buffer.from(iv, "base64url"), { authTagLength: 16 });
-    decifra.setAuthTag(Buffer.from(etiqueta, "base64url"));
-    return Buffer.concat([decifra.update(Buffer.from(corpo, "base64url")), decifra.final()]).toString("utf8");
-  } catch {
-    throw new Error("Não deu para abrir um segredo guardado no banco: a chave HUB_CHAVE_SEGREDOS não é a mesma de quando ele foi gravado.");
-  }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -240,7 +204,7 @@ const contaDoHub = (id: string | null | undefined) => (id && UUID.test(id) ? id 
 // Status
 
 export async function statusDrive(): Promise<StatusDrive> {
-  const configurado = credenciais() !== null;
+  const configurado = (await credenciais()) !== null;
   const desligado: StatusDrive = { configurado, conectado: false, conta: null, espaco: null };
   if (!configurado) return desligado;
 
@@ -290,8 +254,8 @@ async function espacoDaConta(email: string): Promise<StatusDrive["espaco"]> {
 // Endereço do Google para a pessoa autorizar. `volta`: caminho do hub para onde ela volta depois.
 // `quem` (acréscimo ao contrato): id da conta do hub que pediu. O retorno do Google só vale para essa mesma conta.
 export async function iniciarLogin(volta: string, origem: string, quem?: string | null): Promise<string> {
-  const cred = credenciais();
-  const falta = oQueFaltaParaConectar();
+  const cred = await credenciais();
+  const falta = await oQueFaltaParaConectar();
   if (!cred || falta) throw new ErroNoLoginDoDrive("configuracao", falta ?? "Google Drive não configurado.");
 
   const state = randomBytes(32).toString("base64url");
@@ -331,8 +295,8 @@ export async function iniciarLogin(volta: string, origem: string, quem?: string 
 // `quem` (acréscimo ao contrato): a conta do hub que voltou do Google; precisa ser a mesma que começou.
 export async function concluirLogin(code: string, state: string, origem: string, quem?: string | null): Promise<string> {
   void origem;
-  const cred = credenciais();
-  const falta = oQueFaltaParaConectar();
+  const cred = await credenciais();
+  const falta = await oQueFaltaParaConectar();
   if (!cred || falta) throw new ErroNoLoginDoDrive("configuracao", falta ?? "Google Drive não configurado.");
 
   const db = banco();
@@ -476,7 +440,7 @@ async function obterToken(m: Memoria): Promise<string> {
     return guardado;
   }
 
-  const cred = credenciais();
+  const cred = await credenciais();
   if (!cred) throw new DriveNaoConectado();
   const res = await chamarGoogle(TOKEN, {
     method: "POST",

@@ -53,17 +53,23 @@ Todo vídeo gerado mora **só** no Drive de uma conta Google, na pasta "Hub de C
 `lib/server/actions.ts` concentra as ações dos estúdios. As rotas da interface e as ferramentas do chat usam esse mesmo arquivo, então mude a regra lá e não em um dos lados.
 
 ### Serviços externos: MCP remoto com OAuth, não API
-HeyGen, FLORA e ElevenLabs são chamados pelos MCPs oficiais, com login OAuth da conta. O consumo sai dos créditos do plano de cada serviço, não do saldo de API.
+HeyGen, FLORA, ElevenLabs e Higgsfield são chamados pelos MCPs oficiais, com login OAuth da conta. O consumo sai dos créditos do plano de cada serviço, não do saldo de API.
 - O cliente genérico fica em `lib/server/mcp-client.ts`. Os adaptadores ficam em `lib/server/providers/*` e em `heygen-mcp.ts`.
-- O login é feito pela tela Integrações. Num servidor novo, a sessão pode vir de `<SERVIÇO>_MCP_SESSION` (o JSON em base64).
+- O login é o botão "Conectar" da tela Integrações, feito direto no servidor que vai usar a sessão.
 - O ElevenLabs lê os metadados OAuth do hub em `/oauth/<id>-client.json`. Por isso `HUB_PUBLIC_URL` precisa ser público e em HTTPS.
-- As chaves `ELEVENLABS_API_KEY`, `HEYGEN_API_KEY` e `FLORA_API_KEY` do `.env.example` não são usadas pelo código atual. Só `ANTHROPIC_API_KEY` e `VENICE_API_KEY` são lidas (`lib/server/env.ts`).
-- Higgsfield: as edições de IA foram removidas. Sobrou só o status de jobs antigos, pela CLI.
+- Higgsfield: as edições de IA foram removidas. Sobraram os créditos (rodapé do menu) e o status de jobs antigos.
+
+### Chaves das integrações: na tela, não em variáveis (regra do dono)
+Chaves de API (Claude, Venice), o cliente OAuth do Google (Drive) e o modelo do chat na nuvem são colados na tela Integrações (`features/integracoes`). Ficam no banco, cifrados com `HUB_CHAVE_SEGREDOS`; no PC sem banco, em `.data/integracoes.json`.
+- Leia sempre por `lerChave()` (`features/integracoes/servicos/chaves.ts`) ou `requireKey()` (`lib/server/env.ts`). Nunca por `process.env`.
+- Integração nova com chave: acrescente em `CHAVES` (`features/integracoes/contrato.ts`) e ponha o campo no card dela. Nada de variável nova.
+- As variáveis antigas (`ANTHROPIC_API_KEY`, `VENICE_API_KEY`, `HUB_API_MODEL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `<SERVIÇO>_MCP_SESSION`) só servem de ponto de partida: o valor entra no hub na primeira leitura.
+- Variáveis de verdade são só o que o servidor precisa antes de abrir uma tela: banco, `HUB_CHAVE_SEGREDOS`, `HUB_PUBLIC_URL`, `DONOS_DA_PLATAFORMA`, `PORT`.
 
 ### Chat e agentes: três "cérebros" com as mesmas ferramentas
 `app/api/chat/route.ts` recebe a mensagem (FormData) e responde em NDJSON (`ChatEvent`). A rota escolhe um destes cérebros:
-1. **Padrão, Claude Code local** (`lib/server/chat/claude-code.ts`). Roda o `claude.exe` da extensão do VS Code, logado na assinatura do dono, numa pasta isolada fora do repositório (`%LOCALAPPDATA%\HubCriativos\claude-code`). Não tem ferramentas de arquivo nem de comando: só WebSearch, WebFetch e a MCP do próprio hub. Serve apenas para uso pessoal do dono.
-2. **`HUB_BRAIN=api`** (`chat/run.ts`): API da Anthropic com chave e loop de ferramentas próprio. É o modo da nuvem, onde não há Claude Code logado. Lá `HUB_CHAT=off` desliga o chat.
+1. **Com o Claude Code instalado na máquina (o PC do dono), Claude Code local** (`lib/server/chat/claude-code.ts`). Roda o `claude.exe` da extensão do VS Code, logado na assinatura do dono, numa pasta isolada fora do repositório (`%LOCALAPPDATA%\HubCriativos\claude-code`). Não tem ferramentas de arquivo nem de comando: só WebSearch, WebFetch e a MCP do próprio hub. Serve apenas para uso pessoal do dono.
+2. **Sem Claude Code (a nuvem)** (`chat/run.ts`): API da Anthropic com a chave e o modelo de Integrações → Claude, e loop de ferramentas próprio. A escolha é automática (`usesApiBrain`). `HUB_CHAT=off` desliga o chat.
 3. **Modo Black** (`chat/venice.ts`): modelo da Venice. Converte o histórico na hora de enviar, sem reescrevê-lo.
 
 As ferramentas ficam em `lib/server/chat/tools.ts` (`definitions` + `handlers`). No modo Claude Code elas chegam pela MCP do hub, em `app/api/mcp/route.ts`, com um token Bearer gerado a cada início do servidor e `?chat=<id>`. Cada resultado termina numa tag `<hub_result summary generations/>`, que o hub usa para montar os cards. Para adicionar uma ferramenta, crie a definição e o handler em `tools.ts` (isso vale para os três cérebros). Se o agente precisar saber quando usá-la, acrescente uma linha no prompt de sistema.
@@ -103,9 +109,10 @@ As mensagens são em português, legíveis tanto para quem usa quanto para o age
 O `Dockerfile` e o `railway.json` da raiz montam uma imagem com Node 22, ffmpeg, Python (faster-whisper, torch CPU, OpenCV), o Chrome headless do Remotion e as fontes, e fazem o build de `hub/`. Variáveis de lá:
 - `DATABASE_URL`: o Postgres do projeto (referência ao serviço `Postgres`).
 - `DONOS_DA_PLATAFORMA`: e-mails que podem ser dono (separados por vírgula). O login é por conta (`features/acesso`); o primeiro dono sai de `npm run criar-dono -- --email X --nome "Nome"`. `HUB_PASSWORD` não é mais usada.
-- `HUB_BRAIN`/`HUB_CHAT`: escolhem o cérebro do chat ou o desligam.
+- `HUB_CHAVE_SEGREDOS`: cifra as chaves das integrações e a autorização do Google guardadas no banco.
 - `HUB_PUBLIC_URL`: endereço público do hub.
-- `<SERVIÇO>_MCP_SESSION`: sessão OAuth de cada serviço.
+- `HUB_CHAT` (opcional): `off` desliga o chat.
+- As chaves das integrações não são variáveis: ficam em Integrações (veja acima).
 
 ## Outros arquivos da raiz
 - `prototipo-hub.html`: protótipo estático original. Não faz parte do app.

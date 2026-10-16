@@ -5,7 +5,7 @@ import { Check, CircleDollarSign, ImagePlus, Link2, Loader2, ShieldCheck, Sparkl
 import { toast } from "sonner";
 
 import { OpenAppButton } from "@/components/open-app-button";
-import { Field, GenerationCard, HistoryActions, HistoryPanel, MissingKey, useGenerations } from "@/components/studios/shared";
+import { Field, GenerationCard, HistoryActions, HistoryPanel, McpMissing, useGenerations } from "@/components/studios/shared";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -159,7 +159,7 @@ export function FloraStudio({ configured }: { configured: boolean }) {
       ]}
     >
       <WorkspacePanel id="prompt" title="Prompt e referência" defaultSize={68} fill minSize={20} bodyClassName="flex flex-col gap-3 p-4">
-        {!configured && <MissingKey envVar="FLORA_API_KEY" where="app.flora.ai → Settings → API Keys (a chave começa com ak_)" />}
+        {!configured && <McpMissing service="flora" />}
         <Tabs value={kind} onValueChange={switchKind}>
           <TabsList>
             <TabsTrigger value="image">Frame / imagem</TabsTrigger>

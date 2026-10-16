@@ -4,13 +4,13 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import type { Usuario } from "@/features/acesso/contrato";
 import type { ChatEvent } from "@/lib/chat";
+import { MODELO_PADRAO } from "@/features/integracoes/contrato";
+import { lerChave } from "@/features/integracoes/servicos/chaves";
 import { requireKey } from "@/lib/server/env";
 import { hydrateMessages } from "@/lib/server/chat/images";
 import { saveChat, type Chat } from "@/lib/server/chat/store";
 import { runTool, SERVER_TOOLS, toolDetail, toolsFor } from "@/lib/server/chat/tools";
 
-// Modelo da API (modo HUB_BRAIN=api, ex.: o hub na nuvem). HUB_API_MODEL troca (ex.: claude-sonnet-5-5, mais barato).
-const MODEL = process.env.HUB_API_MODEL?.trim() || "claude-opus-5-5";
 // Máximo de idas e voltas com ferramentas num único pedido do usuário.
 const MAX_STEPS = 40;
 // Preço por milhão de tokens (estimativa de custo mostrada na interface). Escrita no cache = 1,25x a entrada.
@@ -19,12 +19,15 @@ const PRICES: Record<string, { input: number; output: number }> = {
   "claude-sonnet-5-5": { input: 2, output: 10 },
   "claude-haiku-4-5": { input: 1, output: 5 },
 };
-const base = PRICES[MODEL] ?? PRICES["claude-opus-5-5"];
-const PRICE = { input: base.input, output: base.output, cacheWrite: base.input * 1.25, cacheRead: base.input / 10, webSearch: 0.01 };
+const priceOf = (model: string) => {
+  const base = PRICES[model] ?? PRICES[MODELO_PADRAO];
+  return { input: base.input, output: base.output, cacheWrite: base.input * 1.25, cacheRead: base.input / 10, webSearch: 0.01 };
+};
 
 type Emit = (event: ChatEvent) => void;
 
-function costOf(usage: Anthropic.Beta.BetaUsage): number {
+function costOf(usage: Anthropic.Beta.BetaUsage, model: string): number {
+  const PRICE = priceOf(model);
   const searches = usage.server_tool_use?.web_search_requests ?? 0;
   return (
     (usage.input_tokens * PRICE.input +
@@ -37,7 +40,7 @@ function costOf(usage: Anthropic.Beta.BetaUsage): number {
 }
 
 function friendlyError(err: unknown): string {
-  if (err instanceof Anthropic.AuthenticationError) return "A chave ANTHROPIC_API_KEY foi recusada. Confira o hub/.env.local.";
+  if (err instanceof Anthropic.AuthenticationError) return "A chave da Anthropic foi recusada. Troque em Integrações → Claude.";
   if (err instanceof Anthropic.PermissionDeniedError) return "A chave da Anthropic não tem permissão para esse modelo ou recurso.";
   if (err instanceof Anthropic.RateLimitError) return "Limite de uso da API da Anthropic atingido. Tente de novo em instantes.";
   if (err instanceof Anthropic.APIError) return `API da Anthropic (${err.status ?? "erro"}): ${err.message}`;
@@ -49,13 +52,15 @@ function friendlyError(err: unknown): string {
 // usuario: quem mandou a mensagem. A lista de ferramentas é a congelada na conversa (o cache depende dela), então
 // quem não tem a chave de uma ferramenta é barrado na chamada (runTool), não na lista.
 export async function runChatTurn(chat: Chat, emit: Emit, signal: AbortSignal, usuario: Usuario) {
-  const client = new Anthropic({ apiKey: requireKey("anthropic") });
+  const client = new Anthropic({ apiKey: await requireKey("anthropic") });
+  // Escolhido em Integrações → Claude (o Sonnet sai mais barato).
+  const model = (await lerChave("modelo-api")) || MODELO_PADRAO;
 
   try {
     for (let step = 0; step < MAX_STEPS && !signal.aborted; step++) {
       const stream = client.beta.messages.stream(
         {
-          model: MODEL,
+          model,
           max_tokens: 64000,
           betas: ["server-side-fallback-2026-07-01", "thinking-display-updates-2026-08-18"],
           // Se o modelo recusar por engano (classificadores de segurança), a API refaz no modelo recomendado.
@@ -93,7 +98,7 @@ export async function runChatTurn(chat: Chat, emit: Emit, signal: AbortSignal, u
       });
 
       const message = await stream.finalMessage();
-      chat.costUsd = (chat.costUsd ?? 0) + costOf(message.usage);
+      chat.costUsd = (chat.costUsd ?? 0) + costOf(message.usage, model);
 
       if (message.stop_reason === "refusal") {
         await saveChat(chat);
