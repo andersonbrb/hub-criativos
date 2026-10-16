@@ -3,14 +3,12 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Send } from "lucide-react";
 
 import { HubLogo, HubMark } from "@/components/hub-logo";
 import { agentesDaPessoa, menuDaPessoa } from "@/components/nav";
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -21,18 +19,17 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { podeUsar, telaInicial, type Usuario } from "@/features/acesso/contrato";
+import { telaInicial, type Usuario } from "@/features/acesso/contrato";
 import { cn } from "@/lib/utils";
 
-// Menu lateral no estilo do ElevenLabs: marca, as telas que a conta pode abrir (o servidor também confere), o convite
-// da equipe no rodapé. A busca e a conta ficam na barra do topo.
+// Menu lateral no estilo do ElevenLabs: a marca e as telas que a conta pode abrir (o servidor também confere). A busca
+// e a conta ficam na barra do topo.
 export function AppSidebar({ usuario, semBanco = false }: { usuario: Usuario; semBanco?: boolean }) {
   const pathname = usePathname();
   const { state, isMobile, setOpenMobile } = useSidebar();
   const recolhido = state === "collapsed" && !isMobile;
   const grupos = menuDaPessoa(usuario, semBanco);
   const agentes = agentesDaPessoa(usuario);
-  const convidar = !semBanco && podeUsar(usuario, "membros");
 
   // No celular o menu é uma gaveta: fecha ao trocar de tela.
   useEffect(() => {
@@ -96,20 +93,6 @@ export function AppSidebar({ usuario, semBanco = false }: { usuario: Usuario; se
           </SidebarGroup>
         )}
       </SidebarContent>
-
-      {convidar && (
-        <SidebarFooter className="gap-2 px-3 pt-2 pb-3">
-          {!recolhido && (
-            <Link href="/membros" className="group/convite grid gap-1 rounded-xl border border-sidebar-border bg-background p-3 transition-colors hover:bg-sidebar-accent">
-              <span className="mb-1 grid size-8 place-items-center rounded-full bg-sidebar-accent text-sidebar-foreground transition-colors group-hover/convite:bg-background">
-                <Send className="size-4" />
-              </span>
-              <strong className="text-[0.8125rem] font-medium text-foreground">Convidar membros da equipe</strong>
-              <span className="text-xs leading-snug text-muted-foreground">Traga sua equipe para produzir junto no hub.</span>
-            </Link>
-          )}
-        </SidebarFooter>
-      )}
     </Sidebar>
   );
 }

@@ -59,9 +59,9 @@ export function AccountMenu({ usuario, side = "bottom" }: { usuario: Usuario; si
           <button
             type="button"
             aria-label="Sua conta"
-            className="rounded-full p-0.5 ring-1 ring-border transition-shadow outline-none hover:ring-foreground/25 focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:ring-foreground/30"
+            className="rounded-full bg-[linear-gradient(135deg,var(--brand-500),var(--cyan-400))] p-[1.5px] transition-shadow outline-none hover:shadow-[0_0_14px_-3px_var(--brand-500)] focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:shadow-[0_0_14px_-3px_var(--brand-500)]"
           >
-            <Avatar nome={usuario.nome} className="size-7" />
+            <Avatar nome={usuario.nome} className="size-7 ring-2 ring-background" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent side={side} align="end" sideOffset={8} className="w-64">

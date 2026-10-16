@@ -1,6 +1,8 @@
 /* Design do hub: o mesmo estilo de layout e de texto do ElevenLabs (superfícies planas, cinzas neutros, bordas finas,
    cantos arredondados, fonte Inter), com o azul do logo cata-vento como única cor de destaque.
-   Escolha do usuário em 2026-10-16 (substitui o estilo futurista do Ownly/Cifra, que substituiu o Suíço).
+   Escolha do usuário em 2026-10-16 (substitui o estilo futurista do Ownly/Cifra, que substituiu o Suíço). Por pedido
+   dele, ficaram alguns toques futuristas discretos (fim deste arquivo): pontos e brilho azul fracos no alto das
+   páginas, fio de luz sob a barra do topo, traço aceso no item do menu e brilho suave no azul.
    Claro em :root, escuro em .dark (o padrão). */
 
 :root {
@@ -15,6 +17,7 @@
   --brand-500: #427bff;
   --brand-600: #1f56f0;
   --brand-700: #0337dc;
+  --cyan-400: #22d3ee;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   --background: #ffffff;
@@ -56,6 +59,8 @@
   --shadow-1: 0 1px 2px rgb(10 10 11 / 0.05);
   --shadow-3: 0 8px 28px -6px rgb(10 10 11 / 0.14), 0 2px 6px rgb(10 10 11 / 0.05);
   --shadow-4: 0 24px 60px -16px rgb(10 10 11 / 0.25);
+  --hub-dot: rgb(10 10 11 / 0.07);
+  --hub-glow: rgb(31 86 240 / 0.08);
   color-scheme: light;
 }
 
@@ -95,6 +100,8 @@
   --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
   --shadow-3: 0 10px 32px -6px rgb(0 0 0 / 0.6), 0 2px 6px rgb(0 0 0 / 0.3);
   --shadow-4: 0 24px 60px -16px rgb(0 0 0 / 0.7);
+  --hub-dot: rgb(255 255 255 / 0.055);
+  --hub-glow: rgb(47 102 255 / 0.16);
   color-scheme: dark;
 }
 
@@ -158,7 +165,53 @@
       box-shadow 150ms var(--ease);
   }
   :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"]):focus-visible {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 18%, transparent);
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--ring) 18%, transparent),
+      0 0 18px -6px color-mix(in srgb, var(--ring) 55%, transparent);
+  }
+
+  /* ---------- Toques futuristas, discretos ---------- */
+  /* Alto das páginas: pontos bem fracos e um brilho azul no canto, sumindo ao descer. */
+  [data-slot="sidebar-inset"] {
+    isolation: isolate;
+  }
+  [data-slot="sidebar-inset"]::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    z-index: -1;
+    height: 520px;
+    pointer-events: none;
+    background-image:
+      radial-gradient(45% 70% at 100% 0%, var(--hub-glow), transparent 70%),
+      radial-gradient(circle at 1px 1px, var(--hub-dot) 1px, transparent 0);
+    background-size:
+      auto,
+      22px 22px;
+    mask-image: linear-gradient(#000 30%, transparent);
+  }
+  /* Botão azul: leve relevo e um brilho azul ao passar o mouse. */
+  [data-slot="button"]:is([data-variant="default"], .bg-rec) {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.16),
+      0 1px 2px rgb(0 0 0 / 0.12);
+  }
+  [data-slot="button"]:is([data-variant="default"], .bg-rec):hover:not(:disabled) {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.18),
+      0 6px 20px -6px color-mix(in srgb, var(--primary) 65%, transparent);
+  }
+  /* Grade fina na arte da tela de entrar */
+  .hub-auth-art::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-image:
+      linear-gradient(rgb(255 255 255 / 0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(255 255 255 / 0.07) 1px, transparent 1px);
+    background-size: 40px 40px;
+    mask-image: radial-gradient(ellipse 80% 70% at 40% 40%, #000 20%, transparent 80%);
   }
 
   [data-slot="button"]:active:not(:disabled) {
