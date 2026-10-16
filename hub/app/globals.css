@@ -1,23 +1,41 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-/* Cores, fontes e acabamentos do design do hub (Suíço, fixo). */
+/* Cores, fontes, luz e movimento do design do hub (padrão Ownly/Cifra, futurista). */
 @import "./designs.css";
 
 @custom-variant dark (&:is(.dark *));
 
-/* Altura útil abaixo da barra do topo (h-12), para telas com abas redimensionáveis. */
+/* Altura útil das telas com abas redimensionáveis: a tela inteira no computador (sem barra no topo) e, no celular,
+   a tela menos a barra do topo (--hub-top, definida no fim deste arquivo). */
 @utility h-workspace {
-  height: calc(100svh - 3rem);
+  height: calc(100svh - var(--hub-top));
 }
 
-/* Versão celular forçada pelo botão do topo numa tela larga: o hub vira uma coluna do tamanho de um celular. */
+/* Painel de vidro (menus, janelas) e a sombra com o brilho da marca. */
+@utility glass {
+  background-color: var(--glass-strong);
+  backdrop-filter: blur(18px) saturate(1.4);
+}
+@utility shadow-glass {
+  box-shadow: inset 0 1px 0 var(--hairline-hi), var(--shadow-3), 0 24px 50px -26px var(--glow);
+}
+@utility shadow-hairline {
+  box-shadow: inset 0 1px 0 var(--hairline-hi), var(--shadow-1);
+}
+
+/* Versão celular forçada pelo botão "Versão celular" numa tela larga: o hub vira uma coluna do tamanho de um celular. */
 html[data-mobile-frame] [data-slot="sidebar-inset"] {
   max-width: 430px;
   margin-inline: auto;
   border-inline: 1px solid var(--border);
   box-shadow: 0 0 0 100vmax color-mix(in oklab, var(--background) 60%, black);
   overflow-x: clip;
+}
+html[data-mobile-frame] [data-slot="sidebar-inset"]::before,
+html[data-mobile-frame] [data-slot="sidebar-inset"]::after,
+html[data-mobile-frame] [data-hub-glow] {
+  position: absolute !important;
 }
 
 /* Botão do Modo Black ativo: brilho vermelho pulsando. */
@@ -102,11 +120,11 @@ html[data-mobile-frame] [data-slot="sidebar-inset"] {
 /* As cores do design (fundo, texto, destaque --rec, bordas, menu...) ficam em app/designs.css.
    Aqui ficam só as cores de gráfico e das trilhas do editor. */
 :root {
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --chart-1: #7c6bff;
+  --chart-2: #22d3ee;
+  --chart-3: #a497ff;
+  --chart-4: #34d399;
+  --chart-5: #8f95ae;
   --track-avatar: oklch(0.55 0.19 265);
   --track-broll: oklch(0.58 0.1 195);
   --track-voz: oklch(0.55 0.18 300);
@@ -135,11 +153,23 @@ html[data-mobile-frame] [data-slot="sidebar-inset"] {
   html {
     @apply font-sans;
   }
-  /* Escala padrão do hub no computador: 80% (o usuário preferiu o tamanho do navegador em 80%).
-     Tudo que é medido em rem (textos, espaçamentos, ícones, menu, barra do topo) diminui junto. No celular fica 100%. */
-  @media (min-width: 768px) {
-    html {
-      font-size: 80%;
+  body {
+    line-height: 1.5;
+  }
+  /* Tamanho real (100%). A redução para 80% saiu: com o navegador em 100% tudo ficava pequeno demais.
+     A barra do topo só existe na versão celular (tela estreita ou botão "Versão celular"). */
+  :root {
+    --hub-top: 0px;
+  }
+  @media (max-width: 767px) {
+    :root {
+      --hub-top: 3.5rem;
     }
+  }
+  html[data-layout="mobile"] {
+    --hub-top: 3.5rem;
+  }
+  html[data-layout="desktop"] {
+    --hub-top: 0px;
   }
 }

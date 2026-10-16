@@ -104,8 +104,8 @@ export function TelaDeMembros({ eu }: { eu: Usuario }) {
   }
 
   return (
-    <main className="flex max-w-7xl flex-col gap-6 px-4 py-6 md:px-6">
-      <PageHeader title="Membros" description="Quem entra no hub e quais telas cada pessoa vê. Admins e o dono veem tudo e gerenciam a equipe.">
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9">
+      <PageHeader eyebrow="Administração" title="Membros" description="Quem entra no hub e quais telas cada pessoa vê. Admins e o dono veem tudo e gerenciam a equipe.">
         {gestor && (
           <Button onClick={() => setConvidando(true)} className="bg-rec text-white hover:bg-rec/85">
             <UserPlus />

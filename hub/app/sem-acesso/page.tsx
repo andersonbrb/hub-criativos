@@ -17,12 +17,14 @@ export default async function SemAcessoPage({ searchParams }: PageProps<"/sem-ac
 
   return (
     <main className="grid min-h-[70svh] place-items-center px-4 py-10">
-      <section className="flex w-full max-w-md flex-col gap-4 border bg-card p-6">
-        <div className="flex items-center gap-2">
-          <Lock className="size-4 text-muted-foreground" />
-          <h1 className="font-heading text-xl font-bold tracking-tight">Sem acesso</h1>
+      <section className="hub-spot flex w-full max-w-md flex-col items-start gap-4 rounded-2xl border bg-card/80 p-7 shadow-glass backdrop-blur-xl">
+        <div className="flex flex-col items-start gap-5">
+          <span className="hub-empty-icon">
+            <Lock className="size-6" />
+          </span>
+          <h1 className="font-heading text-2xl">Sem acesso</h1>
         </div>
-        <p className="text-sm">
+        <p className="text-sm leading-relaxed text-muted-foreground">
           {tela ? (
             <>
               Sua conta não tem acesso a <strong>{tela}</strong>.

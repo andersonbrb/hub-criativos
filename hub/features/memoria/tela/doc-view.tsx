@@ -147,7 +147,7 @@ export function DocView({ inicial, slugs, podeEditar }: { inicial: Doc; slugs: s
   }
 
   return (
-    <main className="flex max-w-5xl flex-col gap-5 px-4 py-6 md:px-6">
+    <main className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-6 md:px-8 md:py-9">
       <Link href="/memoria" className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="size-4" />
         Memória

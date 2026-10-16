@@ -25,7 +25,7 @@ export default async function AceitarConvitePage({ params }: PageProps<"/aceitar
 
   if (!convite) {
     return (
-      <CartaoDeAcesso titulo="Convite indisponível">
+      <CartaoDeAcesso titulo="Convite indisponível" rotulo="Convite">
         <AvisoDeErro>{erro}</AvisoDeErro>
         <Button variant="outline" asChild>
           <Link href="/entrar">Ir para o login</Link>
@@ -38,6 +38,7 @@ export default async function AceitarConvitePage({ params }: PageProps<"/aceitar
   return (
     <CartaoDeAcesso
       titulo="Criar sua conta"
+      rotulo="Convite"
       descricao={
         <>
           Convite para <strong className="text-foreground">{convite.email}</strong>, como {ROTULO_DO_PAPEL[convite.papel].toLowerCase()}. Vale até{" "}
@@ -46,7 +47,7 @@ export default async function AceitarConvitePage({ params }: PageProps<"/aceitar
       }
     >
       {logado && (
-        <p className="border px-3 py-2 text-xs text-muted-foreground">
+        <p className="rounded-[10px] border bg-muted/40 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
           Você está logado como {logado.email}. Ao criar esta conta, este navegador passa a usar a conta nova.
         </p>
       )}

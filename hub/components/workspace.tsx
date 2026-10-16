@@ -238,12 +238,12 @@ export function Workspace({
         <WorkspaceContext.Provider value={{ ...ctx, tabs: { active: current, reveal: setActiveTab } }}>
           <div className={cn("flex min-h-0 min-w-0 flex-col overflow-hidden", className)}>
             {toolbar && (
-              <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-2 border-b px-3 py-1.5">
+              <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-border/70 bg-background/40 px-3 py-2 backdrop-blur-xl">
                 {toolbar}
               </div>
             )}
             {tabList.length > 1 && (
-              <div role="tablist" aria-label="Abas da tela" className="flex shrink-0 gap-1 overflow-x-auto border-b bg-muted/30 px-2 py-1.5">
+              <div role="tablist" aria-label="Abas da tela" className="flex shrink-0 gap-1 overflow-x-auto border-b border-border/70 bg-background/30 px-2.5 py-2 backdrop-blur-xl">
                 {tabList.map((t) => {
                   const selected = t.id === current;
                   return (
@@ -254,8 +254,10 @@ export function Workspace({
                       aria-selected={selected}
                       onClick={() => setActiveTab(t.id)}
                       className={cn(
-                        "flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors",
-                        selected ? "bg-background text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground",
+                        "flex h-9 shrink-0 items-center gap-1.5 rounded-[10px] px-3.5 text-[0.8125rem] font-medium whitespace-nowrap transition-[background-color,color,box-shadow] duration-200",
+                        selected
+                          ? "bg-[color-mix(in_srgb,var(--primary)_16%,transparent)] text-foreground shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--primary)_35%,transparent),0_6px_18px_-10px_var(--glow)]"
+                          : "text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground",
                       )}
                     >
                       {t.title}
@@ -281,18 +283,18 @@ export function Workspace({
       <WorkspaceContext.Provider value={ctx}>
         <div className={cn("flex min-h-0 min-w-0 flex-col overflow-hidden", className)}>
           {(toolbar || presets.length > 0) && (
-            <div className="flex min-h-11 shrink-0 items-center gap-2 border-b px-3 py-1.5">
+            <div className="flex min-h-14 shrink-0 items-center gap-3 border-b border-border/70 bg-background/40 px-4 py-2 backdrop-blur-xl">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 {toolbar}
               </div>
               {presets.length > 0 && (
                 <div
-                  className="flex shrink-0 items-center gap-1"
+                  className="flex shrink-0 items-center gap-0.5 rounded-xl border border-border/70 bg-muted/40 p-0.5 dark:bg-white/[0.03]"
                   role="group"
                   aria-label="Layouts prontos"
                 >
                   <LayoutTemplate
-                    className="mr-1 size-3.5 text-muted-foreground"
+                    className="mx-1.5 size-3.5 text-muted-foreground"
                     aria-hidden
                   />
                   {presets.map((p) => (
@@ -342,7 +344,7 @@ export function Workspace({
                     <Separator
                       key={`sep-${i}`}
                       className={cn(
-                        "relative bg-border transition-colors outline-none hover:bg-rec/60 focus-visible:bg-rec data-[separator=active]:bg-rec",
+                        "relative bg-border/70 transition-[background-color,box-shadow] outline-none hover:bg-[var(--brand-400)] hover:shadow-[0_0_10px_var(--glow)] focus-visible:bg-[var(--brand-400)] data-[separator=active]:bg-[var(--brand-400)] data-[separator=active]:shadow-[0_0_12px_var(--glow)]",
                         orientation === "horizontal" ? "w-px" : "h-px",
                       )}
                     />,
@@ -449,9 +451,9 @@ export function WorkspacePanel({
   );
 
   const header = (
-    <div className="flex h-9 shrink-0 items-center gap-1.5 border-b bg-muted/40 px-3">
-      {icon}
-      <h2 className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-[0.6875rem] font-semibold tracking-wider text-foreground/75 uppercase">
+    <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/70 bg-muted/25 px-3.5 dark:bg-white/[0.015]">
+      {icon ?? <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-[var(--brand-400)] shadow-[0_0_8px_var(--brand-400)]" />}
+      <h2 className="flex min-w-0 flex-1 items-center gap-2 truncate font-mono text-[0.6875rem] font-medium tracking-[0.12em] text-muted-foreground uppercase">
         <span className="truncate">{title}</span>
         {badgeEl}
       </h2>
@@ -527,7 +529,7 @@ export function WorkspacePanel({
           type="button"
           onClick={open}
           className={cn(
-            "flex size-full items-center gap-2 bg-muted/30 text-[0.6875rem] font-semibold tracking-wider text-foreground/70 uppercase hover:bg-muted hover:text-foreground",
+            "flex size-full items-center gap-2 bg-muted/20 font-mono text-[0.6875rem] font-medium tracking-[0.12em] text-muted-foreground uppercase transition-colors hover:bg-[color-mix(in_srgb,var(--primary)_10%,transparent)] hover:text-foreground",
             orientation === "horizontal" ? "flex-col py-3" : "px-3",
           )}
           aria-label={`Mostrar ${title}${count ? ` (${badge})` : ""}`}

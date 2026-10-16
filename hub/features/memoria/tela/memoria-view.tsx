@@ -119,8 +119,9 @@ export function MemoriaView({
   }, [documentos, frente]);
 
   return (
-    <main className="flex max-w-6xl flex-col gap-6 px-4 py-6 md:px-6">
+    <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9">
       <PageHeader
+        eyebrow="Operação"
         title="Memória"
         description="Regras, fluxos, dados do negócio, projetos e lições da operação. Os agentes do hub e o Claude Code de cada pessoa leem e gravam aqui, com histórico de versões."
       />

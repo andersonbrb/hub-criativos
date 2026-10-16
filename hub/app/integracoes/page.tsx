@@ -139,8 +139,9 @@ export default async function IntegrationsPage({ searchParams }: PageProps<"/int
   ];
 
   return (
-    <main className="flex max-w-7xl flex-col gap-6 px-4 py-6 md:px-6">
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9">
       <PageHeader
+        eyebrow="Administração"
         title="Integrações"
         description="Tudo o que o hub usa se conecta aqui. HeyGen, FLORA, ElevenLabs, Higgsfield e o Google Drive entram com o login da sua conta; Claude e Venice, colando a chave da API. As chaves ficam guardadas cifradas no hub."
       />

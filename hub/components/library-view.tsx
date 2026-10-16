@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Library, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { GenerationCard } from "@/components/studios/shared";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -55,8 +56,9 @@ export function LibraryView() {
   const shown = filter === "all" ? items : items.filter((g) => g.kind === filter);
 
   return (
-    <main className="flex max-w-7xl flex-col gap-6 px-4 py-6 md:px-6">
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9">
       <PageHeader
+        eyebrow="Produção"
         title="Biblioteca"
         description="Os criativos finais (edição, editor e tradução) entram aqui sozinhos quando ficam prontos. Para salvar qualquer outra geração, use o marcador no card."
       >
@@ -75,13 +77,13 @@ export function LibraryView() {
       {!loaded ? (
         <Loader2 className="mx-auto my-10 size-5 animate-spin text-muted-foreground" />
       ) : shown.length === 0 ? (
-        <p className="rounded-lg border border-dashed py-16 text-center text-sm text-muted-foreground">
+        <EmptyState icon={Library} title={items.length === 0 ? "Nada aqui ainda" : "Nada salvo neste filtro"}>
           {items.length === 0
-            ? "Nada aqui ainda. Os criativos finais entram sozinhos; nos estúdios, o marcador de um card traz qualquer geração para cá."
-            : "Nada salvo neste filtro."}
-        </p>
+            ? "Os criativos finais entram sozinhos; nos estúdios, o marcador de um card traz qualquer geração para cá."
+            : "Troque o filtro acima para ver o resto da Biblioteca."}
+        </EmptyState>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <div className="hub-stagger grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {shown.map((g) => (
             <GenerationCard
               key={g.id}

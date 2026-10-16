@@ -45,9 +45,10 @@ const PRESETS: WorkspacePreset[] = [
   { id: "detalhes", label: "Foco no card", layout: { quadro: 50, detalhes: 50 } },
 ];
 
-// Zoom do quadro (CSS zoom), salvo no navegador. Chave v2: o padrão mudou para 60%.
-const ZOOM_KEY = "hub:pipeline:zoom:v2";
-const ZOOM_DEFAULT = 0.6;
+// Zoom do quadro (CSS zoom), salvo no navegador. Chave v3: o padrão mudou para 80% junto com o fim da escala de 80%
+// da página (com os dois, o quadro ficava pequeno demais).
+const ZOOM_KEY = "hub:pipeline:zoom:v3";
+const ZOOM_DEFAULT = 0.8;
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 1.5;
 const clampZoom = (z: number) => Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z)) * 100) / 100;
