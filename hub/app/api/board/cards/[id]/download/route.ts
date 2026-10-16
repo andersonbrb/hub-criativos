@@ -3,12 +3,13 @@ import { access } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 
+import { comOrganizacao, organizacaoAtual } from "@/features/acesso/servicos/organizacao-atual";
 import { DriveNaoConectado, tokenDeAcesso } from "@/features/drive/servicos/conta";
 import { lerDoDrive } from "@/features/drive/servicos/videos";
 import { downloadName } from "@/lib/generations";
 import { getBoard } from "@/lib/server/board";
 import { InputError, route } from "@/lib/server/http";
-import { MEDIA_DIR } from "@/lib/server/media";
+import { pastaDeMidia } from "@/lib/server/pastas";
 import { getGeneration } from "@/lib/server/store";
 import { uniqueNames, zipStream, type ZipEntry } from "@/lib/server/zip";
 
@@ -43,14 +44,17 @@ export const GET = route(async (_request: Request, { params }: Ctx) => {
   }
 
   const names = uniqueNames(videos.map((g, i) => `${String(i + 1).padStart(2, "0")} ${downloadName(g)}`));
+  // O zip desce depois que a rota já respondeu: cada arquivo é aberto de volta na organização do pedido.
+  const org = await organizacaoAtual();
+  const midia = await pastaDeMidia();
   const entries: ZipEntry[] = videos.map((g, i) => ({
     name: names[i],
-    open: async () => {
+    open: () => comOrganizacao(org, async () => {
       // Relê: o zip desce um vídeo por vez, e nesse meio-tempo um vídeo pode ter ido para o Drive (e saído do disco).
       const atual = (await getGeneration(g.id)) ?? g;
       if (atual.foraDoDrive) throw new Error(`${names[i]} foi apagado no Drive.`);
       if (atual.file) {
-        const file = path.join(MEDIA_DIR, path.basename(atual.file));
+        const file = path.join(midia, path.basename(atual.file));
         if (await access(file).then(() => true, () => false)) return createReadStream(file) as AsyncIterable<Uint8Array>;
       }
       // No Drive: vem em stream de lá, sem cópia no disco.
@@ -59,7 +63,7 @@ export const GET = route(async (_request: Request, { params }: Ctx) => {
       const res = await fetch(atual.remoteUrl);
       if (!res.ok || !res.body) throw new Error(`Não consegui baixar ${names[i]} (${res.status}).`);
       return Readable.fromWeb(res.body as never) as AsyncIterable<Uint8Array>;
-    },
+    }),
   }));
 
   const zipName = `${safeName(card.title)}.zip`;

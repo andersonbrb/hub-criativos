@@ -7,13 +7,13 @@ import path from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 
 import type { Attachment, ChatSummary } from "@/lib/chat";
-import { DATA_DIR } from "@/lib/server/store";
+import { pastaDeDados } from "@/lib/server/pastas";
 
-// Cada conversa fica em hub/.data/chats/<id>.json.
+// Cada conversa fica em chats/<id>.json, na pasta da organização (lib/server/pastas.ts).
 // `messages` é o histórico exato enviado à API (só cresce: blocos de thinking precisam voltar sem edição).
 // Imagens ficam como referência a arquivo local ("@file:<nome>") e são carregadas na hora de enviar.
 
-const CHATS_DIR = path.join(DATA_DIR, "chats");
+const pastaDasConversas = async () => path.join(await pastaDeDados(), "chats");
 
 export type ToolMeta = { error: boolean; summary: string; generationIds: string[] };
 
@@ -36,20 +36,27 @@ export type Chat = ChatSummary & {
   titleRenamedAt?: string;
 };
 
-const file = (id: string) => path.join(CHATS_DIR, `${id}.json`);
+const file = async (id: string) => path.join(await pastaDasConversas(), `${id}.json`);
 const validId = (id: string) => /^[\w-]+$/.test(id);
+
+async function gravar(chat: Chat) {
+  const destino = await file(chat.id);
+  const tmp = `${destino}.tmp`;
+  await writeFile(tmp, JSON.stringify(chat));
+  await rename(tmp, destino);
+}
 
 export async function getChat(id: string): Promise<Chat | null> {
   if (!validId(id)) return null;
   try {
-    return JSON.parse(await readFile(file(id), "utf8")) as Chat;
+    return JSON.parse(await readFile(await file(id), "utf8")) as Chat;
   } catch {
     return null;
   }
 }
 
 export async function saveChat(chat: Chat) {
-  await mkdir(CHATS_DIR, { recursive: true });
+  await mkdir(await pastaDasConversas(), { recursive: true });
   // Um turno guarda a conversa que carregou no início: se ela foi renomeada no meio, mantém o nome novo.
   const disk = await getChat(chat.id);
   if (disk?.titleRenamedAt && (!chat.titleRenamedAt || disk.titleRenamedAt > chat.titleRenamedAt)) {
@@ -57,9 +64,7 @@ export async function saveChat(chat: Chat) {
     chat.titleRenamedAt = disk.titleRenamedAt;
   }
   chat.updatedAt = new Date().toISOString();
-  const tmp = `${file(chat.id)}.tmp`;
-  await writeFile(tmp, JSON.stringify(chat));
-  await rename(tmp, file(chat.id));
+  await gravar(chat);
 }
 
 export const summary = ({ id, title, createdAt, updatedAt, costUsd, agentId }: Chat): ChatSummary => ({
@@ -78,7 +83,7 @@ export function newChat(title: string, system: string, toolNames?: string[], age
 
 // agentId: só as conversas desse agente; null: só as do chat principal; undefined: todas.
 export async function listChats(agentId?: string | null): Promise<ChatSummary[]> {
-  const names = await readdir(CHATS_DIR).catch(() => [] as string[]);
+  const names = await readdir(await pastaDasConversas()).catch(() => [] as string[]);
   const chats = await Promise.all(
     names.filter((n) => n.endsWith(".json")).map((n) => getChat(n.slice(0, -5))),
   );
@@ -91,7 +96,7 @@ export async function listChats(agentId?: string | null): Promise<ChatSummary[]>
 
 // Conversas completas (para os agentes lerem o trabalho uns dos outros), da mais recente para a mais antiga.
 export async function listFullChats(): Promise<Chat[]> {
-  const names = await readdir(CHATS_DIR).catch(() => [] as string[]);
+  const names = await readdir(await pastaDasConversas()).catch(() => [] as string[]);
   const chats = await Promise.all(names.filter((n) => n.endsWith(".json")).map((n) => getChat(n.slice(0, -5))));
   return chats.filter((c): c is Chat => Boolean(c)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
@@ -102,12 +107,10 @@ export async function renameChat(id: string, title: string): Promise<Chat | null
   chat.title = title;
   chat.titleRenamedAt = new Date().toISOString();
   // Grava sem mexer em updatedAt: renomear não deve mudar a ordem da lista.
-  const tmp = `${file(id)}.tmp`;
-  await writeFile(tmp, JSON.stringify(chat));
-  await rename(tmp, file(id));
+  await gravar(chat);
   return chat;
 }
 
 export async function deleteChat(id: string) {
-  if (validId(id)) await unlink(file(id)).catch(() => undefined);
+  if (validId(id)) await unlink(await file(id)).catch(() => undefined);
 }

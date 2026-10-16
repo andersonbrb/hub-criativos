@@ -9,11 +9,13 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { getAgentProfile } from "@/lib/agent-profiles";
 import { documentRef, imageRef } from "@/lib/server/chat/images";
 import { InputError } from "@/lib/server/http";
-import { MEDIA_DIR, saveMedia } from "@/lib/server/media";
-import { createGeneration, DATA_DIR, deleteGeneration } from "@/lib/server/store";
+import { saveMedia } from "@/lib/server/media";
+import { pastaDeDados, pastaDeMidia } from "@/lib/server/pastas";
+import { createGeneration, deleteGeneration } from "@/lib/server/store";
 
 // Personalização de cada agente feita pelo usuário (botão "Editar agente"): instruções, contexto e arquivos.
-// Fica em hub/.data/agents/<id>.json e vale para os dois modelos (Claude e Venice): entra no prompt de sistema
+// Fica em agents/<id>.json, na pasta da organização (cada organização personaliza os agentes do seu jeito), e vale
+// para os dois modelos (Claude e Venice): entra no prompt de sistema
 // das conversas NOVAS do agente (o prompt de uma conversa é congelado na criação) e, imagens e PDFs, anexados
 // na primeira mensagem de cada conversa nova. Vídeos e áudios viram gerações do hub (o agente assiste/usa pelas
 // ferramentas); textos entram escritos no prompt.
@@ -22,8 +24,8 @@ export type AgentFileKind = "image" | "video" | "audio" | "pdf" | "text";
 export type AgentFile = { id: string; name: string; kind: AgentFileKind; file: string; size: number; generationId?: string };
 export type AgentSettings = { instructions: string; context: string; files: AgentFile[]; updatedAt: string | null };
 
-const DIR = path.join(DATA_DIR, "agents");
-const fileOf = (id: string) => path.join(DIR, `${id}.json`);
+const pastaDosAgentes = async () => path.join(await pastaDeDados(), "agents");
+const fileOf = async (id: string) => path.join(await pastaDosAgentes(), `${id}.json`);
 
 const MAX_FILES = 20;
 const MAX_TEXT_CHARS = 20_000; // por arquivo de texto no prompt
@@ -42,18 +44,19 @@ function checkAgent(id: string) {
 export async function getAgentSettings(id: string): Promise<AgentSettings> {
   checkAgent(id);
   try {
-    return { ...empty(), ...(JSON.parse(await readFile(fileOf(id), "utf8")) as AgentSettings) };
+    return { ...empty(), ...(JSON.parse(await readFile(await fileOf(id), "utf8")) as AgentSettings) };
   } catch {
     return empty();
   }
 }
 
 async function write(id: string, s: AgentSettings): Promise<AgentSettings> {
-  await mkdir(DIR, { recursive: true });
+  await mkdir(await pastaDosAgentes(), { recursive: true });
   s.updatedAt = new Date().toISOString();
-  const tmp = `${fileOf(id)}.tmp`;
+  const destino = await fileOf(id);
+  const tmp = `${destino}.tmp`;
   await writeFile(tmp, JSON.stringify(s, null, 2));
-  await rename(tmp, fileOf(id));
+  await rename(tmp, destino);
   return s;
 }
 
@@ -107,7 +110,7 @@ export async function removeAgentFile(id: string, fileId: string): Promise<Agent
   if (!f) throw new InputError("Arquivo não encontrado.");
   s.files = s.files.filter((x) => x.id !== fileId);
   if (f.generationId) await deleteGeneration(f.generationId);
-  await unlink(path.join(MEDIA_DIR, f.file)).catch(() => undefined);
+  await unlink(path.join(await pastaDeMidia(), f.file)).catch(() => undefined);
   return write(id, s);
 }
 
@@ -129,7 +132,7 @@ export async function agentPromptSection(id: string): Promise<string> {
     });
     parts.push(`## Arquivos de referência\n${lines.join("\n")}`);
     for (const f of s.files.filter((x) => x.kind === "text")) {
-      const text = await readFile(path.join(MEDIA_DIR, f.file), "utf8").catch(() => "");
+      const text = await readFile(path.join(await pastaDeMidia(), f.file), "utf8").catch(() => "");
       const cut = text.length > MAX_TEXT_CHARS ? `${text.slice(0, MAX_TEXT_CHARS)}\n(cortado: arquivo muito longo)` : text;
       parts.push(`<arquivo_referencia nome="${f.name.replace(/"/g, "'")}">\n${cut}\n</arquivo_referencia>`);
     }

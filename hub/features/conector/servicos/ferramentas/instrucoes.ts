@@ -24,7 +24,7 @@ function comoUsar(usuario: Usuario): string {
   const pode = (c: Chave) => podeUsar(usuario, c);
   const partes = [
     "## Como usar as ferramentas",
-    "Este é o Hub de Criativos do Grupo Chegou. As ferramentas que aparecem para você dependem das permissões desta pessoa; se uma não está na lista, ela não tem acesso.",
+    `Este é o Hub de Criativos da organização ${usuario.organizacao?.nome ?? "desta pessoa"}: a memória, a Biblioteca e o Fluxo são só dela. As ferramentas que aparecem para você dependem das permissões desta pessoa; se uma não está na lista, ela não tem acesso.`,
   ];
   if (pode("memoria")) {
     partes.push(

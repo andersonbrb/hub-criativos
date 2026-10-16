@@ -18,7 +18,7 @@ import { listFullChats, type Chat } from "@/lib/server/chat/store";
 import { createCard, getBoard, moveCard, updateCard } from "@/lib/server/board";
 import { autoCaptions, joinProject, openProject, renderProject, saveProject } from "@/lib/server/editor";
 import { InputError } from "@/lib/server/http";
-import { MEDIA_DIR } from "@/lib/server/media";
+import { pastaDeMidia } from "@/lib/server/pastas";
 import { runBeatEdit, runMontage, runRemoveCaptions, type MontageFx } from "@/lib/server/montage";
 import type { GraphicRequest } from "@/lib/server/motion";
 import { timeline, type Engine, type Transcript } from "@/lib/server/transcription";
@@ -43,6 +43,7 @@ import { listLooks, listVoices as listHeyVoices } from "@/lib/server/providers/h
 import { getGeneration, listGenerations } from "@/lib/server/store";
 // ---- Acesso (features/acesso) ----
 import { podeUsar, SemPermissao, type Chave, type Usuario } from "@/features/acesso/contrato";
+import { comOrganizacao } from "@/features/acesso/servicos/organizacao-atual";
 // ---- Memória (features/memoria) ----
 import { FRENTE_ROTULO, FRENTES, TIPO_ROTULO, TIPOS, type DocResumo, type Frente, type TipoDoc } from "@/features/memoria/contrato";
 import { DocNaoEncontrado } from "@/features/memoria/erros";
@@ -124,14 +125,15 @@ const sleep = (ms: number, signal: AbortSignal) =>
     signal.addEventListener("abort", () => (clearTimeout(t), resolve()), { once: true });
   });
 
-// Foto de prévia de um avatar do HeyGen, baixada uma vez só (cache em .data/media pelo hash da URL).
+// Foto de prévia de um avatar do HeyGen, baixada uma vez só (cache nas mídias da organização pelo hash da URL).
 async function lookThumb(url: string): Promise<string> {
   const file = `heygen-look-${createHash("sha1").update(url.split("?")[0]).digest("hex").slice(0, 16)}.jpg`;
-  const out = path.join(MEDIA_DIR, file);
+  const midia = await pastaDeMidia();
+  const out = path.join(midia, file);
   if (existsSync(out)) return file;
   const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) throw new Error(`foto ${res.status}`);
-  await mkdir(MEDIA_DIR, { recursive: true });
+  await mkdir(midia, { recursive: true });
   await writeFile(out, Buffer.from(await res.arrayBuffer()));
   return file;
 }
@@ -1483,12 +1485,18 @@ export async function runTool(name: string, input: unknown, ctx: Ctx): Promise<T
     const message = `${new SemPermissao(falta.chave).message}${falta.dica ? ` ${falta.dica}` : ""}`;
     return { content: message, summary: cut(message, 120), error: true };
   }
-  try {
-    return { ...(await handler((input ?? {}) as Input, ctx)), error: false };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Erro inesperado";
-    return { content: message, summary: cut(message, 120), error: true };
-  }
+  // A ferramenta roda na organização de quem pediu (a mesma em que as chaves acima foram conferidas). Quem chama já
+  // costuma estar dentro dela (route(), MCP do hub); aqui fica garantido também para quem chama direto.
+  const org = ctx.usuario?.ativo && ctx.usuario.organizacao?.situacao === "ativa" ? ctx.usuario.organizacao.id : null;
+  const executar = async () => {
+    try {
+      return { ...(await handler((input ?? {}) as Input, ctx)), error: false };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erro inesperado";
+      return { content: message, summary: cut(message, 120), error: true };
+    }
+  };
+  return org ? comOrganizacao(org, executar) : executar();
 }
 
 // Linha curta mostrada no card da ferramenta (o que foi pedido).

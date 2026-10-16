@@ -7,6 +7,7 @@ import { and, eq, lt } from "drizzle-orm";
 import { banco, type Banco } from "@/db/cliente";
 import { driveConta, drivePedidosLogin } from "@/db/schema";
 import { caminhoSeguro } from "@/features/acesso/contrato";
+import { organizacaoAtual } from "@/features/acesso/servicos/organizacao-atual";
 import type { StatusDrive } from "@/features/drive/contrato";
 import type { MotivoDoLogin } from "@/features/drive/tela/avisos";
 import { lerChave } from "@/features/integracoes/servicos/chaves";
@@ -18,7 +19,8 @@ export { cifrar, decifrar };
 
 // Conta Google do Drive (login OAuth na tela Integrações). Contrato estável: as assinaturas não mudam.
 //
-// Uma conta só para o hub inteiro (linha única em drive_conta). O login é o OAuth 2.0 do Google para "aplicativo da
+// Uma conta por organização (uma linha em drive_conta por organização; tudo aqui usa a organização em que o código
+// está rodando, features/acesso/servicos/organizacao-atual.ts). O login é o OAuth 2.0 do Google para "aplicativo da
 // Web" (com client_secret) mais PKCE e state. Escopo drive.file: o hub só enxerga os arquivos que ele mesmo criou, e
 // por isso o Google não exige verificação do app (o login não vence a cada 7 dias).
 //
@@ -66,7 +68,6 @@ const ESCOPOS = [ESCOPO_DRIVE, "openid", "email", "profile"];
 
 export const CAMINHO_DE_VOLTA = "/api/integracoes/google-drive/callback";
 
-const LINHA = "unica";
 const VALIDADE_DO_PEDIDO_MS = 10 * 60_000;
 // Renova antes de vencer: um envio grande que pega o token aos 59 minutos não pode cair no meio.
 const MARGEM_DE_RENOVACAO_MS = 2 * 60_000;
@@ -116,8 +117,9 @@ export function enderecoDeVolta(origem: string): string {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Memória do processo. Em globalThis porque o Next pode carregar este arquivo mais de uma vez (rotas compiladas à
-// parte, recarga no desenvolvimento) e a renovação precisa ser UMA por processo.
+// Memória do processo, uma por organização (cada uma tem a própria conta Google). Em globalThis porque o Next pode
+// carregar este arquivo mais de uma vez (rotas compiladas à parte, recarga no desenvolvimento) e a renovação precisa
+// ser UMA por processo e organização.
 
 type Memoria = {
   // Renovação (ou leitura do banco) em andamento: quem pede token enquanto isso espera a mesma resposta.
@@ -129,12 +131,18 @@ type Memoria = {
   espaco: { email: string; quando: number; valor: StatusDrive["espaco"] } | null;
 };
 
-const g = globalThis as typeof globalThis & { __hubDrive?: Memoria };
-const memoria = (): Memoria => (g.__hubDrive ??= { renovacao: null, token: null, recusado: null, espaco: null });
+const g = globalThis as typeof globalThis & { __hubDrive?: Map<string, Memoria> };
+const memorias = () => (g.__hubDrive ??= new Map());
+function memoria(org: string): Memoria {
+  let m = memorias().get(org);
+  if (!m) memorias().set(org, (m = { renovacao: null, token: null, recusado: null, espaco: null }));
+  return m;
+}
 
-// Esquece tudo o que está em memória (troca de conta, desconexão e testes).
-export function zerarMemoriaDoDrive() {
-  g.__hubDrive = undefined;
+// Esquece o que está em memória (troca de conta e desconexão: só a organização; sem argumento, todas, para os testes).
+export function zerarMemoriaDoDrive(org?: string) {
+  if (org) memorias().delete(org);
+  else g.__hubDrive = undefined;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -189,10 +197,10 @@ async function revogarGuardado(tokenCifrado: string) {
 // ---------------------------------------------------------------------------------------------------------------
 // Banco
 
-async function lerConta() {
+async function lerConta(org: string) {
   const db = bancoOuNada();
   if (!db) return null;
-  const [linha] = await db.select().from(driveConta).where(eq(driveConta.id, LINHA)).limit(1);
+  const [linha] = await db.select().from(driveConta).where(eq(driveConta.organizacaoId, org)).limit(1);
   return linha ?? null;
 }
 
@@ -210,7 +218,7 @@ export async function statusDrive(): Promise<StatusDrive> {
 
   let conta: Awaited<ReturnType<typeof lerConta>>;
   try {
-    conta = await lerConta();
+    conta = await lerConta(await organizacaoAtual());
   } catch (err) {
     // A tela Integrações não pode cair porque o banco piscou.
     console.error("[drive] não deu para ler a conta do Drive:", err instanceof Error ? err.message : err);
@@ -232,7 +240,7 @@ export async function statusDrive(): Promise<StatusDrive> {
 }
 
 async function espacoDaConta(email: string): Promise<StatusDrive["espaco"]> {
-  const m = memoria();
+  const m = memoria(await organizacaoAtual());
   if (m.espaco && m.espaco.email === email && Date.now() - m.espaco.quando < VALIDADE_DO_ESPACO_MS) return m.espaco.valor;
 
   const token = await tokenDeAcesso();
@@ -272,6 +280,7 @@ export async function iniciarLogin(volta: string, origem: string, quem?: string 
     volta: caminhoSeguro(volta, "/integracoes"),
     redirectUri,
     iniciadoPor: contaDoHub(quem),
+    organizacaoId: await organizacaoAtual(),
   });
 
   const url = new URL(AUTORIZAR);
@@ -306,6 +315,11 @@ export async function concluirLogin(code: string, state: string, origem: string,
     throw new ErroNoLoginDoDrive("pedido-vencido", "Retorno do Google com um state desconhecido, vencido ou já usado.");
   if (pedido.iniciadoPor && pedido.iniciadoPor !== contaDoHub(quem))
     throw new ErroNoLoginDoDrive("outra-pessoa", "Retorno do Google aberto por uma conta do hub diferente da que pediu o login.");
+  // O Drive vai para a organização onde o login começou, e a pessoa precisa estar nela agora (trocar de organização
+  // no meio do caminho conectaria a conta Google numa organização que ela não estava vendo).
+  const org = pedido.organizacaoId;
+  if (org !== (await organizacaoAtual()))
+    throw new ErroNoLoginDoDrive("outra-organizacao", "Retorno do Google aberto em outra organização que não a do pedido.");
 
   let verificador: string;
   try {
@@ -344,7 +358,13 @@ export async function concluirLogin(code: string, state: string, origem: string,
     throw new ErroNoLoginDoDrive("google", `O Google não informou o e-mail da conta (status ${perfilRes.status}).`);
   }
 
-  const anterior = await lerConta();
+  // A mesma conta Google não guarda os vídeos de duas organizações. Não revoga: a autorização é a mesma da outra
+  // organização, e revogar cortaria o Drive dela.
+  const [emOutra] = await db.select({ org: driveConta.organizacaoId }).from(driveConta).where(eq(driveConta.email, perfil.email.toLowerCase())).limit(1);
+  if (emOutra && emOutra.org !== org)
+    throw new ErroNoLoginDoDrive("conta-em-outra-organizacao", "Essa conta Google já está conectada em outra organização.");
+
+  const anterior = await lerConta(org);
   const valores = {
     email: perfil.email.toLowerCase(),
     nome: perfil.name?.trim() || null,
@@ -357,9 +377,9 @@ export async function concluirLogin(code: string, state: string, origem: string,
   };
   await db
     .insert(driveConta)
-    .values({ id: LINHA, ...valores })
-    .onConflictDoUpdate({ target: driveConta.id, set: valores });
-  zerarMemoriaDoDrive();
+    .values({ organizacaoId: org, ...valores })
+    .onConflictDoUpdate({ target: driveConta.organizacaoId, set: valores });
+  zerarMemoriaDoDrive(org);
 
   // Trocou de conta Google: a autorização da antiga não serve mais. Na MESMA conta não se revoga: o Google tiraria o
   // acesso do hub inteiro, e a autorização nova cairia junto.
@@ -373,9 +393,10 @@ export async function concluirLogin(code: string, state: string, origem: string,
 // Tira a conta do hub e revoga a autorização no Google. Os arquivos continuam no Drive da conta.
 export async function desconectar(): Promise<void> {
   const db = bancoOuNada();
-  zerarMemoriaDoDrive();
+  const org = await organizacaoAtual();
+  zerarMemoriaDoDrive(org);
   if (!db) return;
-  const [conta] = await db.delete(driveConta).where(eq(driveConta.id, LINHA)).returning();
+  const [conta] = await db.delete(driveConta).where(eq(driveConta.organizacaoId, org)).returning();
   if (conta) await revogarGuardado(conta.refreshTokenCifrado);
 }
 
@@ -384,12 +405,13 @@ export async function desconectar(): Promise<void> {
 
 // Token de acesso válido (renova sozinho). Lança DriveNaoConectado.
 export async function tokenDeAcesso(): Promise<string> {
-  const m = memoria();
+  const org = await organizacaoAtual();
+  const m = memoria(org);
   if (m.token && m.token.valor !== m.recusado && m.token.expiraEm - Date.now() > MARGEM_DE_RENOVACAO_MS) return m.token.valor;
   // Uma ida ao banco/Google por vez no processo: o player, os envios e a migração pedindo token juntos esperam a
   // mesma resposta, em vez de cada um gastar uma renovação.
   if (!m.renovacao) {
-    const emAndamento: Promise<string> = obterToken(m).finally(() => {
+    const emAndamento: Promise<string> = obterToken(m, org).finally(() => {
       if (m.renovacao === emAndamento) m.renovacao = null;
     });
     m.renovacao = emAndamento;
@@ -403,15 +425,16 @@ export async function tokenDeAcesso(): Promise<string> {
 // DriveNaoConectado. Uso: no 401, `await esquecerTokenDeAcesso(tokenUsado)` e peça tokenDeAcesso() de novo, uma vez.
 // `recusado`: o token que levou o 401. Com ele, nem uma leitura do banco já em andamento devolve o mesmo token.
 export async function esquecerTokenDeAcesso(recusado?: string): Promise<void> {
-  const m = memoria();
+  const org = await organizacaoAtual();
+  const m = memoria(org);
   if (recusado) m.recusado = recusado;
   if (!recusado || m.token?.valor === recusado) m.token = null;
   const db = bancoOuNada();
   if (!db) return;
   // Com o token informado, só apaga se o do banco ainda for ele: se outro pedido já renovou, o novo fica.
-  const conta = recusado ? await lerConta() : null;
+  const conta = recusado ? await lerConta(org) : null;
   if (recusado && conta?.accessTokenCifrado && decifrarOuNada(conta.accessTokenCifrado) !== recusado) return;
-  await db.update(driveConta).set({ accessTokenCifrado: null, expiraEm: null }).where(eq(driveConta.id, LINHA));
+  await db.update(driveConta).set({ accessTokenCifrado: null, expiraEm: null }).where(eq(driveConta.organizacaoId, org));
 }
 
 function decifrarOuNada(cifrado: string): string | null {
@@ -422,8 +445,8 @@ function decifrarOuNada(cifrado: string): string | null {
   }
 }
 
-async function obterToken(m: Memoria): Promise<string> {
-  const conta = await lerConta();
+async function obterToken(m: Memoria, org: string): Promise<string> {
+  const conta = await lerConta(org);
   if (!conta) throw new DriveNaoConectado();
 
   let guardado: string | null = null;
@@ -454,8 +477,8 @@ async function obterToken(m: Memoria): Promise<string> {
       // resolve. Apagar a conta faz o card mostrar "Conectar" em vez de um erro que se repete a cada vídeo.
       await banco()
         .delete(driveConta)
-        .where(and(eq(driveConta.id, LINHA), eq(driveConta.refreshTokenCifrado, conta.refreshTokenCifrado)));
-      zerarMemoriaDoDrive();
+        .where(and(eq(driveConta.organizacaoId, org), eq(driveConta.refreshTokenCifrado, conta.refreshTokenCifrado)));
+      zerarMemoriaDoDrive(org);
       console.error("[drive] o Google recusou a autorização guardada (invalid_grant); a conta foi desconectada.");
       throw new DriveNaoConectado();
     }
@@ -467,7 +490,7 @@ async function obterToken(m: Memoria): Promise<string> {
   await banco()
     .update(driveConta)
     .set({ accessTokenCifrado: cifrar(dados.access_token), expiraEm, ...(dados.refresh_token ? { refreshTokenCifrado: cifrar(dados.refresh_token) } : {}) })
-    .where(and(eq(driveConta.id, LINHA), eq(driveConta.refreshTokenCifrado, conta.refreshTokenCifrado)));
+    .where(and(eq(driveConta.organizacaoId, org), eq(driveConta.refreshTokenCifrado, conta.refreshTokenCifrado)));
   m.token = { valor: dados.access_token, expiraEm: expiraEm.getTime() };
   return dados.access_token;
 }

@@ -6,13 +6,14 @@ import path from "node:path";
 
 import { callTool, uploadAsset } from "@/lib/server/heygen-mcp";
 import { InputError } from "@/lib/server/http";
-import { MEDIA_DIR, saveMedia } from "@/lib/server/media";
-import { DATA_DIR } from "@/lib/server/store";
+import { saveMedia } from "@/lib/server/media";
+import { pastaDeDados, pastaDeMidia } from "@/lib/server/pastas";
 
 // Criar um avatar novo no HeyGen, como no app deles: por FOTO (photo avatar), por DESCRIÇÃO (prompt avatar)
 // ou por VÍDEO da pessoa falando (gêmeo digital, que exige o consentimento da pessoa).
 // Vai pelo MCP do HeyGen (mesmo login da Tradução, créditos do plano web). As criações em andamento ficam em
-// .data/heygen-avatars.json até o treino terminar; aí o avatar aparece em "Meus avatares" do estúdio.
+// heygen-avatars.json (na pasta da organização) até o treino terminar; aí o avatar aparece em "Meus avatares" do
+// estúdio.
 
 export type AvatarMode = "photo" | "prompt" | "twin";
 
@@ -29,20 +30,21 @@ export type AvatarCreation = {
   createdAt: string;
 };
 
-const STORE = path.join(DATA_DIR, "heygen-avatars.json");
+const arquivo = async () => path.join(await pastaDeDados(), "heygen-avatars.json");
 
 async function load(): Promise<AvatarCreation[]> {
   try {
-    return JSON.parse(await readFile(STORE, "utf8")) as AvatarCreation[];
+    return JSON.parse(await readFile(await arquivo(), "utf8")) as AvatarCreation[];
   } catch {
     return [];
   }
 }
 
 async function save(list: AvatarCreation[]) {
-  await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(`${STORE}.tmp`, JSON.stringify(list, null, 1));
-  await rename(`${STORE}.tmp`, STORE);
+  const destino = await arquivo();
+  await mkdir(path.dirname(destino), { recursive: true });
+  await writeFile(`${destino}.tmp`, JSON.stringify(list, null, 1));
+  await rename(`${destino}.tmp`, destino);
 }
 
 // As respostas do MCP variam de forma; procura a chave em qualquer nível.
@@ -69,7 +71,7 @@ const MAX = { photo: 10 * 1024 * 1024, ref: 10 * 1024 * 1024, video: 2 * 1024 * 
 async function asset(file: File, fallbackExt: string) {
   const ext = (file.name.split(".").pop() ?? "").toLowerCase();
   const saved = await saveMedia(Buffer.from(await file.arrayBuffer()), /^[a-z0-9]{2,5}$/.test(ext) ? ext : fallbackExt);
-  const id = await uploadAsset(path.join(MEDIA_DIR, saved), `avatar:${saved}`, file.type || "application/octet-stream");
+  const id = await uploadAsset(path.join(await pastaDeMidia(), saved), `avatar:${saved}`, file.type || "application/octet-stream");
   return { type: "asset_id", asset_id: id };
 }
 

@@ -1,4 +1,6 @@
+import { mkdtempSync } from "node:fs";
 import { access, mkdir, rm, utimes, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,7 +11,7 @@ import { DELETE as apagarUma, PATCH as mudarUma } from "@/app/api/generations/[i
 import { DELETE as limpar } from "@/app/api/generations/route";
 import { GET as midia } from "@/app/api/media/[file]/route";
 import { bancoDeTeste } from "@/db/teste";
-import type { Chave } from "@/features/acesso/contrato";
+import { ORGANIZACAO_PADRAO, type Chave } from "@/features/acesso/contrato";
 import { criarConta } from "@/features/acesso/testes/ajuda";
 import { criarLinkDeDownload, entregarDownload } from "@/features/conector/servicos/links";
 import { sessao } from "@/features/conector/testes/sessao-falsa";
@@ -34,8 +36,12 @@ import {
 } from "@/features/drive/servicos/videos";
 import { downloadName, type Generation } from "@/lib/generations";
 import { createCard } from "@/lib/server/board";
-import { MEDIA_DIR } from "@/lib/server/media";
+import { pastaDeMidiaDa, usarRaizDosDados } from "@/lib/server/pastas";
 import * as store from "@/lib/server/store";
+
+// Os arquivos das organizações vão para uma pasta temporária (a mídia da padrão fica em <temp>/media).
+usarRaizDosDados(mkdtempSync(path.join(os.tmpdir(), "hub-drive-videos-")));
+const MEDIA_DIR = pastaDeMidiaDa(ORGANIZACAO_PADRAO.id);
 
 // Vídeos gerados moram só no Google Drive: sobem quando ficam prontos, o hub toca e baixa de lá, e o que a pessoa
 // apaga ou renomeia no Drive aparece no hub (espelho). O Drive em si (arquivos.ts e conta.ts) é simulado aqui.
@@ -73,8 +79,10 @@ vi.mock("@/lib/server/store", async () => {
   const geracoes: Generation[] = [];
   const leituras = { listas: 0 };
   const copia = <T,>(g: T): T => structuredClone(g);
+  const DATA_DIR = mkdtempSync(caminho.join(os.tmpdir(), "hub-drive-videos-"));
   return {
-    DATA_DIR: mkdtempSync(caminho.join(os.tmpdir(), "hub-drive-videos-")),
+    DATA_DIR,
+    arquivoDoBanco: async () => caminho.join(DATA_DIR, "db.json"),
     geracoes,
     leituras,
     listGenerations: async (tool?: string, opcoes: { incluirForaDoDrive?: boolean } = {}) => {
@@ -490,7 +498,7 @@ describe("vídeos no Google Drive", () => {
       vi.mocked(listarArquivosDoHub).mockResolvedValue([arquivoNoDrive("a", downloadName(noDrive))]);
 
       await sincronizarComDrive();
-      await vi.waitFor(() => expect(migracaoAgora().rodando).toBe(false));
+      await vi.waitFor(async () => expect((await migracaoAgora()).rodando).toBe(false));
 
       expect(enviarArquivo).toHaveBeenCalledTimes(1);
       expect(daMemoria(naFila.id)!.drive).toEqual({ id: "drv-1", pasta: "edicao-final" });
@@ -504,14 +512,14 @@ describe("vídeos no Google Drive", () => {
       const naFila = await novoVideo();
       vi.mocked(tokenDeAcesso).mockRejectedValue(new DriveNaoConectado());
       await sincronizarComDrive();
-      expect(migracaoAgora().rodando).toBe(false);
+      expect((await migracaoAgora()).rodando).toBe(false);
       expect(enviarArquivo).not.toHaveBeenCalled();
       expect(daMemoria(naFila.id)!.drive).toBeUndefined();
 
       zerarVideosNoDrive();
       vi.mocked(tokenDeAcesso).mockResolvedValue("token");
       await sincronizarComDrive();
-      await vi.waitFor(() => expect(migracaoAgora().rodando).toBe(false));
+      await vi.waitFor(async () => expect((await migracaoAgora()).rodando).toBe(false));
       expect(daMemoria(naFila.id)!.drive).toEqual({ id: "drv-1", pasta: "broll" });
       expect(listarArquivosDoHub).not.toHaveBeenCalled();
     });

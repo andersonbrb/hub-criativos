@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  Building2,
   Cable,
   Film,
   Languages,
@@ -22,7 +23,8 @@ import { agents } from "@/lib/data";
 // Telas do hub, na ordem do menu. Uma lista só para o menu lateral, a busca rápida (Ctrl K) e o nome da página na
 // barra do topo.
 
-export type ItemDoMenu = { href: string; label: string; icon: LucideIcon; chave: Chave; tool?: string };
+// soOperador: a tela não depende de chave da organização, só de operar a plataforma (tela Plataforma).
+export type ItemDoMenu = { href: string; label: string; icon: LucideIcon; chave: Chave; tool?: string; soOperador?: boolean };
 export type GrupoDoMenu = { titulo: string; itens: ItemDoMenu[] };
 
 export const MENU: GrupoDoMenu[] = [
@@ -57,19 +59,20 @@ export const MENU: GrupoDoMenu[] = [
     titulo: "Administração",
     itens: [
       { href: "/integracoes", label: "Integrações", icon: Plug, chave: "integracoes" },
-      { href: "/membros", label: "Membros", icon: Users, chave: "membros" },
+      { href: "/membros", label: "Equipe", icon: Users, chave: "membros" },
+      { href: "/plataforma", label: "Plataforma", icon: Building2, chave: "membros", soOperador: true },
     ],
   },
 ];
 
 // Telas que só existem com o banco (no PC sem banco ficam fora do menu).
-const SO_COM_BANCO = new Set<string>(["/memoria", "/conector", "/membros"]);
+const SO_COM_BANCO = new Set<string>(["/memoria", "/conector", "/membros", "/plataforma"]);
 
 // Cada pessoa só vê as telas que a conta dela pode abrir (a página também confere no servidor).
 export function menuDaPessoa(usuario: Usuario, semBanco: boolean): GrupoDoMenu[] {
   return MENU.map((g) => ({
     titulo: g.titulo,
-    itens: g.itens.filter((i) => podeUsar(usuario, i.chave) && !(semBanco && SO_COM_BANCO.has(i.href))),
+    itens: g.itens.filter((i) => (i.soOperador ? usuario.operaPlataforma : podeUsar(usuario, i.chave)) && !(semBanco && SO_COM_BANCO.has(i.href))),
   })).filter((g) => g.itens.length > 0);
 }
 

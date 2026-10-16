@@ -1,12 +1,16 @@
+import { mkdtempSync } from "node:fs";
 import { rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { POST as enviarMensagem } from "@/app/api/chat/route";
 import { POST as novaConversa } from "@/app/api/chat/new/route";
 import { bancoDeTeste } from "@/db/teste";
-import type { Chave, Usuario } from "@/features/acesso/contrato";
-import { criarConta } from "@/features/acesso/testes/ajuda";
+import { ORGANIZACAO_PADRAO, type Chave, type Usuario } from "@/features/acesso/contrato";
+import { comOrganizacao } from "@/features/acesso/servicos/organizacao-atual";
+import { criarConta, garantirOrganizacaoPadrao } from "@/features/acesso/testes/ajuda";
 import { sessao } from "@/features/conector/testes/sessao-falsa";
 import { salvar } from "@/features/memoria/servicos/memoria";
 import type { Generation } from "@/lib/generations";
@@ -15,8 +19,8 @@ import { runChatTurn } from "@/lib/server/chat/run";
 import { getChat } from "@/lib/server/chat/store";
 import { buildSystemPrompt } from "@/lib/server/chat/system";
 import { ferramentasDaPessoa, runTool, TOOL_NAMES } from "@/lib/server/chat/tools";
+import { usarRaizDosDados } from "@/lib/server/pastas";
 import { createProject } from "@/lib/server/providers/flora";
-import { DATA_DIR } from "@/lib/server/store";
 
 // Achado MÉDIO 5 da revisão de segurança: as ferramentas do chat não sabiam quem estava usando. Uma conta só com o
 // "chat" lia a Memória e gerava nos estúdios (gastando crédito) pelo agente. Agora cada ferramenta confere a chave da
@@ -27,14 +31,6 @@ vi.mock("@/features/acesso/servicos/sessao", async (importOriginal) => {
   const { exigirFalso } = await import("@/features/conector/testes/sessao-falsa");
   const exigir = exigirFalso(real.buscarUsuario);
   return { ...real, exigirUsuario: exigir, exigirPagina: exigir };
-});
-// As conversas ficam numa pasta temporária, não no .data de verdade.
-vi.mock("@/lib/server/store", async (importOriginal) => {
-  const real = await importOriginal<typeof import("@/lib/server/store")>();
-  const { mkdtempSync } = await import("node:fs");
-  const os = await import("node:os");
-  const caminho = await import("node:path");
-  return { ...real, DATA_DIR: mkdtempSync(caminho.join(os.tmpdir(), "hub-chat-acesso-")) };
 });
 // Serviços externos simulados: nada sai para o FLORA nem para a Anthropic.
 vi.mock("@/lib/server/actions", async (importOriginal) => {
@@ -53,13 +49,28 @@ vi.mock("@/lib/server/chat/claude-code", async (importOriginal) => {
   return { ...real, usesApiBrain: () => true };
 });
 
+// As conversas ficam numa pasta temporária, não no .data de verdade.
+const DATA_DIR = mkdtempSync(path.join(os.tmpdir(), "hub-chat-acesso-"));
+usarRaizDosDados(DATA_DIR);
+
 const urlOriginal = process.env.DATABASE_URL;
 const chaveOriginal = process.env.ANTHROPIC_API_KEY;
 const BASE = "https://hub.teste";
 const ana = { id: null, nome: "Ana" };
 const SEGREDO = "Margem real da loja: 37%.";
 
-const conta = (chaves: Chave[], papel: Usuario["papel"] = "membro"): Usuario => ({ id: crypto.randomUUID(), email: "x@exemplo.com", nome: "X", papel, ativo: true, chaves });
+const conta = (chaves: Chave[], papel: Usuario["papel"] = "membro"): Usuario => ({
+  id: crypto.randomUUID(),
+  email: "x@exemplo.com",
+  nome: "X",
+  papel,
+  ativo: true,
+  chaves,
+  organizacao: { id: ORGANIZACAO_PADRAO.id, nome: ORGANIZACAO_PADRAO.nome, situacao: "ativa" },
+  operaPlataforma: false,
+});
+// Com DATABASE_URL (o hub da nuvem), o que roda fora de uma rota precisa dizer a organização.
+const naPadrao = <T,>(fn: () => Promise<T>) => comOrganizacao(ORGANIZACAO_PADRAO.id, fn);
 const soChat = conta(["chat"]);
 const comTudo = conta(["chat", "memoria", "estudios", "fluxo", "editor"]);
 const ctx = (usuario: Usuario) => ({ signal: new AbortController().signal, usuario });
@@ -76,8 +87,10 @@ async function entrarCom(chaves: Chave[], papel: Usuario["papel"] = "membro") {
 
 // Memória com um documento no prompt (com o "segredo") e outro só na lista.
 async function memoriaComSegredo() {
-  await salvar({ slug: "02-regras", conteudo: `# Regras gerais\n\n${SEGREDO}`, versaoEsperada: null, tipo: "regra", noPrompt: true }, ana);
-  await salvar({ slug: "05-traducao", conteudo: "# Tradução de criativos\n\nPasso a passo.", versaoEsperada: null, tipo: "fluxo" }, ana);
+  await naPadrao(async () => {
+    await salvar({ slug: "02-regras", conteudo: `# Regras gerais\n\n${SEGREDO}`, versaoEsperada: null, tipo: "regra", noPrompt: true }, ana);
+    await salvar({ slug: "05-traducao", conteudo: "# Tradução de criativos\n\nPasso a passo.", versaoEsperada: null, tipo: "fluxo" }, ana);
+  });
 }
 
 describe("ferramentas do chat: chave de cada uma", () => {
@@ -85,6 +98,7 @@ describe("ferramentas do chat: chave de cada uma", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     process.env.DATABASE_URL = "postgres://banco-de-teste";
     await bancoDeTeste();
+    await garantirOrganizacaoPadrao();
     sessao.logado = null;
     vi.mocked(runFlora).mockReset().mockResolvedValue([geracaoFalsa]);
     vi.mocked(createProject).mockClear();
@@ -167,13 +181,13 @@ describe("ferramentas do chat: chave de cada uma", () => {
 
   it("prompt: sem a chave memoria, nada da Memória; com ela, a Memória inteira", async () => {
     await memoriaComSegredo();
-    const semMemoria = await buildSystemPrompt(undefined, soChat);
+    const semMemoria = await naPadrao(() => buildSystemPrompt(undefined, soChat));
     expect(semMemoria).not.toContain(SEGREDO);
     expect(semMemoria).not.toContain("# Memória da operação");
     expect(semMemoria).not.toContain("05-traducao");
     expect(semMemoria).toContain("# Playbooks");
 
-    const comMemoria = await buildSystemPrompt(undefined, comTudo);
+    const comMemoria = await naPadrao(() => buildSystemPrompt(undefined, comTudo));
     expect(comMemoria).toContain(SEGREDO);
     expect(comMemoria).toContain("- 05-traducao · Tradução de criativos");
     expect(comMemoria).not.toContain("# Playbooks");
@@ -186,7 +200,8 @@ describe("ferramentas do chat: chave de cada uma", () => {
     await entrarCom(["chat"]);
     const r1 = await criar();
     expect(r1.status).toBe(200);
-    const c1 = (await getChat(((await r1.json()) as { chat: { id: string } }).chat.id))!;
+    const id1 = ((await r1.json()) as { chat: { id: string } }).chat.id;
+    const c1 = (await naPadrao(() => getChat(id1)))!;
     expect(c1.toolNames).toEqual(ferramentasDaPessoa(soChat));
     expect(c1.toolNames).not.toContain("memoria_ler");
     expect(c1.toolNames).not.toContain("flora_generate");
@@ -194,7 +209,8 @@ describe("ferramentas do chat: chave de cada uma", () => {
 
     await entrarCom(["chat", "memoria", "estudios", "fluxo", "editor"]);
     const r2 = await criar();
-    const c2 = (await getChat(((await r2.json()) as { chat: { id: string } }).chat.id))!;
+    const id2 = ((await r2.json()) as { chat: { id: string } }).chat.id;
+    const c2 = (await naPadrao(() => getChat(id2)))!;
     expect(c2.toolNames).toEqual(TOOL_NAMES);
     expect(c2.system).toContain(SEGREDO);
   });

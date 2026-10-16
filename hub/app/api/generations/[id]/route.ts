@@ -4,7 +4,8 @@ import path from "node:path";
 import type { Chave } from "@/features/acesso/contrato";
 import { renomearNoDrive, tirarDoDrive } from "@/features/drive/servicos/videos";
 import { InputError, route } from "@/lib/server/http";
-import { CHAVES_DE_PRODUCAO, MEDIA_DIR } from "@/lib/server/media";
+import { CHAVES_DE_PRODUCAO } from "@/lib/server/media";
+import { pastaDeMidia } from "@/lib/server/pastas";
 import { deleteGeneration, getGeneration, updateGeneration } from "@/lib/server/store";
 
 // Telas com a lixeira que apaga a geração: Biblioteca, estúdios, Editor (exportações), Chat/agentes e Criativo
@@ -18,7 +19,7 @@ export const DELETE = route(async (_request: Request, { params }: { params: Prom
   if (!gen) return Response.json({ error: "Geração não encontrada." }, { status: 404 });
   await tirarDoDrive(gen);
   await deleteGeneration(id);
-  if (gen.file) await unlink(path.join(MEDIA_DIR, gen.file)).catch(() => undefined);
+  if (gen.file) await unlink(path.join(await pastaDeMidia(), gen.file)).catch(() => undefined);
   return Response.json({ ok: true });
 }, { chave: CHAVES_QUE_APAGAM });
 

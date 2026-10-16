@@ -3,6 +3,7 @@ import "server-only";
 import { access, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 
+import { organizacaoAtual } from "@/features/acesso/servicos/organizacao-atual";
 import type { ArquivoDrive, PastaDoDrive } from "@/features/drive/contrato";
 import {
   abrirTrecho,
@@ -16,8 +17,9 @@ import {
 import { DriveNaoConectado, tokenDeAcesso } from "@/features/drive/servicos/conta";
 import { downloadName, type Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
-import { CONTENT_TYPES, MEDIA_DIR } from "@/lib/server/media";
-import { DATA_DIR, getGeneration, listGenerations, updateGeneration } from "@/lib/server/store";
+import { CONTENT_TYPES } from "@/lib/server/media";
+import { pastaDeMidia } from "@/lib/server/pastas";
+import { arquivoDoBanco, getGeneration, listGenerations, updateGeneration } from "@/lib/server/store";
 
 // Ponte entre as gerações do hub e o Drive. Contrato estável: as assinaturas não mudam.
 //
@@ -38,28 +40,41 @@ const ESPERA_APOS_FALHA_MS = 10 * 60_000;
 // Proteção do espelho contra conta trocada: se mais da metade dos vídeos (e pelo menos estes) some de uma vez, nada
 // é marcado.
 const MINIMO_PARA_DESCONFIAR = 5;
-const ARQUIVO_DO_BANCO = path.join(DATA_DIR, "db.json");
 
 const mensagem = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const existe = (caminho: string) => access(caminho).then(() => true, () => false);
 const extensao = (file: string) => (file.split(".").pop() ?? "").toLowerCase();
 
 // Estado do processo (sobrevive ao hot reload do dev, como as montagens em lib/server/montage.ts).
-// Os campos opcionais chegaram depois: depois de um hot reload, o objeto antigo ainda não os tem.
+// Envios e cópias em uso valem para todas as organizações (a chave é o id da geração ou o nome do arquivo). Espelho,
+// migração e índice são de cada organização: cada uma tem a própria conta Google e o próprio db.json.
+type DaOrganizacao = {
+  espelho: { ultima: number; emCurso: Promise<void> | null };
+  migracao: EstadoDaMigracao;
+  proximaFilaSozinha: number;
+  indice?: { chave: string; porArquivo: Promise<Map<string, MidiaDoArquivo>> };
+};
 type Memoria = {
   envios: Map<string, Promise<Resultado>>;
   emUso: Map<string, number>;
-  espelho: { ultima: number; emCurso: Promise<void> | null };
-  migracao: EstadoDaMigracao;
-  proximaFilaSozinha?: number;
-  indice?: { chave: string; porArquivo: Promise<Map<string, MidiaDoArquivo>> };
+  // Opcional: depois de um hot reload, o objeto antigo ainda não tem.
+  porOrganizacao?: Map<string, DaOrganizacao>;
 };
 const memoria: Memoria = ((globalThis as { __videosNoDrive?: Memoria }).__videosNoDrive ??= {
   envios: new Map(),
   emUso: new Map(),
-  espelho: { ultima: 0, emCurso: null },
-  migracao: { rodando: false, total: 0, feitos: 0, falhas: 0, ultimoErro: null },
 });
+
+async function daOrganizacao(): Promise<DaOrganizacao> {
+  const org = await organizacaoAtual();
+  const todas = (memoria.porOrganizacao ??= new Map());
+  let estado = todas.get(org);
+  if (!estado) {
+    estado = { espelho: { ultima: 0, emCurso: null }, migracao: { rodando: false, total: 0, feitos: 0, falhas: 0, ultimoErro: null }, proximaFilaSozinha: 0 };
+    todas.set(org, estado);
+  }
+  return estado;
+}
 
 // ---------- Que vídeo vai para qual pasta ----------
 
@@ -129,7 +144,7 @@ async function levar(original: Generation): Promise<Resultado> {
     if (!vaiParaODrive(gen)) return { geracao: gen };
     const pasta = pastaDaGeracao(gen)!;
     const nomeLocal = path.basename(gen.file!);
-    const caminho = path.join(MEDIA_DIR, nomeLocal);
+    const caminho = path.join(await pastaDeMidia(), nomeLocal);
     const info = await stat(caminho).catch(() => null);
     if (!info?.isFile()) return { geracao: gen, erro: "O arquivo do vídeo não está no disco do hub." };
 
@@ -204,16 +219,17 @@ export async function midiaDoArquivo(file: string): Promise<MidiaDoArquivo | und
 }
 
 async function indiceDaMidia(): Promise<Map<string, MidiaDoArquivo>> {
-  const info = await stat(ARQUIVO_DO_BANCO).catch(() => null);
+  const info = await stat(await arquivoDoBanco()).catch(() => null);
   // Sem db.json (servidor novo) não há o que guardar: lê direto.
   if (!info) return montarIndice();
+  const da = await daOrganizacao();
   const chave = `${info.mtimeMs}:${info.size}`;
-  if (memoria.indice?.chave === chave) return memoria.indice.porArquivo;
+  if (da.indice?.chave === chave) return da.indice.porArquivo;
   // Os pedaços que chegam juntos esperam a mesma leitura. Se ela falhar, o próximo pedido tenta de novo.
   const porArquivo = montarIndice();
-  memoria.indice = { chave, porArquivo };
+  da.indice = { chave, porArquivo };
   porArquivo.catch(() => {
-    if (memoria.indice?.porArquivo === porArquivo) memoria.indice = undefined;
+    if (da.indice?.porArquivo === porArquivo) da.indice = undefined;
   });
   return porArquivo;
 }
@@ -243,7 +259,7 @@ function segurado(nome: string) {
 // temporária. Todo código que lê mídia do disco (ffmpeg, Python, sharp, envio ao HeyGen/FLORA) passa por aqui.
 export async function arquivoLocal(file: string): Promise<string> {
   const nome = path.basename(file);
-  const local = path.join(MEDIA_DIR, nome);
+  const local = path.join(await pastaDeMidia(), nome);
   // Marca antes de conferir: um envio ao Drive terminando agora não apaga o arquivo que vai ser lido.
   segurar(nome);
   if (await existe(local)) return local;
@@ -313,7 +329,7 @@ function mudancaDoEspelho(g: Generation, arquivo: ArquivoDrive | undefined): Par
 // leva para o Drive, em segundo plano, os vídeos que ficaram no disco do hub (a fila).
 // Leve e com intervalo mínimo: pode ser chamada a cada abertura de lista.
 export async function sincronizarComDrive(): Promise<void> {
-  const { espelho } = memoria;
+  const { espelho } = await daOrganizacao();
   if (espelho.emCurso) return espelho.emCurso;
   if (Date.now() - espelho.ultima < ESPERA_DO_ESPELHO_MS) return;
   espelho.ultima = Date.now();
@@ -363,7 +379,8 @@ async function espelhar(): Promise<void> {
 // Fila: vídeos que ficaram no disco do hub (Drive desconectado ou falha na hora do envio) vão sozinhos para o Drive
 // quando ele está conectado. Um por vez, pela mesma migração do botão de Integrações.
 async function levarAFila(conectado: boolean): Promise<void> {
-  if (memoria.migracao.rodando || Date.now() < (memoria.proximaFilaSozinha ?? 0)) return;
+  const da = await daOrganizacao();
+  if (da.migracao.rodando || Date.now() < da.proximaFilaSozinha) return;
   if (!(await filaDaMigracao()).length) return;
   if (!conectado) {
     try {
@@ -386,10 +403,11 @@ async function limparCopiasLocais(): Promise<void> {
   const agora = Date.now();
   for (const [nome, ate] of memoria.emUso) if (ate <= agora) memoria.emUso.delete(nome);
   const gens = (await listGenerations()).filter((g) => g.drive && g.file && !memoria.envios.has(g.id));
+  const midia = await pastaDeMidia();
   for (const g of gens) {
     const nome = path.basename(g.file!);
     if (segurado(nome)) continue;
-    await unlink(path.join(MEDIA_DIR, nome)).catch(() => undefined); // quase sempre já não existe
+    await unlink(path.join(midia, nome)).catch(() => undefined); // quase sempre já não existe
   }
 }
 
@@ -397,34 +415,36 @@ async function limparCopiasLocais(): Promise<void> {
 
 export type EstadoDaMigracao = { rodando: boolean; total: number; feitos: number; falhas: number; ultimoErro: string | null };
 
-export const estadoDaMigracao = (): EstadoDaMigracao => ({ ...memoria.migracao });
+export const estadoDaMigracao = async (): Promise<EstadoDaMigracao> => ({ ...(await daOrganizacao()).migracao });
 
 // Vídeos de antes da conexão com o Drive e os que ficaram marcados `paraDrive` (o Drive falhou na hora).
 async function filaDaMigracao(): Promise<Generation[]> {
   const candidatas = (await listGenerations()).filter(vaiParaODrive);
   const fila: Generation[] = [];
-  for (const g of candidatas) if (await existe(path.join(MEDIA_DIR, path.basename(g.file!)))) fila.push(g);
+  const midia = await pastaDeMidia();
+  for (const g of candidatas) if (await existe(path.join(midia, path.basename(g.file!)))) fila.push(g);
   return fila;
 }
 
 // Começa a migração em segundo plano, neste processo, uma de cada vez. Se já está rodando, só devolve o estado.
 export async function iniciarMigracao(): Promise<EstadoDaMigracao> {
-  const estado = memoria.migracao;
-  if (estado.rodando) return estadoDaMigracao();
+  const da = await daOrganizacao();
+  const estado = da.migracao;
+  if (estado.rodando) return { ...estado };
   Object.assign(estado, { rodando: true, total: 0, feitos: 0, falhas: 0, ultimoErro: null });
   try {
     const fila = await filaDaMigracao();
     estado.total = fila.length;
-    void migrar(fila);
+    void migrar(fila, da);
   } catch (err) {
     estado.rodando = false;
     estado.ultimoErro = mensagem(err);
   }
-  return estadoDaMigracao();
+  return { ...estado };
 }
 
-async function migrar(fila: Generation[]): Promise<void> {
-  const estado = memoria.migracao;
+async function migrar(fila: Generation[], da: DaOrganizacao): Promise<void> {
+  const estado = da.migracao;
   try {
     // Um vídeo por vez: são arquivos grandes, e o Drive limita pedidos seguidos.
     for (let i = 0; i < fila.length; i++) {
@@ -446,7 +466,7 @@ async function migrar(fila: Generation[]): Promise<void> {
     estado.ultimoErro = mensagem(err);
   } finally {
     estado.rodando = false;
-    if (estado.ultimoErro) memoria.proximaFilaSozinha = Date.now() + ESPERA_APOS_FALHA_MS;
+    if (estado.ultimoErro) da.proximaFilaSozinha = Date.now() + ESPERA_APOS_FALHA_MS;
   }
 }
 
@@ -454,9 +474,5 @@ async function migrar(fila: Generation[]): Promise<void> {
 export function zerarVideosNoDrive() {
   memoria.envios.clear();
   memoria.emUso.clear();
-  memoria.espelho.ultima = 0;
-  memoria.espelho.emCurso = null;
-  Object.assign(memoria.migracao, { rodando: false, total: 0, feitos: 0, falhas: 0, ultimoErro: null });
-  memoria.proximaFilaSozinha = 0;
-  memoria.indice = undefined;
+  memoria.porOrganizacao?.clear();
 }

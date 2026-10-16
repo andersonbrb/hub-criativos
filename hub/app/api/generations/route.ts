@@ -4,7 +4,8 @@ import path from "node:path";
 import { sincronizarComDrive, tirarDoDrive } from "@/features/drive/servicos/videos";
 import type { Generation, GenerationTool } from "@/lib/generations";
 import { InputError, route } from "@/lib/server/http";
-import { CHAVES_DE_PRODUCAO, MEDIA_DIR } from "@/lib/server/media";
+import { CHAVES_DE_PRODUCAO } from "@/lib/server/media";
+import { pastaDeMidia } from "@/lib/server/pastas";
 import { clearGenerations, listGenerations } from "@/lib/server/store";
 
 // ?tool=<ferramenta> filtra por estúdio; ?saved=1 lista só a Biblioteca.
@@ -57,7 +58,8 @@ export const DELETE = route(async (request: Request) => {
   }
 
   const removed = await clearGenerations(tool, { ids: saem });
-  await Promise.all(removed.map((g) => (g.file ? unlink(path.join(MEDIA_DIR, g.file)).catch(() => undefined) : undefined)));
+  const midia = await pastaDeMidia();
+  await Promise.all(removed.map((g) => (g.file ? unlink(path.join(midia, g.file)).catch(() => undefined) : undefined)));
   if (falhas) {
     const quantos = falhas === 1 ? "1 vídeo não foi para a lixeira do Google Drive e continua" : `${falhas} vídeos não foram para a lixeira do Google Drive e continuam`;
     throw new Error(`${quantos} no estúdio${removed.length ? " (o resto foi apagado)" : ""}. ${motivo}`);

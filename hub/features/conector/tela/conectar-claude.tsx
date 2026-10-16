@@ -137,10 +137,18 @@ export function ConectarClaude({ pedido, voltarPara }: { pedido: PedidoNaTela; v
               </div>
 
               <div>
+                <dt className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">Na organização</dt>
+                <dd className="mt-1">
+                  <span className="block font-medium">{pedido.organizacao}</span>
+                  <p className="mt-1 text-xs text-muted-foreground">Para conectar em outra organização, troque no topo do menu antes de autorizar.</p>
+                </dd>
+              </div>
+
+              <div>
                 <dt className="font-mono text-[11px] tracking-wide text-muted-foreground uppercase">O que ele vai poder fazer</dt>
                 <dd className="mt-1 leading-relaxed">
-                  Ler e gravar na memória do Hub, usar a Biblioteca e o Fluxo, sempre com as permissões que a sua conta já tem. Tudo
-                  o que ele gravar fica com o seu nome.
+                  Ler e gravar na memória de {pedido.organizacao}, usar a Biblioteca e o Fluxo dela, sempre com as permissões que a sua
+                  conta tem lá. Tudo o que ele gravar fica com o seu nome.
                 </dd>
               </div>
 

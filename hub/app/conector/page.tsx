@@ -12,7 +12,7 @@ export const metadata: Metadata = { title: "Conector do Claude Code · Hub de Cr
 export default async function ConectorPage() {
   const usuario = await exigirPagina("conector_claude");
   const endereco = enderecoMcp(basePublicaDeCabecalhos(await headers()));
-  const conexoes = await conexoesDaPessoa(usuario.id);
+  const conexoes = await conexoesDaPessoa(usuario.id, usuario.organizacao!.id);
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9">
       <PageHeader

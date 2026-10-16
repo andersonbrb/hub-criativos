@@ -2,6 +2,8 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
+import { ORGANIZACAO_PADRAO } from "@/features/acesso/contrato";
+import { organizacaoAtual } from "@/features/acesso/servicos/organizacao-atual";
 import { mcp } from "@/lib/server/mcp-client";
 
 // FLORA pelo MCP remoto (agents.flora.ai/mcp) com o login OAuth da conta (Integrações → FLORA).
@@ -60,8 +62,10 @@ const pid = (id: string) => (id.startsWith("prj_") ? id : `prj_${id}`);
 // cuja chave de API o hub usava), senão o current_workspace_id, senão o primeiro. Gerar num projeto pede o workspace
 // dele, então cada projeto escolhido na conversa resolve o próprio workspace (flora_get_project).
 
+// Cada organização tem a própria conta do FLORA (e o próprio projeto "Hub de Criativos"): um alvo por organização.
+// FLORA_WORKSPACE_ID e FLORA_PROJECT_ID valem só para a organização padrão.
 type Target = { workspaceId: string; projectId: string };
-let target: Promise<Target> | null = null;
+const targets = new Map<string, Promise<Target>>();
 const workspaceOf = new Map<string, string>();
 
 export type FloraProject = { id: string; name: string; lastModified: number | null };
@@ -105,10 +109,14 @@ async function createProjectIn(workspaceId: string, name: string): Promise<Found
   return { ...p, name: p.name === p.id ? name : p.name, lastModified: p.lastModified ?? Date.now(), workspaceId };
 }
 
-export function getTarget() {
-  target ??= (async (): Promise<Target> => {
-    const envWorkspace = process.env.FLORA_WORKSPACE_ID?.trim();
-    const envProject = process.env.FLORA_PROJECT_ID?.trim();
+export async function getTarget(): Promise<Target> {
+  const org = await organizacaoAtual();
+  const pronto = targets.get(org);
+  if (pronto) return pronto;
+  const padrao = org === ORGANIZACAO_PADRAO.id;
+  const target = (async (): Promise<Target> => {
+    const envWorkspace = padrao ? process.env.FLORA_WORKSPACE_ID?.trim() : undefined;
+    const envProject = padrao ? process.env.FLORA_PROJECT_ID?.trim() : undefined;
     if (envProject) {
       const workspaceId = envWorkspace || (await projectWorkspace(envProject));
       if (!workspaceId) throw new Error("Não achei o workspace do projeto FLORA_PROJECT_ID.");
@@ -139,9 +147,10 @@ export function getTarget() {
     workspaceOf.set(projectId, workspaceId);
     return { workspaceId, projectId };
   })().catch((err) => {
-    target = null; // tenta de novo na próxima chamada
+    targets.delete(org); // tenta de novo na próxima chamada
     throw err;
   });
+  targets.set(org, target);
   return target;
 }
 
@@ -388,8 +397,9 @@ function toRun(r: Rec): FloraRun {
 // consultam a cada 6 s e o chat a cada 8 s: as leituras do mesmo instante viram uma chamada só, e cada run fica
 // guardado 15 s. Cooldown ou limite não é falha: devolve o último estado conhecido.
 const POLL_GAP = 15_000;
+// O lote é de uma organização só: a leitura vai pela conta do FLORA dela, que não enxerga os runs das outras.
 const runs = new Map<string, { at: number; run: FloraRun }>();
-let batch: { ids: Set<string>; done: Promise<void> } | null = null;
+const batches = new Map<string, { ids: Set<string>; done: Promise<void> }>();
 
 const transient = (msg: string) => /cooldown|retry_after|rate.?limit|too many|429/i.test(msg);
 
@@ -397,14 +407,16 @@ function keep(id: string, at: number) {
   runs.set(id, { at, run: runs.get(id)?.run ?? { status: "running" } });
 }
 
-function readRuns(runId: string): Promise<void> {
+async function readRuns(runId: string): Promise<void> {
+  const org = await organizacaoAtual();
+  const batch = batches.get(org);
   if (batch && batch.ids.size < 20) {
     batch.ids.add(runId);
     return batch.done;
   }
   const ids = new Set([runId]);
   const done = sleep(50).then(async () => {
-    if (batch?.ids === ids) batch = null;
+    if (batches.get(org)?.ids === ids) batches.delete(org);
     const at = Date.now();
     try {
       const o = await tool("flora_list_generations", { run_ids: [...ids] });
@@ -423,7 +435,7 @@ function readRuns(runId: string): Promise<void> {
       for (const id of ids) keep(id, at);
     }
   });
-  batch = { ids, done };
+  batches.set(org, { ids, done });
   return done;
 }
 

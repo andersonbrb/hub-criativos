@@ -6,6 +6,8 @@ export const AVISOS_DO_LOGIN = {
   cancelado: "Conexão com o Google cancelada. Nada mudou.",
   "pedido-vencido": "O pedido de conexão venceu ou já foi usado. Clique em Conectar de novo.",
   "outra-pessoa": "Esse retorno do Google foi pedido por outra conta do hub. Clique em Conectar com a sua conta.",
+  "outra-organizacao": "Você trocou de organização no meio da conexão. Clique em Conectar de novo nesta organização.",
+  "conta-em-outra-organizacao": "Essa conta Google já guarda os vídeos de outra organização do hub. Conecte uma conta Google diferente.",
   "sem-drive": "Faltou liberar o Google Drive. Conecte de novo e deixe marcada a opção do Drive na tela do Google.",
   "sem-renovacao": "O Google não liberou o acesso permanente. Conecte de novo.",
   configuracao: "Falta configurar o Google Drive no servidor. Veja o aviso no card do Google Drive.",

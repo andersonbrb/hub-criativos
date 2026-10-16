@@ -1,6 +1,7 @@
 import "server-only";
 
 import { resolveElevenModel } from "@/lib/elevenlabs-models";
+import { organizacaoAtual } from "@/features/acesso/servicos/organizacao-atual";
 import { mcp } from "@/lib/server/mcp-client";
 
 // ElevenLabs pelo MCP remoto (api.elevenlabs.io/v1/mcp) com login OAuth da conta (Integrações → ElevenLabs).
@@ -91,10 +92,13 @@ const VOICE_QUERIES: Record<string, unknown>[] = [
 
 const LIBRARY_LANGUAGES = ["pt", "es", "en"];
 
-let voiceCache: { at: number; voices: ElevenVoice[] } | null = null;
+// Vozes da conta do ElevenLabs de cada organização (cada uma tem as próprias vozes clonadas).
+const voiceCache = new Map<string, { at: number; voices: ElevenVoice[] }>();
 
 export async function listVoices(): Promise<ElevenVoice[]> {
-  if (voiceCache && Date.now() - voiceCache.at < 120_000) return voiceCache.voices;
+  const org = await organizacaoAtual();
+  const cached = voiceCache.get(org);
+  if (cached && Date.now() - cached.at < 120_000) return cached.voices;
   const search = (args: Record<string, unknown>) =>
     el.callTool<{ voices?: RawVoice[] }>("creative_list_voices", { context: ctx("listar as vozes da conta para o usuário escolher a da narração"), ...args });
   // A primeira busca abre a sessão do MCP; as outras vão em paralelo.
@@ -129,7 +133,7 @@ export async function listVoices(): Promise<ElevenVoice[]> {
       useCase: labels.use_case ?? labels["use case"] ?? labels.descriptive ?? "",
     };
   });
-  voiceCache = { at: Date.now(), voices };
+  voiceCache.set(org, { at: Date.now(), voices });
   return voices;
 }
 

@@ -6,13 +6,12 @@ import path from "node:path";
 
 import { COLUMN_COLORS, DEFAULT_COLUMNS, defaultColumnColor, OPERATIONS, slugify, type Board, type BoardCard, type BoardColumn, type Operation } from "@/lib/board";
 import { InputError } from "@/lib/server/http";
-import { DATA_DIR } from "@/lib/server/store";
+import { esperarFila, naFila, pastaDeDados } from "@/lib/server/pastas";
 
-// Quadro Kanban do Pipeline salvo em hub/.data/board.json. Usado pela interface e pelo agente do chat.
+// Quadro Kanban do Pipeline: um board.json por organização (lib/server/pastas.ts). Usado pela interface e pelo
+// agente do chat.
 
-const BOARD_FILE = path.join(DATA_DIR, "board.json");
-
-let queue: Promise<unknown> = Promise.resolve();
+const arquivoDoQuadro = async () => path.join(await pastaDeDados(), "board.json");
 
 function defaultBoard(): Board {
   return {
@@ -41,31 +40,30 @@ function normalize(board: Board): Board {
   return { columns: board.columns, cards };
 }
 
-async function load(): Promise<Board> {
+async function load(arquivo: string): Promise<Board> {
   try {
-    return normalize(JSON.parse(await readFile(BOARD_FILE, "utf8")) as Board);
+    return normalize(JSON.parse(await readFile(arquivo, "utf8")) as Board);
   } catch {
     return defaultBoard();
   }
 }
 
-async function save(board: Board) {
-  await mkdir(DATA_DIR, { recursive: true });
-  const tmp = `${BOARD_FILE}.tmp`;
+async function save(arquivo: string, board: Board) {
+  await mkdir(path.dirname(arquivo), { recursive: true });
+  const tmp = `${arquivo}.tmp`;
   await writeFile(tmp, JSON.stringify(board, null, 2));
-  await rename(tmp, BOARD_FILE);
+  await rename(tmp, arquivo);
 }
 
 // Serializa as escritas para não perder atualizações concorrentes (interface + agente).
-function withBoard<T>(fn: (board: Board) => T | Promise<T>): Promise<T> {
-  const run = queue.then(async () => {
-    const board = await load();
+async function withBoard<T>(fn: (board: Board) => T | Promise<T>): Promise<T> {
+  const arquivo = await arquivoDoQuadro();
+  return naFila(arquivo, async () => {
+    const board = await load(arquivo);
     const result = await fn(board);
-    await save(board);
+    await save(arquivo, board);
     return result;
   });
-  queue = run.catch(() => undefined);
-  return run;
 }
 
 // --- validação ---
@@ -109,8 +107,9 @@ function findCard(board: Board, id: string): BoardCard {
 // --- operações ---
 
 export async function getBoard(): Promise<Board> {
-  await queue;
-  return load();
+  const arquivo = await arquivoDoQuadro();
+  await esperarFila(arquivo);
+  return load(arquivo);
 }
 
 export async function createCard(input: {

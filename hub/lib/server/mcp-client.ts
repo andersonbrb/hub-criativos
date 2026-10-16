@@ -4,8 +4,10 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { ORGANIZACAO_PADRAO } from "@/features/acesso/contrato";
+import { organizacaoAtual } from "@/features/acesso/servicos/organizacao-atual";
 import { InputError } from "@/lib/server/http";
-import { DATA_DIR } from "@/lib/server/store";
+import { pastaDaOrganizacao } from "@/lib/server/pastas";
 
 // Cliente genérico dos MCPs remotos que o hub usa no lugar das APIs (HeyGen, FLORA, ElevenLabs, Higgsfield), com login
 // OAuth da conta de cada serviço (PKCE). Pelo MCP o consumo sai dos créditos do plano de cada serviço, não do saldo da API.
@@ -97,10 +99,13 @@ type RpcResponse = { id?: number; result?: unknown; error?: { message?: string }
 
 export type McpClient = ReturnType<typeof createMcpClient>;
 
-export function createMcpClient(cfg: ServiceConfig) {
+// Um cliente por organização e serviço: cada organização conecta a própria conta (os créditos saem do plano dela), e
+// a sessão fica na pasta dela (lib/server/pastas.ts). A variável <ID>_MCP_SESSION só vale para a organização padrão.
+export function createMcpClient(cfg: ServiceConfig, organizacaoId: string = ORGANIZACAO_PADRAO.id) {
+  const DATA_DIR = pastaDaOrganizacao(organizacaoId);
   const STORE = path.join(DATA_DIR, `${cfg.id}-mcp.json`);
   const OTHER_STORE = path.join(DATA_DIR, `${cfg.id}-mcp-nuvem.json`);
-  const ENV = `${cfg.id.toUpperCase()}_MCP_SESSION`;
+  const ENV = organizacaoId === ORGANIZACAO_PADRAO.id ? `${cfg.id.toUpperCase()}_MCP_SESSION` : null;
   const notConnected = (detail = "") => new McpNotConnected(cfg.label, detail);
 
   async function load(): Promise<Saved> {
@@ -110,7 +115,7 @@ export function createMcpClient(cfg: ServiceConfig) {
     } catch {}
     if (saved.tokens) return saved;
     // Sem BOM nem espaços: o PowerShell coloca um BOM (U+FEFF) no começo ao enviar o valor por --stdin.
-    const seed = process.env[ENV]?.replace(/^﻿/, "").replace(/\s+/g, "");
+    const seed = ENV ? process.env[ENV]?.replace(/^﻿/, "").replace(/\s+/g, "") : undefined;
     if (!seed) return saved;
     try {
       const s = JSON.parse(Buffer.from(seed, "base64").toString("utf8")) as Saved;
@@ -372,15 +377,38 @@ export function createMcpClient(cfg: ServiceConfig) {
   return { config: cfg, connectionStatus, startLogin, finishLogin, disconnect, callTool, download, cachedAsset, rememberAsset, notConnected };
 }
 
-const clients = new Map<McpServiceId, McpClient>();
+// Clientes de verdade, um por organização e serviço (cada um com a própria sessão do MCP e a própria renovação de
+// token em andamento).
+const clients = new Map<string, McpClient>();
 
-export function mcp(id: McpServiceId): McpClient {
-  let c = clients.get(id);
+async function clienteDaOrganizacao(id: McpServiceId): Promise<McpClient> {
+  const org = await organizacaoAtual();
+  const chave = `${org}:${id}`;
+  let c = clients.get(chave);
   if (!c) {
-    c = createMcpClient(MCP_SERVICES[id]);
-    clients.set(id, c);
+    c = createMcpClient(MCP_SERVICES[id], org);
+    clients.set(chave, c);
   }
   return c;
+}
+
+// O que o resto do hub usa: a cada chamada, o cliente da organização em que o código está rodando. Pode ser guardado
+// numa constante do módulo (ex.: heygen-mcp.ts) sem prender a organização de quem chamou primeiro.
+export function mcp(id: McpServiceId): McpClient {
+  const cfg = MCP_SERVICES[id];
+  const atual = clienteDaOrganizacao.bind(null, id);
+  return {
+    config: cfg,
+    notConnected: (detail = "") => new McpNotConnected(cfg.label, detail),
+    connectionStatus: async () => (await atual()).connectionStatus(),
+    startLogin: async (...args) => (await atual()).startLogin(...args),
+    finishLogin: async (...args) => (await atual()).finishLogin(...args),
+    disconnect: async () => (await atual()).disconnect(),
+    callTool: async <T = Record<string, unknown>>(name: string, args: Record<string, unknown> = {}) => (await atual()).callTool<T>(name, args),
+    download: async (...args) => (await atual()).download(...args),
+    cachedAsset: async (...args) => (await atual()).cachedAsset(...args),
+    rememberAsset: async (...args) => (await atual()).rememberAsset(...args),
+  };
 }
 
 // Endereço público do hub (atrás de proxy, como no Railway, request.url é o endereço interno).

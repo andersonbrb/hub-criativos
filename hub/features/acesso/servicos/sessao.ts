@@ -1,25 +1,27 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
 import { cookies, headers } from "next/headers";
 import { cache } from "react";
 
-import { banco } from "@/db/cliente";
-import { usuarios } from "@/db/schema";
 import { CABECALHO_CAMINHO, caminhoSeguro, COOKIE_SESSAO, NaoAutenticado, podeUsar, SemPermissao, type Chave, type Usuario } from "@/features/acesso/contrato";
 import { DONO_LOCAL, modoLocalSemBanco } from "@/features/acesso/modo-local";
 import { usuarioPeloToken } from "@/features/acesso/servicos/sessoes";
-import { paraUsuario } from "@/features/acesso/servicos/usuarios";
+import { paraUsuario, usuarioNaOrganizacao } from "@/features/acesso/servicos/usuarios";
 
-// Funções de sessão usadas pelo resto do hub. Contrato estável: as assinaturas abaixo não mudam.
+// Funções de sessão usadas pelo resto do hub.
 // Aqui ficam só os wrappers que leem o cookie e os headers do Next; a regra está em sessoes.ts (testável sem o Next).
 
 export { paraUsuario };
 
-// Conta pelo id, como está AGORA no banco (o conector usa a cada chamada para reconferir chaves e se está ativa).
-export async function buscarUsuario(id: string): Promise<Usuario | null> {
-  const [linha] = await banco().select().from(usuarios).where(eq(usuarios.id, id)).limit(1);
-  return linha ? paraUsuario(linha) : null;
+// Conta pelo id, vista na organização pedida, como está AGORA no banco (o conector usa a cada chamada para
+// reconferir as chaves e se a pessoa continua ativa naquela organização).
+export async function buscarUsuario(id: string, organizacaoId: string | null): Promise<Usuario | null> {
+  return usuarioNaOrganizacao(id, organizacaoId);
+}
+
+// Token de sessão do pedido (o cookie), para as rotas que mexem na própria sessão (trocar de organização).
+export async function tokenDaSessao(): Promise<string | null> {
+  return (await cookies()).get(COOKIE_SESSAO)?.value ?? null;
 }
 
 // Layout, página e rotas pedem a pessoa várias vezes no mesmo pedido: uma ida ao banco por pedido basta.
@@ -57,5 +59,12 @@ export async function exigirPagina(chave?: Chave): Promise<Usuario> {
     return redirect(`/entrar?proximo=${encodeURIComponent(caminho)}`);
   }
   if (chave && !podeUsar(usuario, chave)) return redirect(`/sem-acesso?chave=${encodeURIComponent(chave)}`);
+  return usuario;
+}
+
+// Tela Plataforma: só quem opera a plataforma (DONOS_DA_PLATAFORMA). Não depende da organização aberta.
+export async function exigirOperador(): Promise<Usuario> {
+  const usuario = await exigirUsuario();
+  if (!usuario.operaPlataforma) throw new SemPermissao();
   return usuario;
 }

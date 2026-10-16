@@ -10,18 +10,19 @@ import sharp from "sharp";
 import { arquivoLocal, guardarNoDriveEmSegundoPlano } from "@/features/drive/servicos/videos";
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
-import { downloadMedia, MEDIA_DIR } from "@/lib/server/media";
+import { downloadMedia } from "@/lib/server/media";
+import { pastaDeDados, pastaDeMidia } from "@/lib/server/pastas";
 import { listProjectMedia } from "@/lib/server/providers/flora";
-import { createGeneration, DATA_DIR, getGeneration, listGenerations } from "@/lib/server/store";
+import { createGeneration, getGeneration, listGenerations } from "@/lib/server/store";
 import { transcribeGeneration, type Engine, type Transcript } from "@/lib/server/transcription";
 
 // "Assistir" vídeos para os agentes: ficha técnica, cortes de cena, quadros-chave e transcrição.
-// Tudo local (ffmpeg + Whisper) e em cache por geração em hub/.data/analysis/<id>.json,
+// Tudo local (ffmpeg + Whisper) e em cache por geração em analysis/<id>.json (na pasta da organização),
 // junto com a decupagem que um agente salvar: qualquer agente reaproveita sem pagar de novo.
 
 const FFMPEG = process.env.FFMPEG_BIN || "ffmpeg";
 const FFPROBE = process.env.FFPROBE_BIN || "ffprobe";
-const DIR = path.join(DATA_DIR, "analysis");
+const pastaDasAnalises = async () => path.join(await pastaDeDados(), "analysis");
 
 export type VideoMeta = { duration: number; width: number; height: number; fps: number | null; hasAudio: boolean };
 
@@ -48,11 +49,11 @@ function run(bin: string, args: string[], timeout = 180_000): Promise<{ stdout: 
 }
 
 const exists = (file: string) => access(file).then(() => true, () => false);
-const analysisFile = (id: string) => path.join(DIR, `${id.replace(/[^\w-]/g, "")}.json`);
+const analysisFile = async (id: string) => path.join(await pastaDasAnalises(), `${id.replace(/[^\w-]/g, "")}.json`);
 
 export async function getAnalysis(id: string): Promise<Analysis> {
   try {
-    return JSON.parse(await readFile(analysisFile(id), "utf8")) as Analysis;
+    return JSON.parse(await readFile(await analysisFile(id), "utf8")) as Analysis;
   } catch {
     return {};
   }
@@ -60,10 +61,11 @@ export async function getAnalysis(id: string): Promise<Analysis> {
 
 export async function patchAnalysis(id: string, patch: Partial<Analysis>): Promise<Analysis> {
   const next = { ...(await getAnalysis(id)), ...patch };
-  await mkdir(DIR, { recursive: true });
-  const tmp = `${analysisFile(id)}.tmp`;
+  await mkdir(await pastaDasAnalises(), { recursive: true });
+  const destino = await analysisFile(id);
+  const tmp = `${destino}.tmp`;
   await writeFile(tmp, JSON.stringify(next));
-  await rename(tmp, analysisFile(id));
+  await rename(tmp, destino);
   return next;
 }
 
@@ -202,7 +204,7 @@ export const FRAME_SIZES = { small: 512, medium: 640, large: 1024 } as const;
 // Um quadro do vídeo em JPEG na pasta de mídia (nome determinístico: o mesmo pedido reaproveita o arquivo).
 export async function frameAt(g: Generation & { file: string }, t: number, maxSide: number): Promise<string> {
   const name = `frame-${g.id}-${Math.round(t * 1000)}-${maxSide}.jpg`;
-  const out = path.join(MEDIA_DIR, name);
+  const out = path.join(await pastaDeMidia(), name);
   if (!(await exists(out))) {
     await run(FFMPEG, [
       "-y", "-loglevel", "error", "-ss", t.toFixed(3), "-i", await arquivoLocal(g.file), "-frames:v", "1",
@@ -257,7 +259,7 @@ const esc = (s: string) => s.replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt
 export async function contactSheet(tiles: { file: string; label: string }[]): Promise<string> {
   const key = createHash("sha1").update(JSON.stringify(tiles)).digest("hex").slice(0, 16);
   const name = `sheet-${key}.jpg`;
-  const out = path.join(MEDIA_DIR, name);
+  const out = path.join(await pastaDeMidia(), name);
   if (await exists(out)) return name;
   const cols = Math.min(4, tiles.length);
   const rows = Math.ceil(tiles.length / cols);

@@ -2,15 +2,18 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { banco } from "@/db/cliente";
-import { convites, usuarios } from "@/db/schema";
+import { convites, organizacoes, usuarios } from "@/db/schema";
 import { bancoDeTeste } from "@/db/teste";
-import type { Usuario } from "@/features/acesso/contrato";
-import { ConviteInvalido, RegraDeMembros, SenhaFraca, SoQuemPode } from "@/features/acesso/erros";
+import { ORGANIZACAO_PADRAO, type Usuario } from "@/features/acesso/contrato";
+import { ConviteInvalido, SenhaFraca, SoQuemPode } from "@/features/acesso/erros";
 import { aceitarConvite, buscarConvite, criarConvite, listarConvites, revogarConvite } from "@/features/acesso/servicos/convites";
+import { freio } from "@/features/acesso/servicos/login";
+import { minhasOrganizacoes } from "@/features/acesso/servicos/organizacoes";
 import * as senha from "@/features/acesso/servicos/senha";
 import { usuarioPeloToken } from "@/features/acesso/servicos/sessoes";
-import { criarConta } from "@/features/acesso/testes/ajuda";
+import { criarConta, criarOrganizacao } from "@/features/acesso/testes/ajuda";
 
+const ORG = ORGANIZACAO_PADRAO.id;
 const tokenDo = (link: string) => link.replace("/aceitar-convite/", "");
 
 describe("convites", () => {
@@ -19,6 +22,8 @@ describe("convites", () => {
 
   beforeEach(async () => {
     await bancoDeTeste();
+    freio.zerar();
+    freio.atrasoMs = 0;
     dono = await criarConta({ email: "dono@exemplo.com", papel: "dono" });
     admin = await criarConta({ email: "admin@exemplo.com", papel: "admin" });
   });
@@ -27,20 +32,21 @@ describe("convites", () => {
     vi.restoreAllMocks();
   });
 
-  it("aceito: cria a conta com papel e chaves do convite e já abre a sessão", async () => {
+  it("aceito: cria a conta, entra na organização com papel e chaves do convite e já abre a sessão nela", async () => {
     const { link, convite } = await criarConvite({ email: "Nova@Exemplo.com", nome: "Nova", papel: "membro", chaves: ["memoria", "chat", "xyz"] }, admin);
     expect(link).toMatch(/^\/aceitar-convite\/[\w-]{40,}$/);
     expect(convite).toMatchObject({ email: "nova@exemplo.com", chaves: ["memoria", "chat"], vencido: false, criadoPor: "admin" });
     // No banco fica só o hash.
     const [linha] = await banco().select().from(convites);
     expect(linha.tokenHash).not.toBe(tokenDo(link));
+    expect(linha.organizacaoId).toBe(ORG);
 
-    expect(await buscarConvite(tokenDo(link))).toMatchObject({ email: "nova@exemplo.com", nome: "Nova", papel: "membro" });
+    expect(await buscarConvite(tokenDo(link))).toMatchObject({ email: "nova@exemplo.com", nome: "Nova", papel: "membro", organizacao: "Grupo Chegou", contaExiste: false });
 
     const { usuario, token } = await aceitarConvite(tokenDo(link), { nome: "Nova Pessoa", senha: "uma-senha-boa-123" });
-    expect(usuario).toMatchObject({ email: "nova@exemplo.com", nome: "Nova Pessoa", papel: "membro", ativo: true, chaves: ["memoria", "chat"] });
+    expect(usuario).toMatchObject({ email: "nova@exemplo.com", nome: "Nova Pessoa", papel: "membro", ativo: true, chaves: ["memoria", "chat"], organizacao: { id: ORG } });
     expect((await usuarioPeloToken(token))?.id).toBe(usuario.id);
-    expect(await listarConvites()).toHaveLength(0);
+    expect(await listarConvites(ORG)).toHaveLength(0);
   });
 
   it("usado duas vezes: a segunda dá erro claro", async () => {
@@ -56,7 +62,7 @@ describe("convites", () => {
     await banco().update(convites).set({ expiraEm: new Date(Date.now() - 1000) });
     await expect(buscarConvite(tokenDo(link))).rejects.toThrow(/venceu/);
     await expect(aceitarConvite(tokenDo(link), { nome: "Nova", senha: "uma-senha-boa-123" })).rejects.toThrow(/venceu/);
-    expect((await listarConvites())[0].vencido).toBe(true);
+    expect((await listarConvites(ORG))[0].vencido).toBe(true);
   });
 
   it("token inventado ou revogado não serve", async () => {
@@ -66,47 +72,37 @@ describe("convites", () => {
     await expect(aceitarConvite(tokenDo(link), { nome: "Nova", senha: "uma-senha-boa-123" })).rejects.toThrow(/não existe ou foi revogado/);
   });
 
-  it("e-mail com conta ativa: recusa ao criar e ao aceitar", async () => {
-    await expect(criarConvite({ email: "admin@exemplo.com" }, dono)).rejects.toThrow(RegraDeMembros);
-    const { link } = await criarConvite({ email: "nova@exemplo.com" }, admin);
-    await criarConta({ email: "nova@exemplo.com" });
-    await expect(aceitarConvite(tokenDo(link), { nome: "Nova", senha: "uma-senha-boa-123" })).rejects.toThrow(/conta ativa/);
-    // A recusa não queima o convite.
-    expect(await listarConvites()).toHaveLength(1);
+  it("quem já está na equipe não é convidado: ativo edita na lista, desativado reativa na lista", async () => {
+    await expect(criarConvite({ email: "admin@exemplo.com" }, dono)).rejects.toThrow(/já faz parte/);
+    await criarConta({ email: "fora@exemplo.com", ativo: false });
+    await expect(criarConvite({ email: "fora@exemplo.com" }, dono)).rejects.toThrow(/Reative/);
+    expect(await listarConvites(ORG)).toHaveLength(0);
   });
 
-  it("reativa conta desativada com o mesmo e-mail, com o papel e as chaves do convite", async () => {
-    const antiga = await criarConta({ email: "volta@exemplo.com", papel: "admin", ativo: false, chaves: ["integracoes"] });
-    const { link } = await criarConvite({ email: "volta@exemplo.com", chaves: ["biblioteca"] }, dono);
-    const { usuario } = await aceitarConvite(tokenDo(link), { nome: "De Volta", senha: "uma-senha-boa-123" });
-    expect(usuario).toMatchObject({ id: antiga.id, ativo: true, papel: "membro", chaves: ["biblioteca"], nome: "De Volta" });
+  it("conta de outra organização: confirma com a senha dela e entra nesta, sem trocar nome nem senha", async () => {
+    const loja = await criarOrganizacao("Loja da Bia");
+    const bia = await criarConta({ email: "bia@exemplo.com", nome: "Bia", senha: "senha-antiga-da-bia", papel: "dono", organizacaoId: loja });
+    const { link } = await criarConvite({ email: "bia@exemplo.com", chaves: ["fluxo"] }, admin);
+    expect(await buscarConvite(tokenDo(link))).toMatchObject({ contaExiste: true, organizacao: "Grupo Chegou" });
+
+    // Senha errada: não entra e o convite continua valendo.
+    await expect(aceitarConvite(tokenDo(link), { senha: "chute-qualquer-xx" })).rejects.toThrow(/Senha incorreta/);
+    expect(await listarConvites(ORG)).toHaveLength(1);
+
+    const { usuario } = await aceitarConvite(tokenDo(link), { nome: "Outro Nome", senha: "senha-antiga-da-bia" });
+    expect(usuario).toMatchObject({ id: bia.id, nome: "Bia", papel: "membro", chaves: ["fluxo"], organizacao: { id: ORG } });
+    expect((await minhasOrganizacoes(bia.id)).map((o) => [o.nome, o.papel])).toEqual([
+      ["Grupo Chegou", "membro"],
+      ["Loja da Bia", "dono"],
+    ]);
   });
 
-  it("conta desativada de admin ou dono: só o dono convida de volta", async () => {
-    await criarConta({ email: "ex-admin@exemplo.com", papel: "admin", ativo: false });
-    await criarConta({ email: "ex-dono@exemplo.com", papel: "dono", ativo: false });
-    await expect(criarConvite({ email: "ex-admin@exemplo.com" }, admin)).rejects.toThrow(SoQuemPode);
-    await expect(criarConvite({ email: "ex-dono@exemplo.com" }, admin)).rejects.toThrow(SoQuemPode);
-    expect(await listarConvites()).toHaveLength(0);
-
-    // Membro desativado o admin pode chamar de volta.
-    await criarConta({ email: "ex-membro@exemplo.com", ativo: false });
-    const { link: doMembro } = await criarConvite({ email: "ex-membro@exemplo.com" }, admin);
-    await expect(aceitarConvite(tokenDo(doMembro), { nome: "Ex Membro", senha: "uma-senha-boa-123" })).resolves.toBeTruthy();
-
-    // Convite do admin feito quando a conta era de membro; depois ela virou admin: não vale mais, nem queima.
-    const virou = await criarConta({ email: "virou@exemplo.com", ativo: false });
-    const { link } = await criarConvite({ email: "virou@exemplo.com" }, admin);
-    await banco().update(usuarios).set({ papel: "admin" }).where(eq(usuarios.id, virou.id));
-    await expect(buscarConvite(tokenDo(link))).rejects.toThrow(/só o dono/);
-    await expect(aceitarConvite(tokenDo(link), { nome: "Virou", senha: "uma-senha-boa-123" })).rejects.toThrow(/só o dono/);
-    const [conta] = await banco().select().from(usuarios).where(eq(usuarios.id, virou.id));
-    expect(conta).toMatchObject({ ativo: false, papel: "admin" });
-
-    // O dono pode.
-    const { link: doDono } = await criarConvite({ email: "ex-dono@exemplo.com" }, dono);
-    const { usuario } = await aceitarConvite(tokenDo(doDono), { nome: "Ex Dono", senha: "uma-senha-boa-123" });
-    expect(usuario).toMatchObject({ email: "ex-dono@exemplo.com", ativo: true, papel: "membro" });
+  it("organização suspensa: o convite não vale", async () => {
+    const suspensa = await criarOrganizacao("Suspensa");
+    const donaDela = await criarConta({ email: "dona@exemplo.com", papel: "dono", organizacaoId: suspensa });
+    const { link } = await criarConvite({ email: "nova@exemplo.com" }, donaDela);
+    await banco().update(organizacoes).set({ situacao: "suspensa" }).where(eq(organizacoes.id, suspensa));
+    await expect(buscarConvite(tokenDo(link))).rejects.toThrow(/suspensa/);
   });
 
   it("convite que não serve é recusado sem gastar o hash da senha", async () => {
@@ -122,11 +118,6 @@ describe("convites", () => {
     const revogado = await criarConvite({ email: "revogado@exemplo.com" }, admin);
     await revogarConvite(revogado.convite.id, admin);
     await expect(aceitarConvite(tokenDo(revogado.link), dados)).rejects.toThrow(/revogado/);
-
-    // Conta ativa criada sem senha (criarConta não gera hash nesse caso).
-    const ativo = await criarConvite({ email: "ativa@exemplo.com" }, admin);
-    await criarConta({ email: "ativa@exemplo.com", senha: null });
-    await expect(aceitarConvite(tokenDo(ativo.link), dados)).rejects.toThrow(/conta ativa/);
     expect(hash).not.toHaveBeenCalled();
 
     // O convite bom gasta um hash só.
@@ -138,22 +129,47 @@ describe("convites", () => {
   it("senha curta não cria conta nem queima o convite", async () => {
     const { link } = await criarConvite({ email: "nova@exemplo.com" }, admin);
     await expect(aceitarConvite(tokenDo(link), { nome: "Nova", senha: "curta" })).rejects.toThrow(SenhaFraca);
-    expect(await listarConvites()).toHaveLength(1);
+    expect(await listarConvites(ORG)).toHaveLength(1);
   });
 
-  it("convite novo para o mesmo e-mail substitui o anterior", async () => {
+  it("convite novo para o mesmo e-mail substitui o anterior da mesma organização (o de outra continua)", async () => {
     const primeiro = await criarConvite({ email: "nova@exemplo.com" }, admin);
     await criarConvite({ email: "nova@exemplo.com" }, admin);
-    expect(await listarConvites()).toHaveLength(1);
+    expect(await listarConvites(ORG)).toHaveLength(1);
     await expect(buscarConvite(tokenDo(primeiro.link))).rejects.toThrow(ConviteInvalido);
+
+    const outra = await criarOrganizacao("Outra");
+    const donaDaOutra = await criarConta({ email: "dona@exemplo.com", papel: "dono", organizacaoId: outra });
+    await criarConvite({ email: "nova@exemplo.com" }, donaDaOutra);
+    expect(await listarConvites(ORG)).toHaveLength(1);
+    expect(await listarConvites(outra)).toHaveLength(1);
   });
 
-  it("só o dono convida como admin; ninguém convida como dono; membro não convida", async () => {
+  it("cada organização só vê e revoga os próprios convites", async () => {
+    const { convite } = await criarConvite({ email: "nova@exemplo.com" }, admin);
+    const outra = await criarOrganizacao("Outra");
+    const donaDaOutra = await criarConta({ email: "dona@exemplo.com", papel: "dono", organizacaoId: outra });
+    expect(await listarConvites(outra)).toHaveLength(0);
+    await expect(revogarConvite(convite.id, donaDaOutra)).rejects.toThrow(/não existe mais/);
+    expect(await listarConvites(ORG)).toHaveLength(1);
+  });
+
+  it("só um dono convida como admin ou dono; membro não convida", async () => {
     await expect(criarConvite({ email: "x@exemplo.com", papel: "admin" }, admin)).rejects.toThrow(SoQuemPode);
-    await expect(criarConvite({ email: "x@exemplo.com", papel: "dono" }, dono)).rejects.toThrow(RegraDeMembros);
+    await expect(criarConvite({ email: "x@exemplo.com", papel: "dono" }, admin)).rejects.toThrow(SoQuemPode);
+    await expect(criarConvite({ email: "x@exemplo.com", papel: "chefe" }, dono)).rejects.toThrow(/Papel inválido/);
     const { convite } = await criarConvite({ email: "x@exemplo.com", papel: "admin" }, dono);
     expect(convite.papel).toBe("admin");
+    const { link } = await criarConvite({ email: "socio@exemplo.com", papel: "dono" }, dono);
+    expect((await aceitarConvite(tokenDo(link), { nome: "Sócio", senha: "uma-senha-boa-123" })).usuario.papel).toBe("dono");
     const membro = await criarConta({ email: "m@exemplo.com", chaves: ["membros"] });
     await expect(criarConvite({ email: "y@exemplo.com" }, membro)).rejects.toThrow(SoQuemPode);
+  });
+
+  it("e-mail já da equipe que entra por outro caminho no meio do caminho: o convite não duplica", async () => {
+    const { link } = await criarConvite({ email: "nova@exemplo.com" }, admin);
+    await criarConta({ email: "nova@exemplo.com" });
+    await expect(aceitarConvite(tokenDo(link), { nome: "Nova", senha: "senha-de-teste-123" })).rejects.toThrow(/já faz parte/);
+    expect(await listarConvites(ORG)).toHaveLength(1);
   });
 });

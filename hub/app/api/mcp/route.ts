@@ -1,7 +1,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
 import { DONO_LOCAL } from "@/features/acesso/modo-local";
-import { mcpToken } from "@/lib/server/chat/claude-code";
+import { comOrganizacao, ehIdDeOrganizacao } from "@/features/acesso/servicos/organizacao-atual";
+import { mcpTokenDa } from "@/lib/server/chat/claude-code";
 import { hydrateMessages } from "@/lib/server/chat/images";
 import { turnSignal } from "@/lib/server/chat/running";
 import { getChat, saveChat } from "@/lib/server/chat/store";
@@ -11,6 +12,7 @@ import { runTool, toolsFor } from "@/lib/server/chat/tools";
 // Quem usa: o Claude Code local que roda o chat e os agentes (lib/server/chat/claude-code.ts).
 // Expõe as mesmas ferramentas do chat (histórico, FLORA, HeyGen, ElevenLabs, Higgsfield, editor, montagem, quadro…).
 // ?chat=<id> diz de qual conversa é a chamada (projeto do FLORA, lista de ferramentas da conversa).
+// ?org=<id> diz de qual organização ela é: tudo roda dentro dela, e o token só vale para ela (mcpTokenDa).
 // O fim de cada resultado traz <hub_result …/> com o resumo e as gerações, que o hub usa para montar os cards.
 
 type RpcRequest = { jsonrpc: "2.0"; id?: string | number | null; method: string; params?: Record<string, unknown> };
@@ -24,7 +26,7 @@ const escapeAttr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;
 
 type McpContent = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
 
-async function handle(req: RpcRequest, chatId: string, signal: AbortSignal): Promise<unknown | null> {
+async function handle(req: RpcRequest, chatId: string, org: string, signal: AbortSignal): Promise<unknown | null> {
   const isNotification = req.id === undefined || req.id === null;
 
   switch (req.method) {
@@ -58,7 +60,7 @@ async function handle(req: RpcRequest, chatId: string, signal: AbortSignal): Pro
         signal: turn ? AbortSignal.any([signal, turn]) : signal,
         chat: chat ?? undefined,
         viaMcp: true,
-        usuario: DONO_LOCAL,
+        usuario: { ...DONO_LOCAL, organizacao: { id: org, nome: "", situacao: "ativa" } },
       });
 
       // A ferramenta pode ter escolhido o projeto do FLORA da conversa: grava na hora.
@@ -94,10 +96,12 @@ async function handle(req: RpcRequest, chatId: string, signal: AbortSignal): Pro
 }
 
 export async function POST(request: Request) {
-  if (request.headers.get("authorization") !== `Bearer ${mcpToken()}`) {
+  const url = new URL(request.url);
+  const org = url.searchParams.get("org") ?? "";
+  if (!ehIdDeOrganizacao(org) || request.headers.get("authorization") !== `Bearer ${mcpTokenDa(org)}`) {
     return Response.json(fail(null, -32001, "Não autorizado"), { status: 401 });
   }
-  const chatId = new URL(request.url).searchParams.get("chat") ?? "";
+  const chatId = url.searchParams.get("chat") ?? "";
   let body: unknown;
   try {
     body = await request.json();
@@ -107,7 +111,11 @@ export async function POST(request: Request) {
 
   const batch = Array.isArray(body);
   const requests = (batch ? body : [body]) as RpcRequest[];
-  const results = (await Promise.all(requests.map((r) => handle(r, chatId, request.signal).catch((err) => fail(r.id, -32603, err instanceof Error ? err.message : "Erro interno"))))).filter(
+  const results = (
+    await comOrganizacao(org, () =>
+      Promise.all(requests.map((r) => handle(r, chatId, org, request.signal).catch((err) => fail(r.id, -32603, err instanceof Error ? err.message : "Erro interno")))),
+    )
+  ).filter(
     (r) => r !== null,
   );
 

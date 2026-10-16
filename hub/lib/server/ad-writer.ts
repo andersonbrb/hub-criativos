@@ -5,7 +5,7 @@ import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { InputError } from "@/lib/server/http";
-import { DATA_DIR } from "@/lib/server/store";
+import { pastaDeDados } from "@/lib/server/pastas";
 
 // Método "ad-writer-light" (github.com/kretli1/ad-writer-light) dentro do hub, para os agentes de Estrategista e Copy.
 // - Base de conhecimento (agentes, tasks, data, checklists...) em hub/knowledge/ad-writer-light (só local, fora do git).
@@ -13,7 +13,8 @@ import { DATA_DIR } from "@/lib/server/store";
 //   com a "impressão digital" das referências para saber quando a análise ficou velha (o protocolo do método).
 
 const KB_DIR = path.join(process.cwd(), "knowledge", "ad-writer-light");
-const NICHE_DIR = path.join(DATA_DIR, "ad-writer");
+// Nichos (referências e análises) são de cada organização; a base do método (KB_DIR) é a mesma para todas.
+const pastaDosNichos = async () => path.join(await pastaDeDados(), "ad-writer");
 const MAX_READ = 25_000;
 
 // Arquivos de nicho que os agentes podem gravar (os mesmos do método).
@@ -94,10 +95,10 @@ export async function kbSearch(query: string, limit = 30) {
 
 type Meta = { refsSha: string | null; refCount: number; decodes: Partial<Record<NicheFile, { sha: string | null; savedAt: string }>> };
 
-const nicheDir = (niche: string) => {
+const nicheDir = async (niche: string) => {
   const s = slug(niche);
   if (!s) throw new InputError("Informe o nicho (ex.: garrafa-termica-cl).");
-  return path.join(NICHE_DIR, s);
+  return path.join(await pastaDosNichos(), s);
 };
 const metaOf = async (dir: string): Promise<Meta> =>
   JSON.parse(await readFile(path.join(dir, "meta.json"), "utf8").catch(() => '{"refsSha":null,"refCount":0,"decodes":{}}')) as Meta;
@@ -105,10 +106,11 @@ const countRefs = (text: string) => (text.match(/^## Ad\b/gm) ?? []).length;
 const sha = (text: string) => createHash("sha256").update(text).digest("hex");
 
 export async function listNiches() {
-  const names = (await readdir(NICHE_DIR, { withFileTypes: true }).catch(() => [])).filter((e) => e.isDirectory()).map((e) => e.name);
+  const raiz = await pastaDosNichos();
+  const names = (await readdir(raiz, { withFileTypes: true }).catch(() => [])).filter((e) => e.isDirectory()).map((e) => e.name);
   return Promise.all(
     names.map(async (name) => {
-      const dir = path.join(NICHE_DIR, name);
+      const dir = path.join(raiz, name);
       const meta = await metaOf(dir);
       const files = (await readdir(dir).catch(() => [] as string[])).filter((f) => f !== "meta.json");
       return {
@@ -125,7 +127,7 @@ export async function listNiches() {
 
 export async function readNiche(niche: string, file: string) {
   if (!NICHE_FILES.includes(file as NicheFile)) throw new InputError(`Arquivo de nicho inválido. Use: ${NICHE_FILES.join(", ")}.`);
-  const dir = nicheDir(niche);
+  const dir = await nicheDir(niche);
   const text = await readFile(path.join(dir, file), "utf8").catch(() => null);
   if (text === null) throw new InputError(`O nicho "${slug(niche)}" ainda não tem ${file}.`);
   const meta = await metaOf(dir);
@@ -143,7 +145,7 @@ export async function readNiche(niche: string, file: string) {
 export async function saveNiche(niche: string, file: string, content: string) {
   if (!NICHE_FILES.includes(file as NicheFile)) throw new InputError(`Arquivo de nicho inválido. Use: ${NICHE_FILES.join(", ")}.`);
   if (!content.trim()) throw new InputError("Conteúdo vazio.");
-  const dir = nicheDir(niche);
+  const dir = await nicheDir(niche);
   await mkdir(dir, { recursive: true });
   const meta = await metaOf(dir);
   await writeFile(path.join(dir, file), content);
@@ -159,7 +161,7 @@ export async function saveNiche(niche: string, file: string, content: string) {
 
 // Acrescenta anúncios campeões ao pool do nicho no formato do método (## Ad NN, parágrafo único, ---), sem duplicar idênticos.
 export async function addReferences(niche: string, ads: string[]) {
-  const dir = nicheDir(niche);
+  const dir = await nicheDir(niche);
   const current = await readFile(path.join(dir, "reference-ads.md"), "utf8").catch(() => "");
   const existing = new Set(
     current
@@ -185,7 +187,7 @@ export async function addReferences(niche: string, ads: string[]) {
 
 // Sorteio de verdade (o método proíbe "escolher de cabeça"): baralho embaralhado do pool inteiro.
 export async function drawReferences(niche: string, count: number) {
-  const dir = nicheDir(niche);
+  const dir = await nicheDir(niche);
   const text = await readFile(path.join(dir, "reference-ads.md"), "utf8").catch(() => "");
   const blocks = text.split(/^(?=## Ad\b)/m).filter((b) => /^## Ad\b/.test(b));
   if (!blocks.length) throw new InputError(`O nicho "${slug(niche)}" não tem referências. Use action=add_refs.`);

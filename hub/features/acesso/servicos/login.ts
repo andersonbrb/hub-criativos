@@ -4,10 +4,10 @@ import { eq } from "drizzle-orm";
 
 import { banco } from "@/db/cliente";
 import { usuarios } from "@/db/schema";
-import { ContaDesativada, CredenciaisInvalidas, MuitasTentativas } from "@/features/acesso/erros";
+import { CredenciaisInvalidas, MuitasTentativas } from "@/features/acesso/erros";
 import { conferirSenha, hashDeMentira } from "@/features/acesso/servicos/senha";
 import { criarSessao, encerrarSessao, type MetaDaSessao } from "@/features/acesso/servicos/sessoes";
-import { normalizarEmail, paraUsuario } from "@/features/acesso/servicos/usuarios";
+import { normalizarEmail, usuarioNaOrganizacao, type LinhaUsuario } from "@/features/acesso/servicos/usuarios";
 
 // Login por e-mail e senha, com freio contra chute de senha. Três freios, numa janela de 10 minutos:
 // - e-mail + IP: 5 (alguém errando a mesma conta do mesmo lugar);
@@ -100,7 +100,9 @@ async function esperar() {
   if (freio.atrasoMs > 0) await new Promise((r) => setTimeout(r, freio.atrasoMs));
 }
 
-export async function entrar(email: unknown, senha: unknown, meta: MetaDaSessao = {}) {
+// Confere e-mail e senha com os freios, sem abrir sessão. Devolve a conta. Serve ao login e ao aceite de convite de
+// quem já tem conta (a pessoa prova que a conta é dela com a senha de sempre).
+export async function conferirCredenciais(email: unknown, senha: unknown, meta: MetaDaSessao = {}): Promise<LinhaUsuario> {
   const emailLimpo = normalizarEmail(email) ?? (typeof email === "string" ? email.trim().toLowerCase().slice(0, 200) : "");
   // Sem IP conhecido (fora do proxy do Railway), todos esses pedidos dividem o mesmo freio de IP.
   const ip = meta.ip || "?";
@@ -141,9 +143,16 @@ export async function entrar(email: unknown, senha: unknown, meta: MetaDaSessao 
   porEmailEIp.limpar(emailEIp);
   porIp.devolver(ip, agora);
   porConta.devolver(emailLimpo, agora);
-  if (!linha.ativo) throw new ContaDesativada();
+  return linha;
+}
+
+// Entra na conta e abre a sessão na última organização usada (ou na primeira ativa). Conta sem nenhuma organização
+// ativa também entra: a tela "sem acesso" explica e diz como pedir um convite.
+export async function entrar(email: unknown, senha: unknown, meta: MetaDaSessao = {}) {
+  const linha = await conferirCredenciais(email, senha, meta);
   const sessao = await criarSessao(linha.id, meta);
-  return { usuario: paraUsuario(linha), token: sessao.token, expiraEm: sessao.expiraEm };
+  const usuario = (await usuarioNaOrganizacao(linha.id, sessao.organizacaoId))!;
+  return { usuario, token: sessao.token, expiraEm: sessao.expiraEm };
 }
 
 export async function sair(token: string | null | undefined) {

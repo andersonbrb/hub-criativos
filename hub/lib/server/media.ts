@@ -10,9 +10,9 @@ import { pipeline } from "node:stream/promises";
 import type { Chave } from "@/features/acesso/contrato";
 import type { MediaKind } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
-import { DATA_DIR } from "@/lib/server/store";
+import { pastaDeMidia } from "@/lib/server/pastas";
 
-export const MEDIA_DIR = path.join(DATA_DIR, "media");
+// As mídias moram na pasta da organização atual (lib/server/pastas.ts): pastaDeMidia().
 
 // Telas de produção: todas mostram gerações e mídias (cards, players, "Visualizar", baixar). Quem tem qualquer uma
 // delas vê as mídias e as gerações; quem só tem Memória, Conector ou a administração, não.
@@ -38,9 +38,10 @@ export const CONTENT_TYPES: Record<string, string> = {
 };
 
 export async function saveMedia(data: ArrayBuffer | Buffer, ext: string): Promise<string> {
-  await mkdir(MEDIA_DIR, { recursive: true });
+  const pasta = await pastaDeMidia();
+  await mkdir(pasta, { recursive: true });
   const file = `${randomUUID()}.${ext}`;
-  await writeFile(path.join(MEDIA_DIR, file), Buffer.isBuffer(data) ? data : Buffer.from(data));
+  await writeFile(path.join(pasta, file), Buffer.isBuffer(data) ? data : Buffer.from(data));
   return file;
 }
 
@@ -143,7 +144,7 @@ function cabecalhosDaParte(texto: string) {
 const tipoDeMidia = (tipo: string): MediaKind | null =>
   tipo.startsWith("video/") ? "video" : tipo.startsWith("audio/") ? "audio" : tipo.startsWith("image/") ? "image" : null;
 
-// Recebe o arquivo do campo `campo` de um FormData e grava em MEDIA_DIR. Só aceita vídeo, áudio ou imagem (pelo tipo
+// Recebe o arquivo do campo `campo` de um FormData e grava nas mídias da organização. Só aceita vídeo, áudio ou imagem (pelo tipo
 // que o navegador informa). Erros de quem enviou viram InputError (400) com a mensagem para a tela.
 export async function saveUploadedMedia(request: Request, { campo = "file", tetoBytes }: { campo?: string; tetoBytes: number }) {
   const limite = `O arquivo pode ter até ${tetoBytes >= 1024 ** 3 ? `${tetoBytes / 1024 ** 3} GB` : `${Math.round(tetoBytes / 1024 ** 2)} MB`}.`;
@@ -198,9 +199,10 @@ export async function saveUploadedMedia(request: Request, { campo = "file", teto
       const ext = (parte.nomeDoArquivo.split(".").pop() ?? "").toLowerCase();
       const fallback = kind === "video" ? "mp4" : kind === "audio" ? "mp3" : "png";
       const file = `${randomUUID()}.${/^[a-z0-9]{2,5}$/.test(ext) ? ext : fallback}`;
-      await mkdir(MEDIA_DIR, { recursive: true });
+      const pasta = await pastaDeMidia();
+      await mkdir(pasta, { recursive: true });
       // Grava com outro nome e só renomeia no fim: um arquivo pela metade nunca é servido por /api/media.
-      parcial = path.join(MEDIA_DIR, `${file}.parcial`);
+      parcial = path.join(pasta, `${file}.parcial`);
       let tamanho = 0;
       const contar = async function* (pedacos: AsyncIterable<Buffer>) {
         for await (const pedaco of pedacos) {
@@ -210,7 +212,7 @@ export async function saveUploadedMedia(request: Request, { campo = "file", teto
       };
       await pipeline(Readable.from(contar(conteudoDaParte(l, separador))), createWriteStream(parcial));
       if (tamanho === 0) throw new InputError("Escolha um arquivo.");
-      await rename(parcial, path.join(MEDIA_DIR, file));
+      await rename(parcial, path.join(pasta, file));
       parcial = null;
       return { file, name: parte.nomeDoArquivo, kind, size: tamanho };
     }

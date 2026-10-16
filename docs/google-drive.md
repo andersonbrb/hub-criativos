@@ -6,8 +6,10 @@ Os vídeos que o hub gera (edição final, edição na batida, editor, traduçã
 Claude) ficam **só** no Google Drive de uma conta Google, na pasta **Hub de Criativos**, com uma subpasta por tipo.
 O disco do hub guarda apenas cópias temporárias enquanto processa um vídeo.
 
-- Uma conta Google para o hub inteiro. Pode ser um Gmail comum.
-- Quem conecta e desconecta: só quem tem a chave **Integrações** (tela Membros).
+- Uma conta Google por organização (cada organização do hub conecta a sua). Pode ser um Gmail comum. A mesma conta
+  Google não serve a duas organizações: o hub recusa e pede outra conta.
+- Quem conecta e desconecta: só quem tem a chave **Integrações** na organização (tela Equipe).
+- O cliente OAuth do Google (ID e chave secreta) é um só para o hub inteiro.
 - O hub só enxerga os arquivos que ele mesmo criou no Drive (permissão `drive.file`). Ele não vê nem mexe no resto da
   conta. Arquivo posto à mão na pasta não aparece no hub.
 - O que alguém apagar, renomear ou mandar para a lixeira nesses arquivos, direto no Drive, aparece no hub.

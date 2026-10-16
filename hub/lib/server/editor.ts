@@ -20,17 +20,18 @@ import {
 } from "@/lib/editor";
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
-import { MEDIA_DIR } from "@/lib/server/media";
+import { pastaDeDados, pastaDeMidia } from "@/lib/server/pastas";
 import { transcribe } from "@/lib/server/providers/elevenlabs";
-import { createGeneration, DATA_DIR, getGeneration, listGenerations, updateGeneration } from "@/lib/server/store";
+import { createGeneration, getGeneration, listGenerations, updateGeneration } from "@/lib/server/store";
 
-// Projetos do editor em hub/.data/editor/<id>.json; exportação com ffmpeg (precisa estar instalado, ou FFMPEG_BIN).
+// Projetos do editor em editor/<id>.json, na pasta da organização (lib/server/pastas.ts); exportação com ffmpeg
+// (precisa estar instalado, ou FFMPEG_BIN).
 
-const DIR = path.join(DATA_DIR, "editor");
+const pastaDosProjetos = async () => path.join(await pastaDeDados(), "editor");
 const FFMPEG = process.env.FFMPEG_BIN || "ffmpeg";
 const FFPROBE = process.env.FFPROBE_BIN || "ffprobe";
 
-const file = (id: string) => path.join(DIR, `${id}.json`);
+const file = async (id: string) => path.join(await pastaDosProjetos(), `${id}.json`);
 const validId = (id: string) => /^[\w-]+$/.test(id);
 
 function run(bin: string, args: string[], opts: { cwd?: string; timeout?: number } = {}): Promise<string> {
@@ -51,23 +52,24 @@ function run(bin: string, args: string[], opts: { cwd?: string; timeout?: number
 export async function getProject(id: string): Promise<EditorProject | null> {
   if (!validId(id)) return null;
   try {
-    return JSON.parse(await readFile(file(id), "utf8")) as EditorProject;
+    return JSON.parse(await readFile(await file(id), "utf8")) as EditorProject;
   } catch {
     return null;
   }
 }
 
 async function write(project: EditorProject) {
-  await mkdir(DIR, { recursive: true });
+  await mkdir(await pastaDosProjetos(), { recursive: true });
   project.updatedAt = new Date().toISOString();
-  const tmp = `${file(project.id)}.tmp`;
+  const destino = await file(project.id);
+  const tmp = `${destino}.tmp`;
   await writeFile(tmp, JSON.stringify(project, null, 1));
-  await rename(tmp, file(project.id));
+  await rename(tmp, destino);
   return project;
 }
 
 export async function listProjects(): Promise<EditorProjectSummary[]> {
-  const names = (await readdir(DIR).catch(() => [] as string[])).filter((n) => n.endsWith(".json"));
+  const names = (await readdir(await pastaDosProjetos()).catch(() => [] as string[])).filter((n) => n.endsWith(".json"));
   const projects = (await Promise.all(names.map((n) => getProject(n.slice(0, -5))))).filter((p): p is EditorProject => Boolean(p));
   return projects
     .map((p) => ({ id: p.id, title: p.title, originId: p.originId, updatedAt: p.updatedAt, clips: p.clips.length }))
@@ -75,7 +77,7 @@ export async function listProjects(): Promise<EditorProjectSummary[]> {
 }
 
 export async function deleteProject(id: string) {
-  if (validId(id)) await unlink(file(id)).catch(() => undefined);
+  if (validId(id)) await unlink(await file(id)).catch(() => undefined);
 }
 
 async function probe(gen: Generation): Promise<EditorSource> {
@@ -352,7 +354,8 @@ async function encode(project: EditorProject, generationId: string) {
       videoOut = "[vs]";
     }
 
-    await mkdir(MEDIA_DIR, { recursive: true });
+    const midia = await pastaDeMidia();
+    await mkdir(midia, { recursive: true });
     const outName = `${randomUUID()}.mp4`;
     args.push(
       "-filter_complex", filters.join(";"),
@@ -360,7 +363,7 @@ async function encode(project: EditorProject, generationId: string) {
       "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
       "-c:a", "aac", "-b:a", "160k",
       "-movflags", "+faststart",
-      path.join(MEDIA_DIR, outName),
+      path.join(midia, outName),
     );
     await new Promise<void>((resolve, reject) => {
       const child = spawn(FFMPEG, args, { cwd: tmp, windowsHide: true });

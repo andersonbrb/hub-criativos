@@ -2,6 +2,8 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import { usarBanco, type Banco } from "@/db/cliente";
 import { bancoDeTeste } from "@/db/teste";
+import { ORGANIZACAO_PADRAO } from "@/features/acesso/contrato";
+import { comOrganizacao } from "@/features/acesso/servicos/organizacao-atual";
 import { salvar } from "@/features/memoria/servicos/memoria";
 import { buildSystemPrompt } from "@/lib/server/chat/system";
 import { runTool, TOOL_NAMES } from "@/lib/server/chat/tools";
@@ -10,6 +12,8 @@ import { runTool, TOOL_NAMES } from "@/lib/server/chat/tools";
 const urlOriginal = process.env.DATABASE_URL;
 const ana = { id: null, nome: "Ana" };
 const ctx = { signal: new AbortController().signal };
+// Com DATABASE_URL (o hub da nuvem), o que roda fora de uma rota precisa dizer a organização.
+const naPadrao = <T,>(fn: () => Promise<T>) => comOrganizacao(ORGANIZACAO_PADRAO.id, fn);
 
 describe("memória no chat interno", () => {
   beforeEach(async () => {
@@ -21,7 +25,7 @@ describe("memória no chat interno", () => {
     else process.env.DATABASE_URL = urlOriginal;
   });
 
-  it("com banco, o prompt traz a memória no lugar dos playbooks", async () => {
+  it("com banco, o prompt traz a memória no lugar dos playbooks", () => naPadrao(async () => {
     await salvar({ slug: "02-regras", conteudo: "# Regras gerais\n\nNunca invente dado.", versaoEsperada: null, tipo: "regra", noPrompt: true }, ana);
     await salvar({ slug: "05-traducao", conteudo: "# Tradução de criativos\n\nPasso a passo.", versaoEsperada: null, tipo: "fluxo", frente: "cod" }, ana);
     const prompt = await buildSystemPrompt();
@@ -32,9 +36,9 @@ describe("memória no chat interno", () => {
     expect(prompt).toContain("memoria_buscar");
     expect(prompt).not.toContain("# Playbooks");
     expect(prompt).not.toContain("Passo a passo.");
-  });
+  }));
 
-  it("sem banco, banco vazio ou banco com erro: playbooks do disco", async () => {
+  it("sem banco, banco vazio ou banco com erro: playbooks do disco", () => naPadrao(async () => {
     expect(await buildSystemPrompt()).toContain("# Playbooks"); // banco vazio
 
     delete process.env.DATABASE_URL;
@@ -53,9 +57,9 @@ describe("memória no chat interno", () => {
     } finally {
       console.error = erroOriginal;
     }
-  });
+  }));
 
-  it("memoria_buscar e memoria_ler respondem para o agente", async () => {
+  it("memoria_buscar e memoria_ler respondem para o agente", () => naPadrao(async () => {
     expect(TOOL_NAMES.slice(-2)).toEqual(["memoria_buscar", "memoria_ler"]);
     await salvar({ slug: "05-traducao", conteudo: "# Tradução de criativos\n\nComo traduzir um AD.", versaoEsperada: null, tipo: "fluxo" }, ana);
     await salvar({ slug: "longo", conteudo: `# Longo\n\n${"x".repeat(45_000)}`, versaoEsperada: null, tipo: "fato" }, ana);
@@ -80,5 +84,5 @@ describe("memória no chat interno", () => {
     await salvar({ slug: "projeto-dewalt-ads-cl", conteudo: "# DeWalt\n\nx", versaoEsperada: null, tipo: "projeto" }, ana);
     expect(await runTool("memoria_ler", { slug: "projetos/dewalt-ads-cl.md" }, ctx)).toMatchObject({ error: false, summary: "leu projeto-dewalt-ads-cl" });
     expect(String((await runTool("memoria_ler", { slug: "05-traducao", versao: 4 }, ctx)).content)).toContain("não tem a versão 4");
-  });
+  }));
 });

@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { and, eq, or, sql, type SQL } from "drizzle-orm";
 
 import { banco } from "@/db/cliente";
+import { organizacaoAtual } from "@/features/acesso/servicos/organizacao-atual";
 import { memoriaDocumentos as docs, memoriaVersoes as versoes } from "@/db/schema";
 import {
   DATA_ISO,
@@ -37,6 +38,10 @@ import { InputError } from "@/lib/server/http";
 
 // Serviços da Memória. Contrato estável: as assinaturas das funções do contrato não mudam.
 // Tudo que grava passa por salvar(): é lá que ficam a barreira de segredo, o controle de versão e o histórico.
+// Toda consulta é da organização em que o código está rodando (features/acesso/servicos/organizacao-atual.ts): uma
+// organização nunca lê nem grava a memória da outra.
+
+const daOrganizacao = async () => eq(docs.organizacaoId, await organizacaoAtual());
 
 type LinhaDoc = typeof docs.$inferSelect;
 
@@ -142,7 +147,10 @@ function validarEntrada(e: EntradaSalvar): EntradaValida {
 }
 
 export async function listarIndice(filtro?: FiltroDocs): Promise<DocResumo[]> {
-  const linhas = await banco().select(colunasResumo).from(docs).where(validarFiltro(filtro));
+  const linhas = await banco()
+    .select(colunasResumo)
+    .from(docs)
+    .where(and(await daOrganizacao(), validarFiltro(filtro)));
   return ordenar(linhas.map(paraResumo));
 }
 
@@ -150,7 +158,7 @@ export async function buscar(consulta: string, filtro?: FiltroDocs & { limite?: 
   const q = normalizar(typeof consulta === "string" ? consulta : "").replace(/\s+/g, " ").trim().slice(0, 300);
   if (!q) return [];
   const limite = Math.min(LIMITE_BUSCA_MAX, Math.max(1, Math.floor(Number(filtro?.limite) || LIMITE_BUSCA)));
-  const condFiltro = validarFiltro(filtro);
+  const condFiltro = and(await daOrganizacao(), validarFiltro(filtro));
   const termos = termosDaConsulta(q);
   const colunas = { ...colunasResumo, conteudo: docs.conteudoAtual };
 
@@ -190,7 +198,11 @@ export async function buscar(consulta: string, filtro?: FiltroDocs & { limite?: 
 
 // versao ausente = a mais recente.
 export async function ler(slug: string, versao?: number): Promise<Doc | null> {
-  const [d] = await banco().select().from(docs).where(eq(docs.slug, texto(slug))).limit(1);
+  const [d] = await banco()
+    .select()
+    .from(docs)
+    .where(and(await daOrganizacao(), eq(docs.slug, texto(slug))))
+    .limit(1);
   if (!d) return null;
   if (versao === undefined || versao === null) return paraDoc(d);
   const n = validarVersao(versao);
@@ -209,9 +221,14 @@ export async function ler(slug: string, versao?: number): Promise<Doc | null> {
 export async function resolverSlug(entrada: string): Promise<string | null> {
   const bruto = texto(entrada);
   if (!bruto) return null;
-  const [direto] = await banco().select({ slug: docs.slug }).from(docs).where(eq(docs.slug, bruto)).limit(1);
+  const org = await daOrganizacao();
+  const [direto] = await banco()
+    .select({ slug: docs.slug })
+    .from(docs)
+    .where(and(org, eq(docs.slug, bruto)))
+    .limit(1);
   if (direto) return direto.slug;
-  const slugs = new Set((await banco().select({ slug: docs.slug }).from(docs)).map((d) => d.slug));
+  const slugs = new Set((await banco().select({ slug: docs.slug }).from(docs).where(org)).map((d) => d.slug));
   return slugDoArquivo(`${bruto.replace(/\.md$/i, "")}.md`, (s) => slugs.has(s));
 }
 
@@ -220,9 +237,14 @@ export async function salvar(entrada: EntradaSalvar, autor: Autor): Promise<Doc>
   const quem = validarAutor(autor);
   barrarSegredos(e.titulo, e.conteudo, e.mercado, e.nota, e.metadados && JSON.stringify(e.metadados));
   const hash = sha256(e.conteudo);
+  const organizacaoId = await organizacaoAtual();
 
   return banco().transaction(async (tx) => {
-    const [atual] = await tx.select().from(docs).where(eq(docs.slug, e.slug)).limit(1);
+    const [atual] = await tx
+      .select()
+      .from(docs)
+      .where(and(eq(docs.organizacaoId, organizacaoId), eq(docs.slug, e.slug)))
+      .limit(1);
 
     if (e.versaoEsperada === null) {
       if (atual) throw new ConflitoDeVersao(e.slug, atual.versaoAtual, null);
@@ -232,6 +254,7 @@ export async function salvar(entrada: EntradaSalvar, autor: Autor): Promise<Doc>
       const [novo] = await tx
         .insert(docs)
         .values({
+          organizacaoId,
           slug: e.slug,
           titulo,
           tipo: e.tipo,
@@ -245,7 +268,7 @@ export async function salvar(entrada: EntradaSalvar, autor: Autor): Promise<Doc>
           autorAtual: quem.nome,
           busca: textoDeBusca(titulo, e.conteudo),
         })
-        .onConflictDoNothing({ target: docs.slug })
+        .onConflictDoNothing({ target: [docs.organizacaoId, docs.slug] })
         .returning();
       if (!novo) throw new ConflitoDeVersao(e.slug, 1, null);
       await tx.insert(versoes).values({
@@ -495,7 +518,11 @@ export async function registrarLicao(entrada: EntradaLicao, autor: Autor): Promi
 }
 
 export async function historico(slug: string): Promise<Versao[]> {
-  const [d] = await banco().select({ id: docs.id }).from(docs).where(eq(docs.slug, texto(slug))).limit(1);
+  const [d] = await banco()
+    .select({ id: docs.id })
+    .from(docs)
+    .where(and(await daOrganizacao(), eq(docs.slug, texto(slug))))
+    .limit(1);
   if (!d) throw new DocNaoEncontrado(texto(slug));
   const linhas = await banco()
     .select()
@@ -517,14 +544,21 @@ export async function restaurar(slug: string, versao: number, autor: Autor): Pro
 }
 
 export async function pendentesDeRevisao(): Promise<DocResumo[]> {
-  const linhas = await banco().select(colunasResumo).from(docs).where(eq(docs.precisaRevisao, true));
+  const linhas = await banco()
+    .select(colunasResumo)
+    .from(docs)
+    .where(and(await daOrganizacao(), eq(docs.precisaRevisao, true)));
   return ordenar(linhas.map(paraResumo));
 }
 
 // Tira da fila de revisão. Não cria versão (o texto não muda); fica registrado quem revisou e quando.
 export async function marcarRevisado(slug: string, autor: Autor): Promise<Doc> {
   const quem = validarAutor(autor);
-  const [atual] = await banco().select().from(docs).where(eq(docs.slug, texto(slug))).limit(1);
+  const [atual] = await banco()
+    .select()
+    .from(docs)
+    .where(and(await daOrganizacao(), eq(docs.slug, texto(slug))))
+    .limit(1);
   if (!atual) throw new DocNaoEncontrado(texto(slug));
   const { motivoRevisao, ...resto } = atual.metadados ?? {};
   const [salvo] = await banco()
@@ -541,14 +575,20 @@ export async function marcarRevisado(slug: string, autor: Autor): Promise<Doc> {
 
 // Documentos que entram no prompt de sistema dos agentes do hub (noPrompt = true), na versão mais recente.
 export async function documentosDoPrompt(): Promise<Doc[]> {
-  const linhas = await banco().select().from(docs).where(eq(docs.noPrompt, true));
+  const linhas = await banco()
+    .select()
+    .from(docs)
+    .where(and(await daOrganizacao(), eq(docs.noPrompt, true)));
   return ordenar(linhas).map(paraDoc);
 }
 
 // Índice de projetos gerado a partir dos documentos tipo "projeto" (substitui a tabela mantida à mão do Sávio).
 // Mais recentes primeiro.
 export async function indiceDeProjetos(): Promise<LinhaProjeto[]> {
-  const linhas = await banco().select(colunasResumo).from(docs).where(eq(docs.tipo, "projeto"));
+  const linhas = await banco()
+    .select(colunasResumo)
+    .from(docs)
+    .where(and(await daOrganizacao(), eq(docs.tipo, "projeto")));
   const campo = (m: Record<string, unknown>, k: string) => (typeof m[k] === "string" && m[k] ? (m[k] as string) : null);
   return linhas
     .map((l) => {

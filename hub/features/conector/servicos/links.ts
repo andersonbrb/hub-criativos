@@ -13,13 +13,15 @@ import { and, eq, gt, isNull } from "drizzle-orm";
 import { banco } from "@/db/cliente";
 import { conectorLinks } from "@/db/schema";
 import { podeUsar } from "@/features/acesso/contrato";
+import { comOrganizacao, organizacaoAtual } from "@/features/acesso/servicos/organizacao-atual";
 import { buscarUsuario } from "@/features/acesso/servicos/sessao";
 import { json, SEM_CACHE } from "@/features/conector/servicos/http";
 import { PREFIXO_LINK, hashDe, novo } from "@/features/conector/servicos/segredos";
 import { ArquivoForaDoDrive } from "@/features/drive/servicos/arquivos";
 import { guardarNoDriveEmSegundoPlano, lerDoDrive } from "@/features/drive/servicos/videos";
 import { downloadName, type MediaKind } from "@/lib/generations";
-import { CONTENT_TYPES, MEDIA_DIR } from "@/lib/server/media";
+import { CONTENT_TYPES } from "@/lib/server/media";
+import { pastaDeMidia } from "@/lib/server/pastas";
 import { createGeneration, getGeneration } from "@/lib/server/store";
 
 // Links curtos de envio e de download de arquivo, para o terminal (curl).
@@ -31,8 +33,9 @@ import { createGeneration, getGeneration } from "@/lib/server/store";
 //   • envio: USO ÚNICO e 15 minutos. O link é marcado como usado ANTES de o arquivo começar a chegar, então dois curl
 //     ao mesmo tempo não viram dois arquivos; se a gravação falhar, ele volta a valer (o erro foi do arquivo);
 //   • download: 10 minutos, pode repetir;
-//   • na hora de usar, o DONO do link é reconferido: conta ativa, com o conector e a Biblioteca. Tirar a chave mata
-//     o link na hora.
+//   • na hora de usar, o DONO do link é reconferido: ativo na organização do link, com o conector e a Biblioteca.
+//     Tirar a chave mata o link na hora;
+//   • o link é da organização da conexão que o pediu: o arquivo entra (ou sai) da Biblioteca dela, e só dela.
 
 export const VALIDADE_ENVIO_MS = 15 * 60_000;
 export const VALIDADE_DOWNLOAD_MS = 10 * 60_000;
@@ -58,7 +61,9 @@ function urlDoLink(base: string, token: string) {
 export async function criarLinkDeEnvio(usuarioId: string, nomeArquivo: string, base: string) {
   const token = novo(PREFIXO_LINK);
   const expiraEm = new Date(Date.now() + VALIDADE_ENVIO_MS);
-  await banco().insert(conectorLinks).values({ tipo: "envio", tokenHash: hashDe(token), usuarioId, nomeArquivo, expiraEm });
+  await banco()
+    .insert(conectorLinks)
+    .values({ tipo: "envio", tokenHash: hashDe(token), usuarioId, organizacaoId: await organizacaoAtual(), nomeArquivo, expiraEm });
   const url = urlDoLink(base, token);
   return { url, expiraEm, comando: `curl -T "${nomeArquivo}" "${url}"` };
 }
@@ -66,7 +71,9 @@ export async function criarLinkDeEnvio(usuarioId: string, nomeArquivo: string, b
 export async function criarLinkDeDownload(usuarioId: string, generationId: string, nome: string, base: string) {
   const token = novo(PREFIXO_LINK);
   const expiraEm = new Date(Date.now() + VALIDADE_DOWNLOAD_MS);
-  await banco().insert(conectorLinks).values({ tipo: "download", tokenHash: hashDe(token), usuarioId, generationId, expiraEm });
+  await banco()
+    .insert(conectorLinks)
+    .values({ tipo: "download", tokenHash: hashDe(token), usuarioId, organizacaoId: await organizacaoAtual(), generationId, expiraEm });
   const url = urlDoLink(base, token);
   return { url, expiraEm, comando: `curl -fL -o "${nome}" "${url}"` };
 }
@@ -88,8 +95,10 @@ async function linkValido(token: string, tipo: "envio" | "download") {
   return link;
 }
 
-async function donoPodeUsar(usuarioId: string) {
-  const dono = await buscarUsuario(usuarioId);
+type Link = typeof conectorLinks.$inferSelect;
+
+async function donoPodeUsar(link: Link) {
+  const dono = await buscarUsuario(link.usuarioId, link.organizacaoId);
   return dono && podeUsar(dono, "conector_claude") && podeUsar(dono, "biblioteca") ? dono : null;
 }
 
@@ -99,9 +108,13 @@ class GrandeDemais extends Error {}
 export async function receberEnvio(request: Request, token: string): Promise<Response> {
   const link = await linkValido(token, "envio");
   if (!link) return recusa(MSG_LINK_INVALIDO, 404);
+  return comOrganizacao(link.organizacaoId, () => receberNaOrganizacao(request, link));
+}
+
+async function receberNaOrganizacao(request: Request, link: Link): Promise<Response> {
   const declarado = Number(request.headers.get("content-length") ?? "") || null;
   if (declarado && declarado > TETO_ENVIO_BYTES) return recusa("O arquivo passa de 2 GB.", 413);
-  const dono = await donoPodeUsar(link.usuarioId);
+  const dono = await donoPodeUsar(link);
   if (!dono) return recusa(MSG_DONO_SEM_ACESSO, 403);
   const nome = link.nomeArquivo ?? "";
   const tipo = tipoDoArquivo(nome);
@@ -117,9 +130,10 @@ export async function receberEnvio(request: Request, token: string): Promise<Res
   if (!pegou.length) return recusa(MSG_LINK_INVALIDO, 404);
   const devolverLink = () => db.update(conectorLinks).set({ usadoEm: null }).where(eq(conectorLinks.id, link.id));
 
-  await mkdir(MEDIA_DIR, { recursive: true });
+  const midia = await pastaDeMidia();
+  await mkdir(midia, { recursive: true });
   const arquivo = `${randomUUID()}.${tipo.ext}`;
-  const caminho = path.join(MEDIA_DIR, arquivo);
+  const caminho = path.join(midia, arquivo);
   let total = 0;
   const contador = new Transform({
     transform(pedaco: Buffer, _codificacao, pronto) {
@@ -168,11 +182,15 @@ export async function receberEnvio(request: Request, token: string): Promise<Res
 export async function entregarDownload(token: string): Promise<Response> {
   const link = await linkValido(token, "download");
   if (!link) return recusa(MSG_LINK_INVALIDO, 404);
-  if (!(await donoPodeUsar(link.usuarioId))) return recusa(MSG_DONO_SEM_ACESSO, 403);
+  return comOrganizacao(link.organizacaoId, () => entregarNaOrganizacao(link));
+}
+
+async function entregarNaOrganizacao(link: Link): Promise<Response> {
+  if (!(await donoPodeUsar(link))) return recusa(MSG_DONO_SEM_ACESSO, 403);
   const geracao = link.generationId ? await getGeneration(link.generationId) : undefined;
   if (!geracao?.file || !/^[\w-]+\.\w+$/.test(geracao.file)) return recusa("Este arquivo não existe mais no Hub.", 404);
   if (geracao.foraDoDrive) return recusa(MSG_APAGADO_NO_DRIVE, 404);
-  const caminho = path.join(MEDIA_DIR, geracao.file);
+  const caminho = path.join(await pastaDeMidia(), geracao.file);
   const info = geracao.drive ? null : await stat(caminho).catch(() => null);
   if (!geracao.drive && !info?.isFile()) return recusa("Este arquivo não existe mais no Hub.", 404);
   // Primeiro uso fica registrado (auditoria); não impede o próximo dentro do prazo.

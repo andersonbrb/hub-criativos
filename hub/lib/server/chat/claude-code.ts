@@ -1,7 +1,7 @@
 import "server-only";
 
 import { execFile, spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -10,6 +10,7 @@ import path from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 
 import type { Usuario } from "@/features/acesso/contrato";
+import { organizacaoAtual } from "@/features/acesso/servicos/organizacao-atual";
 import type { ChatEvent } from "@/lib/chat";
 import type { Generation } from "@/lib/generations";
 import { hydrateMessages } from "@/lib/server/chat/images";
@@ -38,6 +39,10 @@ export function mcpToken(): string {
   g.__hubMcpToken ??= process.env.HUB_MCP_TOKEN?.trim() || randomUUID() + randomUUID();
   return g.__hubMcpToken;
 }
+
+// Token da MCP do hub para UMA organização (vai junto com ?org= na URL). A conversa de uma organização não chama as
+// ferramentas de outra só trocando o ?org=: o token não bateria.
+export const mcpTokenDa = (organizacaoId: string) => createHmac("sha256", mcpToken()).update(organizacaoId).digest("base64url");
 
 // claude.exe: CLAUDE_CODE_BIN, o binário da extensão do VS Code (versão mais nova) ou "claude" do PATH.
 export function findClaude(): string | null {
@@ -127,10 +132,18 @@ export async function runClaudeCodeTurn(chat: Chat, emit: Emit, signal: AbortSig
   const systemFile = path.join(WORKDIR, `${chat.id}.system.md`);
   await writeFile(systemFile, chat.system + TOOL_NOTE);
   const mcpFile = path.join(WORKDIR, `${chat.id}.mcp.json`);
+  // As ferramentas rodam na organização desta conversa (a MCP do hub não tem a sessão de quem mandou a mensagem).
+  const org = await organizacaoAtual();
   await writeFile(
     mcpFile,
     JSON.stringify({
-      mcpServers: { hub: { type: "http", url: `${origin}/api/mcp?chat=${encodeURIComponent(chat.id)}`, headers: { Authorization: `Bearer ${mcpToken()}` } } },
+      mcpServers: {
+        hub: {
+          type: "http",
+          url: `${origin}/api/mcp?chat=${encodeURIComponent(chat.id)}&org=${encodeURIComponent(org)}`,
+          headers: { Authorization: `Bearer ${mcpTokenDa(org)}` },
+        },
+      },
     }),
   );
 

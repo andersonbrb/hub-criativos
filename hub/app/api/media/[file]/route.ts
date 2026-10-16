@@ -6,7 +6,8 @@ import { Readable } from "node:stream";
 import { abrirTrecho, ArquivoForaDoDrive } from "@/features/drive/servicos/arquivos";
 import { midiaDoArquivo, sincronizarComDrive } from "@/features/drive/servicos/videos";
 import { route } from "@/lib/server/http";
-import { CHAVES_DE_PRODUCAO, CONTENT_TYPES, MEDIA_DIR } from "@/lib/server/media";
+import { CHAVES_DE_PRODUCAO, CONTENT_TYPES } from "@/lib/server/media";
+import { pastaDeMidia } from "@/lib/server/pastas";
 
 // O vídeo foi apagado (ou mandado para a lixeira) direto no Drive: o hub não tem outra cópia.
 const apagadoNoDrive = () =>
@@ -44,7 +45,8 @@ export const GET = route(async (request: Request, { params }: { params: Promise<
   const { file } = await params;
   if (!/^[\w-]+\.\w+$/.test(file)) return new Response("Arquivo inválido", { status: 400 });
 
-  const filePath = path.join(MEDIA_DIR, file);
+  // Só a pasta da organização aberta: um arquivo de outra organização não existe aqui.
+  const filePath = path.join(await pastaDeMidia(), file);
   const info = await stat(filePath).catch(() => null);
 
   const tipo = CONTENT_TYPES[file.split(".").pop()!.toLowerCase()];

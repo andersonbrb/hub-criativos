@@ -47,6 +47,7 @@ export async function pedidoParaTela(id: string, usuario: Usuario): Promise<Pedi
     destinoLocal: ehLoopback(pedido.redirectUri),
     expiraEm: pedido.expiraEm.toISOString(),
     pessoa: { nome: usuario.nome, email: usuario.email },
+    organizacao: usuario.organizacao?.nome ?? "",
   };
 }
 
@@ -58,6 +59,9 @@ export async function decidirPedido(id: string, usuario: Usuario, decisao: "auto
   const linha = await carregar(id);
   if (!linha || linha.pedido.expiraEm.getTime() <= Date.now()) return { status: 404, corpo: { error: TEXTO_PEDIDO_VENCIDO } };
   if (linha.pedido.decididoEm) return { status: 409, corpo: { error: TEXTO_PEDIDO_USADO } };
+  // A conexão nasce presa à organização aberta agora (a rota já exigiu a chave do conector nela).
+  const organizacaoId = usuario.organizacao?.id;
+  if (!organizacaoId) return { status: 403, corpo: { error: "Abra uma organização antes de conectar o Claude." } };
   const { pedido } = linha;
   const agora = new Date();
   const codigo = novo(PREFIXO_CODIGO);
@@ -75,6 +79,7 @@ export async function decidirPedido(id: string, usuario: Usuario, decisao: "auto
         codigoHash: hashDe(codigo),
         clienteId: pedido.clienteId,
         usuarioId: usuario.id,
+        organizacaoId,
         redirectUri: pedido.redirectUri,
         codeChallenge: pedido.codeChallenge,
         resource: pedido.resource,

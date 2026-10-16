@@ -117,8 +117,8 @@ export async function trocarCodigo(dados: Dados) {
   if (dados.resource && !recursoConfere(dados.resource, codigo.resource)) {
     throw new ErroOAuth("invalid_target", "O resource não é o mesmo da autorização.");
   }
-  const usuario = await buscarUsuario(codigo.usuarioId);
-  if (!usuario?.ativo) throw new ErroOAuth("invalid_grant", "A conta de quem autorizou está desativada.");
+  const usuario = await buscarUsuario(codigo.usuarioId, codigo.organizacaoId);
+  if (!usuario?.ativo) throw new ErroOAuth("invalid_grant", "A conta de quem autorizou está desativada nesta organização.");
 
   const resultado = await db.transaction(async (tx) => {
     // Condicional: dois pedidos com o mesmo código ao mesmo tempo, só um ganha. O outro cai como reuso.
@@ -132,6 +132,7 @@ export async function trocarCodigo(dados: Dados) {
       .insert(conexoes)
       .values({
         usuarioId: codigo.usuarioId,
+        organizacaoId: codigo.organizacaoId,
         clienteId: cliente.id,
         app: appDoRedirect(codigo.redirectUri),
         escopos: codigo.escopos.length ? codigo.escopos : [ESCOPO_HUB],
@@ -174,8 +175,8 @@ export async function renovar(dados: Dados) {
   if (token.revogadoEm || conexao.revogadaEm) throw new ErroOAuth("invalid_grant", "Esta conexão foi revogada. Conecte de novo.");
   if (token.expiraEm <= agora) throw new ErroOAuth("invalid_grant", "O token de renovação venceu. Conecte de novo.");
   if (!ativa(conexao, agora.getTime())) await revogarERecusar("inatividade", "A conexão expirou por falta de uso. Conecte de novo.");
-  const usuario = await buscarUsuario(conexao.usuarioId);
-  if (!usuario?.ativo) await revogarERecusar("usuario_inativo", "A conta desta conexão está desativada.");
+  const usuario = await buscarUsuario(conexao.usuarioId, conexao.organizacaoId);
+  if (!usuario?.ativo) await revogarERecusar("usuario_inativo", "A conta desta conexão está desativada nesta organização.");
 
   const tokens = await db.transaction(async (tx) => {
     const ganhou = await tx
@@ -236,8 +237,8 @@ export async function registrarUso(conexaoId: string) {
   await banco().update(conexoes).set({ ultimoUsoEm: new Date() }).where(eq(conexoes.id, conexaoId));
 }
 
-// Conexões ATIVAS da pessoa (não revogadas e usadas nos últimos 60 dias), para a tela.
-export async function conexoesDaPessoa(usuarioId: string): Promise<ConexaoNaTela[]> {
+// Conexões ATIVAS da pessoa na organização aberta (não revogadas e usadas nos últimos 60 dias), para a tela.
+export async function conexoesDaPessoa(usuarioId: string, organizacaoId: string): Promise<ConexaoNaTela[]> {
   const limite = new Date(Date.now() - INATIVIDADE_MAXIMA_MS);
   const linhas = await banco()
     .select({ conexao: conexoes, clienteNome: oauthClientes.nome })
@@ -246,6 +247,7 @@ export async function conexoesDaPessoa(usuarioId: string): Promise<ConexaoNaTela
     .where(
       and(
         eq(conexoes.usuarioId, usuarioId),
+        eq(conexoes.organizacaoId, organizacaoId),
         isNull(conexoes.revogadaEm),
         or(and(isNotNull(conexoes.ultimoUsoEm), gte(conexoes.ultimoUsoEm, limite)), and(isNull(conexoes.ultimoUsoEm), gte(conexoes.criadoEm, limite))),
       ),
@@ -261,13 +263,17 @@ export async function conexoesDaPessoa(usuarioId: string): Promise<ConexaoNaTela
   }));
 }
 
-// Desconectar pela tela: a pessoa derruba a própria conexão (admin, qualquer uma). Não exige a chave do conector:
-// quem perdeu o acesso continua podendo cortar o que deixou ligado. Conexão alheia responde como inexistente, para
-// não confirmar que ela existe.
-export async function desconectar(conexaoId: string, por: { id: string; admin: boolean }): Promise<"ok" | "nao_encontrada"> {
+// Desconectar pela tela: a pessoa derruba a própria conexão (admin, qualquer uma da organização dele). Não exige a
+// chave do conector: quem perdeu o acesso continua podendo cortar o que deixou ligado. Conexão alheia responde como
+// inexistente, para não confirmar que ela existe.
+export async function desconectar(
+  conexaoId: string,
+  por: { id: string; admin: boolean; organizacaoId: string | null },
+): Promise<"ok" | "nao_encontrada"> {
   if (!/^[0-9a-f-]{36}$/i.test(conexaoId)) return "nao_encontrada";
   const [conexao] = await banco().select().from(conexoes).where(eq(conexoes.id, conexaoId)).limit(1);
-  if (!conexao || conexao.revogadaEm || (!por.admin && conexao.usuarioId !== por.id)) return "nao_encontrada";
+  const podeCortar = conexao && (conexao.usuarioId === por.id || (por.admin && conexao.organizacaoId === por.organizacaoId));
+  if (!conexao || conexao.revogadaEm || !podeCortar) return "nao_encontrada";
   await revogarConexao(conexao.id, "desconectada", por.id);
   return "ok";
 }

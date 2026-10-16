@@ -10,8 +10,9 @@ import { arquivoLocal, guardarNoDriveEmSegundoPlano } from "@/features/drive/ser
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
 import { applyGraphics, sanitizeGraphics, type GraphicRequest } from "@/lib/server/motion";
-import { MEDIA_DIR } from "@/lib/server/media";
-import { createGeneration, DATA_DIR, getGeneration, updateGeneration } from "@/lib/server/store";
+import { comOrganizacao, organizacaoDoContexto } from "@/features/acesso/servicos/organizacao-atual";
+import { DATA_DIR, pastaDeMidia } from "@/lib/server/pastas";
+import { createGeneration, getGeneration, updateGeneration } from "@/lib/server/store";
 import { scribeWords } from "@/lib/server/video";
 
 // Montagem automática do infoproduto (hub/playbooks/infoproduto-edicao-video.md), rodando nesta máquina:
@@ -20,8 +21,10 @@ import { scribeWords } from "@/lib/server/video";
 const SCRIPT = path.join(process.cwd(), "scripts", "montagem.py");
 const BEAT_SCRIPT = path.join(process.cwd(), "scripts", "batida.py");
 const CAPTION_SCRIPT = path.join(process.cwd(), "scripts", "remover_legenda.py");
+// Modelo e temporários são de todas as organizações (raiz de .data/). O vídeo pronto vai para as mídias da organização.
 const LAMA_MODEL = path.join(DATA_DIR, "models", "big-lama.pt");
 const FONTS = path.join(process.cwd(), "scripts", "fonts");
+// Logs por id da geração (uuid): só são lidos depois de a rota achar a geração na organização de quem pede.
 const LOG_DIR = path.join(DATA_DIR, "montagem");
 export const LANGS = ["es", "pt", "fr", "en"] as const;
 
@@ -149,7 +152,8 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
   });
 
   await mkdir(LOG_DIR, { recursive: true });
-  await mkdir(MEDIA_DIR, { recursive: true });
+  const midia = await pastaDeMidia();
+  await mkdir(midia, { recursive: true });
   const outName = `${randomUUID()}.mp4`;
   const jobFile = path.join(LOG_DIR, `${gen.id}.json`);
   const timelineFile = path.join(LOG_DIR, `${gen.id}.timeline.json`);
@@ -181,7 +185,7 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
         broll_cues: brollCues,
         lang,
         fx,
-        out: path.join(MEDIA_DIR, outName),
+        out: path.join(midia, outName),
         workdir: path.join(DATA_DIR, "tmp", gen.id),
         fontsdir: FONTS,
         timeline_out: timelineFile,
@@ -192,7 +196,7 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
       // Gráficos animados (opcionais) depois da edição; se falharem, o vídeo sai sem eles e o log explica.
       if (!graphics.length) return;
       try {
-        await applyGraphics({ video: path.join(MEDIA_DIR, outName), timelineFile, graphics, workdir: path.join(DATA_DIR, "tmp", `${gen.id}-gfx`), log: line });
+        await applyGraphics({ video: path.join(midia, outName), timelineFile, graphics, workdir: path.join(DATA_DIR, "tmp", `${gen.id}-gfx`), log: line });
       } catch (err) {
         line(`gráficos animados falharam (${err instanceof Error ? err.message.slice(0, 200) : "erro"}); vídeo entregue sem eles`);
       }
@@ -206,7 +210,7 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
   return gen;
 }
 
-// Roda um script Python da edição em segundo plano: o log fica em .data/montagem/<id>.log e o status da geração é
+// Roda um script Python da edição em segundo plano: o log fica em .data/montagem/<id>.log (na raiz) e o status da geração é
 // atualizado ao terminar. `after` roda depois de um DONE (ex.: gráficos animados), antes de marcar como pronta.
 // Pronto, o vídeo segue para o Google Drive (features/drive), também em segundo plano. As `copias` seguras são
 // soltas quando o processo termina, com sucesso ou com erro.
@@ -220,6 +224,9 @@ function launch(
   after?: (line: (m: string) => void) => Promise<void>,
 ) {
   const log: string[] = [];
+  // O fim do processo grava na organização que pediu a edição (a mesma da geração), mesmo horas depois.
+  const org = organizacaoDoContexto();
+  const naOrganizacao = <T,>(fn: () => T): T => (org ? comOrganizacao(org, fn) : fn());
   const python = process.env.PYTHON_BIN || "python";
   const child = spawn(python, ["-W", "ignore", script, jobFile], { windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
   child.stdin.end();
@@ -233,9 +240,9 @@ function launch(
   child.on("error", (err) => {
     running.delete(id);
     soltarCopias(copias);
-    updateGeneration(id, { status: "failed", error: `Não consegui rodar o Python (${err.message}). Defina PYTHON_BIN no .env.local.` });
+    void naOrganizacao(() => updateGeneration(id, { status: "failed", error: `Não consegui rodar o Python (${err.message}). Defina PYTHON_BIN no .env.local.` }));
   });
-  child.on("close", async (code) => {
+  child.on("close", (code) => naOrganizacao(async () => {
     // O Python já não lê as cópias (os gráficos do `after` usam só o vídeo novo).
     soltarCopias(copias);
     const text = log.join("");
@@ -251,7 +258,7 @@ function launch(
         : (text.match(/ERROR (.+)/)?.[1] ?? text.trim().split("\n").slice(-2).join(" "));
       await updateGeneration(id, { status: "failed", error: `${label}: ${err.slice(0, 300) || `saiu com código ${code}`}` });
     }
-  });
+  }));
 }
 
 // ---------- Edição na batida (scripts/batida.py) ----------
@@ -312,7 +319,8 @@ export async function runBeatEdit(req: BeatRequest): Promise<Generation> {
   });
 
   await mkdir(LOG_DIR, { recursive: true });
-  await mkdir(MEDIA_DIR, { recursive: true });
+  const midia = await pastaDeMidia();
+  await mkdir(midia, { recursive: true });
   const outName = `${randomUUID()}.mp4`;
   const jobFile = path.join(LOG_DIR, `${gen.id}.json`);
   // Em segundo plano: uma cena que está só no Google Drive é baixada antes, e o pedido não espera o download.
@@ -332,7 +340,7 @@ export async function runBeatEdit(req: BeatRequest): Promise<Generation> {
         cta,
         cta_clip: clipIdx(req.cta?.clip),
         accent,
-        out: path.join(MEDIA_DIR, outName),
+        out: path.join(midia, outName),
         workdir: path.join(DATA_DIR, "tmp", gen.id),
         fontsdir: FONTS,
       }),
@@ -375,6 +383,8 @@ export async function runRemoveCaptions(req: CaptionRemovalRequest): Promise<Gen
     params: { formato: "sem-legenda", origem: g.id, regiao: region, modo: mode, duracao: Math.round(Number(g.params.duration) || 0) || null },
   });
   await mkdir(LOG_DIR, { recursive: true });
+  const midia = await pastaDeMidia();
+  await mkdir(midia, { recursive: true });
   const outName = `${randomUUID()}.mp4`;
   const jobFile = path.join(LOG_DIR, `${gen.id}.json`);
   // Em segundo plano: um vídeo que está só no Google Drive é baixado antes, e o pedido não espera o download.
@@ -387,7 +397,7 @@ export async function runRemoveCaptions(req: CaptionRemovalRequest): Promise<Gen
     if (duracao && duracao !== gen.params.duracao) await updateGeneration(gen.id, { params: { ...gen.params, duracao } });
     await writeFile(
       jobFile,
-      JSON.stringify({ input, out: path.join(MEDIA_DIR, outName), workdir: path.join(DATA_DIR, "tmp", gen.id), model: LAMA_MODEL, region, mode }),
+      JSON.stringify({ input, out: path.join(midia, outName), workdir: path.join(DATA_DIR, "tmp", gen.id), model: LAMA_MODEL, region, mode }),
     );
     launch(gen.id, CAPTION_SCRIPT, jobFile, outName, "Remover legenda", copias);
   })().catch(async (err) => {

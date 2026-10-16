@@ -6,7 +6,7 @@ import { route } from "@/lib/server/http";
 // Resposta das duas: { rodando, total, feitos, falhas, ultimoErro }.
 
 // Como está a migração (a tela consulta enquanto `rodando`).
-export const GET = route(async () => Response.json(estadoDaMigracao()), { chave: "integracoes" });
+export const GET = route(async () => Response.json(await estadoDaMigracao()), { chave: "integracoes" });
 
 // Começa em segundo plano, um vídeo por vez. Se já está rodando, só devolve o estado (não começa outra).
 export const POST = route(async () => Response.json(await iniciarMigracao()), { chave: "integracoes" });

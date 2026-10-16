@@ -7,7 +7,8 @@ import { POST } from "@/app/api/memoria/route";
 import { banco } from "@/db/cliente";
 import { usuarios } from "@/db/schema";
 import { bancoDeTeste } from "@/db/teste";
-import type { Chave, Papel } from "@/features/acesso/contrato";
+import { ORGANIZACAO_PADRAO, type Chave, type Papel } from "@/features/acesso/contrato";
+import { vincular } from "@/features/acesso/testes/ajuda";
 import { documentosDoPrompt, ler, salvar } from "@/features/memoria/servicos/memoria";
 import { AVISO_NO_PROMPT } from "@/features/memoria/servicos/rotas";
 
@@ -19,7 +20,7 @@ vi.mock("@/features/acesso/servicos/sessao", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/features/acesso/servicos/sessao")>();
   const { NaoAutenticado, SemPermissao, podeUsar } = await import("@/features/acesso/contrato");
   const exigirUsuario = async (chave?: Chave) => {
-    const usuario = sessao.logado ? await real.buscarUsuario(sessao.logado) : null;
+    const usuario = sessao.logado ? await real.buscarUsuario(sessao.logado, ORGANIZACAO_PADRAO.id) : null;
     if (!usuario?.ativo) throw new NaoAutenticado();
     if (chave && !podeUsar(usuario, chave)) throw new SemPermissao(chave);
     return usuario;
@@ -30,8 +31,9 @@ vi.mock("@/features/acesso/servicos/sessao", async (importOriginal) => {
 async function entrarComo(papel: Papel, chaves: Chave[] = ["memoria", "memoria_editar"]) {
   const [u] = await banco()
     .insert(usuarios)
-    .values({ email: `${papel}${randomBytes(3).toString("hex")}@exemplo.com`, nome: papel, papel, chaves })
+    .values({ email: `${papel}${randomBytes(3).toString("hex")}@exemplo.com`, nome: papel })
     .returning();
+  await vincular(u.id, ORGANIZACAO_PADRAO.id, { papel, chaves });
   sessao.logado = u.id;
   return u;
 }

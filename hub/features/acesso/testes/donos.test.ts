@@ -22,7 +22,8 @@ describe("criar dono (script)", () => {
   it("cria a conta de dono com uma senha forte que funciona no login", async () => {
     const { usuario, senha, criado } = await garantirDono({ email: "Vini@Exemplo.com", nome: "Vinícius" });
     expect(criado).toBe(true);
-    expect(usuario).toMatchObject({ email: "vini@exemplo.com", nome: "Vinícius", papel: "dono", ativo: true });
+    expect(usuario).toMatchObject({ email: "vini@exemplo.com", nome: "Vinícius", papel: "dono", ativo: true, operaPlataforma: true });
+    expect(usuario.organizacao?.nome).toBe("Grupo Chegou");
     expect(senha.length).toBeGreaterThanOrEqual(24);
     expect((await entrar("vini@exemplo.com", senha, {})).usuario.id).toBe(usuario.id);
   });

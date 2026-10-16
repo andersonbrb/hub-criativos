@@ -3,7 +3,14 @@ import { lerCorpo } from "@/features/acesso/servicos/pedido";
 import { exigirUsuario } from "@/features/acesso/servicos/sessao";
 import { route } from "@/lib/server/http";
 
-export const GET = route(async () => Response.json({ convites: await listarConvites() }), { chave: "membros" });
+// Convites pendentes da organização aberta.
+export const GET = route(
+  async () => {
+    const eu = await exigirUsuario("membros");
+    return Response.json({ convites: await listarConvites(eu.organizacao!.id) });
+  },
+  { chave: "membros" },
+);
 
 // Cria o convite e devolve o link (/aceitar-convite/<token>). O link só existe nesta resposta: no banco fica o hash.
 export const POST = route(

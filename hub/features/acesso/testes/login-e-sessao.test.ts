@@ -2,13 +2,14 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { banco } from "@/db/cliente";
-import { sessoes, usuarios } from "@/db/schema";
+import { organizacaoMembros, sessoes, usuarios } from "@/db/schema";
 import { bancoDeTeste } from "@/db/teste";
-import { ContaDesativada, CredenciaisInvalidas, MuitasTentativas } from "@/features/acesso/erros";
+import { ORGANIZACAO_PADRAO } from "@/features/acesso/contrato";
+import { CredenciaisInvalidas, MuitasTentativas } from "@/features/acesso/erros";
 import { entrar, freio, sair } from "@/features/acesso/servicos/login";
 import * as senha from "@/features/acesso/servicos/senha";
-import { criarSessao, hashDoToken, usuarioPeloToken } from "@/features/acesso/servicos/sessoes";
-import { criarConta } from "@/features/acesso/testes/ajuda";
+import { criarSessao, hashDoToken, trocarOrganizacaoDaSessao, usuarioPeloToken } from "@/features/acesso/servicos/sessoes";
+import { criarConta, criarOrganizacao, mudarVinculo, vincular } from "@/features/acesso/testes/ajuda";
 
 const DIA = 24 * 60 * 60 * 1000;
 
@@ -57,9 +58,20 @@ describe("login", () => {
     await expect(entrar("sem@exemplo.com", "", {})).rejects.toThrow(CredenciaisInvalidas);
   });
 
-  it("conta desativada não entra, mesmo com a senha certa", async () => {
-    await criarConta({ email: "fora@exemplo.com", senha: "senha-certa-123", ativo: false });
-    await expect(entrar("fora@exemplo.com", "senha-certa-123", {})).rejects.toThrow(ContaDesativada);
+  it("desativada na única organização: entra, mas sem organização nem tela nenhuma", async () => {
+    await criarConta({ email: "fora@exemplo.com", senha: "senha-certa-123", ativo: false, chaves: ["chat"] });
+    const { usuario } = await entrar("fora@exemplo.com", "senha-certa-123", {});
+    expect(usuario).toMatchObject({ ativo: false, organizacao: null, chaves: [] });
+  });
+
+  it("entra na última organização aberta", async () => {
+    const conta = await criarConta({ email: "ana@exemplo.com", senha: "senha-certa-da-ana" });
+    const outra = await criarOrganizacao("Loja da Ana");
+    await vincular(conta.id, outra, { papel: "dono" });
+    await banco().update(usuarios).set({ ultimaOrganizacaoId: outra }).where(eq(usuarios.id, conta.id));
+    const { usuario } = await entrar("ana@exemplo.com", "senha-certa-da-ana", {});
+    expect(usuario.organizacao).toMatchObject({ id: outra, nome: "Loja da Ana" });
+    expect(usuario.papel).toBe("dono");
   });
 
   it("freio: depois de 5 erros em 10 minutos no mesmo e-mail e IP, recusa até a senha certa", async () => {
@@ -174,11 +186,39 @@ describe("sessão", () => {
     expect(await usuarioPeloToken(token)).toBeNull();
   });
 
-  it("de conta desativada dá null", async () => {
-    const conta = await criarConta({ email: "ana@exemplo.com" });
+  it("desativada na organização aberta: a sessão continua, sem acesso a nada", async () => {
+    const conta = await criarConta({ email: "ana@exemplo.com", chaves: ["memoria"] });
     const { token } = await criarSessao(conta.id);
-    await banco().update(usuarios).set({ ativo: false }).where(eq(usuarios.id, conta.id));
-    expect(await usuarioPeloToken(token)).toBeNull();
+    await mudarVinculo(conta.id, { ativo: false });
+    expect(await usuarioPeloToken(token)).toMatchObject({ id: conta.id, ativo: false });
+  });
+
+  it("removida da organização aberta: a sessão passa sozinha para outra organização dela", async () => {
+    const conta = await criarConta({ email: "ana@exemplo.com" });
+    const outra = await criarOrganizacao("Loja da Ana");
+    await vincular(conta.id, outra, { chaves: ["fluxo"] });
+    const { token } = await criarSessao(conta.id, {}, ORGANIZACAO_PADRAO.id);
+    await banco().delete(organizacaoMembros).where(eq(organizacaoMembros.organizacaoId, ORGANIZACAO_PADRAO.id));
+    expect(await usuarioPeloToken(token)).toMatchObject({ ativo: true, chaves: ["fluxo"], organizacao: { id: outra } });
+    const [s] = await banco().select().from(sessoes);
+    expect(s.organizacaoId).toBe(outra);
+  });
+
+  it("troca de organização só para uma em que a pessoa está ativa", async () => {
+    const conta = await criarConta({ email: "ana@exemplo.com" });
+    const outra = await criarOrganizacao("Loja da Ana");
+    const alheia = await criarOrganizacao("De outra pessoa");
+    const suspensa = await criarOrganizacao("Suspensa", "suspensa");
+    await vincular(conta.id, outra, { papel: "admin" });
+    await vincular(conta.id, suspensa, { papel: "dono" });
+    const { token } = await criarSessao(conta.id, {}, ORGANIZACAO_PADRAO.id);
+
+    expect(await trocarOrganizacaoDaSessao(token, conta.id, alheia)).toBe(false);
+    expect(await trocarOrganizacaoDaSessao(token, conta.id, suspensa)).toBe(false);
+    expect(await trocarOrganizacaoDaSessao(token, conta.id, outra)).toBe(true);
+    expect(await usuarioPeloToken(token)).toMatchObject({ papel: "admin", organizacao: { id: outra } });
+    const [u] = await banco().select().from(usuarios).where(eq(usuarios.id, conta.id));
+    expect(u.ultimaOrganizacaoId).toBe(outra);
   });
 
   it("usada depois de mais de 1 dia, renova por mais 30 dias", async () => {

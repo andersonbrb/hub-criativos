@@ -91,9 +91,21 @@ export function estimateProgress(g: Generation, now = Date.now(), expected = exp
 
 export const formatRemaining = (s: number) => (s >= 60 ? `~${Math.floor(s / 60)} min ${String(s % 60).padStart(2, "0")} s` : `~${s} s`);
 
+// Organização que esta tela carregou (o layout grava em <html data-organizacao>). Vai em toda chamada: se outra aba
+// trocou de organização, o servidor responde 409 e a tela recarrega já na organização nova, em vez de gravar numa o
+// que era para a outra.
+function comAOrganizacaoDaTela(init?: RequestInit): RequestInit | undefined {
+  const org = typeof document === "undefined" ? undefined : document.documentElement.dataset.organizacao;
+  if (!org) return init;
+  const headers = new Headers(init?.headers);
+  if (!headers.has("x-hub-organizacao")) headers.set("x-hub-organizacao", org);
+  return { ...init, headers };
+}
+
 export async function apiFetch<T>(input: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(input, init);
+  const res = await fetch(input, comAOrganizacaoDaTela(init));
   const data = await res.json().catch(() => ({}));
+  if (res.status === 409 && (data as { codigo?: string }).codigo === "organizacao_trocada" && typeof window !== "undefined") window.location.reload();
   if (!res.ok) throw new Error((data as { error?: string }).error ?? `Erro ${res.status}`);
   return data as T;
 }

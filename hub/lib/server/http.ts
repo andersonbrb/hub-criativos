@@ -1,6 +1,7 @@
 import "server-only";
 
-import { NaoAutenticado, podeUsar, SemPermissao, type Chave } from "@/features/acesso/contrato";
+import { CABECALHO_ORGANIZACAO, NaoAutenticado, podeUsar, SemPermissao, type Chave, type Usuario } from "@/features/acesso/contrato";
+import { comOrganizacao } from "@/features/acesso/servicos/organizacao-atual";
 import { exigirUsuario } from "@/features/acesso/servicos/sessao";
 import { MissingKeyError } from "@/lib/server/env";
 
@@ -18,6 +19,17 @@ export class ProviderError extends Error {
 
 // Erro de dado inválido vindo de quem chamou (formulário ou agente): vira 400, não 502.
 export class InputError extends Error {}
+
+// A tela foi carregada numa organização e a sessão agora está em outra (troca em outra aba): 409, e a tela recarrega
+// em vez de gravar numa organização o que era para a outra.
+export class OrganizacaoTrocada extends Error {
+  constructor() {
+    super("Você trocou de organização em outra aba. Recarregue a página para continuar.");
+  }
+}
+
+// A organização em que a rota roda: a aberta na sessão, se a pessoa está ativa nela.
+const organizacaoDaPessoa = (u: Usuario) => (u.ativo && u.organizacao?.situacao === "ativa" ? u.organizacao.id : null);
 
 export type OpcoesDaRota = {
   // Chave da tela exigida (features/acesso/contrato.ts). Sem ela, basta estar logado. Com uma lista, qualquer uma
@@ -44,6 +56,9 @@ const mudaAlgo = (pedido: Request) => pedido.method !== "GET" && pedido.method !
 
 // Envolve um route handler: exige login (e a chave, se pedida) e devolve erros como { error } em JSON,
 // legíveis na interface. Quem precisa da pessoa logada dentro do handler chama exigirUsuario() de novo.
+// O handler roda DENTRO da organização aberta na sessão (features/acesso/servicos/organizacao-atual.ts): tudo o que
+// ele ler ou gravar, inclusive o que continuar em segundo plano, é dessa organização. A tela manda a organização que
+// carregou no cabeçalho x-hub-organizacao; se a sessão já está em outra, responde 409.
 // Pedido que muda algo e veio de outro site é recusado antes de tudo (exigirMesmoSite). As rotas abertas que mudam
 // a sessão (entrar, sair, aceitar convite) fazem essa conferência por conta própria.
 export function route<A extends unknown[]>(fn: (...args: A) => Promise<Response>, opcoes: OpcoesDaRota = {}) {
@@ -55,6 +70,10 @@ export function route<A extends unknown[]>(fn: (...args: A) => Promise<Response>
         const chaves = opcoes.chave === undefined ? [] : [opcoes.chave].flat();
         const usuario = await exigirUsuario(chaves.length === 1 ? chaves[0] : undefined);
         if (chaves.length > 1 && !chaves.some((c) => podeUsar(usuario, c))) throw new SemPermissao(chaves[0]);
+        const carregada = pedido?.headers.get(CABECALHO_ORGANIZACAO);
+        if (carregada && carregada !== (usuario.organizacao?.id ?? "")) throw new OrganizacaoTrocada();
+        const org = organizacaoDaPessoa(usuario);
+        if (org) return await comOrganizacao(org, () => fn(...args));
       }
       return await fn(...args);
     } catch (err) {
@@ -68,10 +87,19 @@ export function route<A extends unknown[]>(fn: (...args: A) => Promise<Response>
         if (err instanceof SemPermissao) return ir(`/sem-acesso${err.chave ? `?chave=${err.chave}` : ""}`);
       }
       const status =
-        err instanceof NaoAutenticado ? 401 : err instanceof SemPermissao ? 403 : err instanceof MissingKeyError || err instanceof InputError ? 400 : 502;
+        err instanceof NaoAutenticado
+          ? 401
+          : err instanceof SemPermissao
+            ? 403
+            : err instanceof OrganizacaoTrocada
+              ? 409
+              : err instanceof MissingKeyError || err instanceof InputError
+                ? 400
+                : 502;
       const message = err instanceof Error ? err.message : "Erro inesperado";
       console.error("[hub]", message);
-      return Response.json({ error: message }, { status });
+      // O código deixa a tela distinguir a troca de organização (recarrega) de outros 409 (ex.: conflito na Memória).
+      return Response.json({ error: message, ...(err instanceof OrganizacaoTrocada ? { codigo: "organizacao_trocada" } : {}) }, { status });
     }
   };
 }

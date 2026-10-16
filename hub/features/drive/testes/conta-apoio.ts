@@ -6,6 +6,7 @@ import { banco } from "@/db/cliente";
 import { driveConta, usuarios } from "@/db/schema";
 import { bancoDeTeste } from "@/db/teste";
 import type { Chave } from "@/features/acesso/contrato";
+import { garantirOrganizacaoPadrao, vincular } from "@/features/acesso/testes/ajuda";
 import { cifrar, ESCOPO_DRIVE, zerarMemoriaDoDrive } from "@/features/drive/servicos/conta";
 
 // Apoio dos testes da conta do Drive: um Google de mentira (fetch trocado por vi.stubGlobal) e contas prontas.
@@ -22,6 +23,7 @@ export async function prepararConta() {
   vi.spyOn(console, "error").mockImplementation(() => undefined);
   zerarMemoriaDoDrive();
   await bancoDeTeste();
+  await garantirOrganizacaoPadrao();
 }
 
 export type ChamadaAoGoogle = { tipo: TipoDeChamada; url: string; metodo: string; corpo: Record<string, string>; autorizacao: string | null };
@@ -75,8 +77,9 @@ export const tokensDoGoogle = (extra: Record<string, unknown> = {}) =>
 export async function criarPessoa(chaves: Chave[] = ["integracoes"]) {
   const [pessoa] = await banco()
     .insert(usuarios)
-    .values({ email: `pessoa-${randomBytes(4).toString("hex")}@exemplo.com`, nome: "Pessoa", chaves })
+    .values({ email: `pessoa-${randomBytes(4).toString("hex")}@exemplo.com`, nome: "Pessoa" })
     .returning();
+  await vincular(pessoa.id, await garantirOrganizacaoPadrao(), { chaves });
   return pessoa;
 }
 
@@ -85,6 +88,7 @@ export async function contaConectada(venceEmMs: number, dados: { email?: string;
   await banco()
     .insert(driveConta)
     .values({
+      organizacaoId: await garantirOrganizacaoPadrao(),
       email: dados.email ?? "videos@gmail.com",
       nome: "Vídeos do Hub",
       refreshTokenCifrado: cifrar(dados.refresh ?? "refresh-guardado"),

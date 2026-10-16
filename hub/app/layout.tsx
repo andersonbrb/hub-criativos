@@ -43,6 +43,8 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       // O script do <head> pode trocar a classe .dark antes da hidratação (tema claro salvo)
       suppressHydrationWarning
       className={`dark ${inter.variable} ${geistMono.variable} h-full antialiased`}
+      // Organização que esta tela carregou: o apiFetch manda em toda chamada e recarrega se outra aba trocou.
+      data-organizacao={usuario?.organizacao?.id}
     >
       <head>
         {/* Aplica o tema salvo antes da primeira pintura (componente de servidor: o React não reclama do script). */}

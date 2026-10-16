@@ -13,7 +13,8 @@ import { POST as rotaToken } from "@/app/oauth2/token/route";
 import { banco } from "@/db/cliente";
 import { bancoDeTeste } from "@/db/teste";
 import { usuarios } from "@/db/schema";
-import type { Chave } from "@/features/acesso/contrato";
+import { ORGANIZACAO_PADRAO, type Chave, type Papel } from "@/features/acesso/contrato";
+import { garantirOrganizacaoPadrao, mudarVinculo, vincular } from "@/features/acesso/testes/ajuda";
 import { zerarLimites } from "@/features/conector/servicos/limites";
 import { zerarLimpeza } from "@/features/conector/servicos/limpeza";
 import { sessao } from "@/features/conector/testes/sessao-falsa";
@@ -33,9 +34,11 @@ export async function prepararTeste() {
   process.env.HUB_PUBLIC_URL = BASE;
   delete process.env.MCP_REDIRECTS_PERMITIDOS;
   sessao.logado = null;
+  sessao.organizacao = ORGANIZACAO_PADRAO.id;
   zerarLimites();
   zerarLimpeza();
   await bancoDeTeste();
+  await garantirOrganizacaoPadrao();
 }
 
 // (verificador, desafio S256)
@@ -46,15 +49,22 @@ export function pkce() {
 
 export const query = (url: string) => Object.fromEntries(new URL(url).searchParams);
 
-export async function criarPessoa({ chaves = ["conector_claude"] as Chave[], nome = "Sávio", ativo = true } = {}) {
+// Pessoa na organização padrão (ou na pedida), com as chaves dadas.
+export async function criarPessoa({ chaves = ["conector_claude"] as Chave[], nome = "Sávio", ativo = true, organizacaoId = ORGANIZACAO_PADRAO.id as string } = {}) {
   const [u] = await banco()
     .insert(usuarios)
-    .values({ email: `${nome.toLowerCase().replace(/\W/g, "")}${randomBytes(3).toString("hex")}@exemplo.com`, nome, chaves, ativo })
+    .values({ email: `${nome.toLowerCase().replace(/\W/g, "")}${randomBytes(3).toString("hex")}@exemplo.com`, nome })
     .returning();
+  await vincular(u.id, organizacaoId, { chaves, ativo });
   return u;
 }
 
-export const mudarPessoa = (id: string, dados: Partial<typeof usuarios.$inferInsert>) => banco().update(usuarios).set(dados).where(eq(usuarios.id, id));
+// Papel, chaves e situação mudam no vínculo com a organização padrão; o resto, na conta.
+export async function mudarPessoa(id: string, dados: { papel?: Papel; chaves?: Chave[]; ativo?: boolean; nome?: string }) {
+  const { nome, ...vinculo } = dados;
+  if (nome !== undefined) await banco().update(usuarios).set({ nome }).where(eq(usuarios.id, id));
+  if (Object.keys(vinculo).length) await mudarVinculo(id, vinculo);
+}
 
 // ---- OAuth ----
 

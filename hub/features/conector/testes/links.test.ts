@@ -1,4 +1,6 @@
+import { mkdtempSync } from "node:fs";
 import { readFile, readdir, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import { eq } from "drizzle-orm";
@@ -7,8 +9,9 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET as baixar, PUT as enviar } from "@/app/api/conector/arquivos/[token]/route";
 import { banco } from "@/db/cliente";
 import { conectorLinks } from "@/db/schema";
+import { ORGANIZACAO_PADRAO } from "@/features/acesso/contrato";
 import type { Generation } from "@/lib/generations";
-import { MEDIA_DIR } from "@/lib/server/media";
+import { pastaDeMidiaDa, usarRaizDosDados } from "@/lib/server/pastas";
 import * as store from "@/lib/server/store";
 import { chamar, conectar, criarPessoa, mudarPessoa, prepararTeste } from "@/features/conector/testes/apoio";
 
@@ -34,14 +37,9 @@ vi.mock("@/lib/server/store", () => {
     }),
   };
 });
-// A mídia vai para uma pasta temporária, sem mexer em lib/server/media.ts.
-vi.mock("@/lib/server/media", async (importOriginal) => {
-  const { mkdtempSync } = await import("node:fs");
-  const os = await import("node:os");
-  const caminho = await import("node:path");
-  const real = await importOriginal<typeof import("@/lib/server/media")>();
-  return { ...real, MEDIA_DIR: mkdtempSync(caminho.join(os.tmpdir(), "hub-conector-midia-")) };
-});
+// A mídia vai para uma pasta temporária (a da organização padrão fica em <temp>/media).
+usarRaizDosDados(mkdtempSync(path.join(os.tmpdir(), "hub-conector-midia-")));
+const MEDIA_DIR = pastaDeMidiaDa(ORGANIZACAO_PADRAO.id);
 
 const geracoes = (store as unknown as { geracoes: Generation[] }).geracoes;
 

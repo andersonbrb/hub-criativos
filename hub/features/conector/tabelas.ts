@@ -1,6 +1,6 @@
 import { index, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
-import { usuarios } from "../acesso/tabelas";
+import { organizacoes, usuarios } from "../acesso/tabelas";
 
 // Tabelas do Conector do Claude Code: servidor OAuth 2.1 próprio + MCP público (porta do conector do Chegou
 // Operações). O ciclo, na ordem em que as linhas nascem:
@@ -13,6 +13,9 @@ import { usuarios } from "../acesso/tabelas";
 //
 // NENHUM SEGREDO EM TEXTO: código, tokens e links ficam só como SHA-256 (features/conector/servicos/segredos.ts).
 // Quem lê o banco não consegue se passar pelo Claude de ninguém.
+//
+// Cada código, conexão e link é de UMA organização (a aberta quando a pessoa autorizou): o Claude conectado só enxerga
+// a memória, a Biblioteca e o Fluxo dela, com o papel e as chaves que a pessoa tem lá.
 //
 // A conexão NÃO guarda o que a pessoa pode fazer: as chaves são lidas da conta a cada chamada do Claude. Tirar uma
 // chave ou desativar a conta corta o Claude na próxima pergunta, sem esperar o token vencer.
@@ -58,6 +61,9 @@ export const conexoes = pgTable(
     usuarioId: uuid("usuario_id")
       .notNull()
       .references(() => usuarios.id, { onDelete: "cascade" }),
+    organizacaoId: uuid("organizacao_id")
+      .notNull()
+      .references(() => organizacoes.id, { onDelete: "cascade" }),
     clienteId: uuid("cliente_id")
       .notNull()
       .references(() => oauthClientes.id, { onDelete: "cascade" }),
@@ -88,6 +94,9 @@ export const oauthCodigos = pgTable("oauth_codigos", {
   usuarioId: uuid("usuario_id")
     .notNull()
     .references(() => usuarios.id, { onDelete: "cascade" }),
+  organizacaoId: uuid("organizacao_id")
+    .notNull()
+    .references(() => organizacoes.id, { onDelete: "cascade" }),
   redirectUri: text("redirect_uri").notNull(),
   codeChallenge: text("code_challenge").notNull(),
   resource: text("resource").notNull(),
@@ -125,6 +134,7 @@ export const chamadasMcp = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     usuarioId: uuid("usuario_id").references(() => usuarios.id, { onDelete: "set null" }),
+    organizacaoId: uuid("organizacao_id").references(() => organizacoes.id, { onDelete: "set null" }),
     conexaoId: uuid("conexao_id").references(() => conexoes.id, { onDelete: "set null" }),
     ferramenta: text("ferramenta").notNull(),
     // Resumo dos argumentos (textos longos cortados): serve para saber o que foi pedido, não para guardar conteúdo.
@@ -145,6 +155,10 @@ export const conectorLinks = pgTable("conector_links", {
   usuarioId: uuid("usuario_id")
     .notNull()
     .references(() => usuarios.id, { onDelete: "cascade" }),
+  // A organização da conexão que pediu o link: o arquivo entra (ou sai) da Biblioteca dela.
+  organizacaoId: uuid("organizacao_id")
+    .notNull()
+    .references(() => organizacoes.id, { onDelete: "cascade" }),
   // Envio: o nome do arquivo que vai chegar (dele saem a extensão e o tipo).
   nomeArquivo: text("nome_arquivo"),
   // Download: a geração do hub (lib/generations.ts) que o link entrega. No envio, a que nasceu do arquivo.

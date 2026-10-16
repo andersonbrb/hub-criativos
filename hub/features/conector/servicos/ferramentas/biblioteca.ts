@@ -18,7 +18,7 @@ import {
 import { criarLinkDeDownload, criarLinkDeEnvio, extensoesAceitas, tipoDoArquivo } from "@/features/conector/servicos/links";
 import { sincronizarComDrive } from "@/features/drive/servicos/videos";
 import { downloadName, generationTitle, type Generation } from "@/lib/generations";
-import { MEDIA_DIR } from "@/lib/server/media";
+import { pastaDeMidia } from "@/lib/server/pastas";
 import { getGeneration, listGenerations } from "@/lib/server/store";
 
 // A Biblioteca do hub pelo conector: listar o que existe, mandar entrega para lá e baixar arquivo. O arquivo nunca
@@ -38,7 +38,7 @@ function tamanhoLegivel(bytes: number) {
 async function tamanhoDe(g: Generation): Promise<number | null> {
   if (!g.file || !/^[\w-]+\.\w+$/.test(g.file) || g.foraDoDrive) return null;
   if (g.drive) return typeof g.params.tamanhoNoDrive === "number" ? g.params.tamanhoNoDrive : null;
-  const info = await stat(path.join(MEDIA_DIR, g.file)).catch(() => null);
+  const info = await stat(path.join(await pastaDeMidia(), g.file)).catch(() => null);
   return info?.isFile() ? info.size : null;
 }
 

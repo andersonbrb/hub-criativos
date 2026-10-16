@@ -1,17 +1,21 @@
 import { sql } from "drizzle-orm";
 import { boolean, index, integer, jsonb, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 
-import { usuarios } from "../acesso/tabelas";
+import { organizacoes, usuarios } from "../acesso/tabelas";
 import { FRENTES, TIPOS } from "./contrato";
 
-// Memória da operação (o antigo contexto do Sávio). O documento guarda a versão atual inteira, para ler e buscar
+// Memória da operação (o antigo contexto do Sávio), uma por organização: o mesmo slug pode existir em duas
+// organizações, cada uma com o próprio texto e histórico. O documento guarda a versão atual inteira, para ler e buscar
 // sem juntar tabelas; cada gravação que muda o texto vira uma linha em memoria_versoes, que só cresce.
 
 export const memoriaDocumentos = pgTable(
   "memoria_documentos",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    slug: text("slug").notNull().unique(),
+    organizacaoId: uuid("organizacao_id")
+      .notNull()
+      .references(() => organizacoes.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
     titulo: text("titulo").notNull(),
     tipo: text("tipo", { enum: TIPOS }).notNull(),
     frente: text("frente", { enum: FRENTES }).notNull().default("geral"),
@@ -30,7 +34,8 @@ export const memoriaDocumentos = pgTable(
   },
   (t) => [
     index("memoria_documentos_busca_idx").using("gin", sql`to_tsvector('simple', ${t.busca})`),
-    index("memoria_documentos_tipo_idx").on(t.tipo, t.slug),
+    index("memoria_documentos_tipo_idx").on(t.organizacaoId, t.tipo, t.slug),
+    unique("memoria_documentos_org_slug_unq").on(t.organizacaoId, t.slug),
   ],
 );
 

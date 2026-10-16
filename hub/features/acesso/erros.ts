@@ -13,12 +13,6 @@ export class CredenciaisInvalidas extends NaoAutenticado {
   }
 }
 
-export class ContaDesativada extends NaoAutenticado {
-  constructor() {
-    super("Sua conta está desativada. Fale com um admin do hub.");
-  }
-}
-
 export class MuitasTentativas extends InputError {
   constructor(minutos: number) {
     super(`Muitas tentativas erradas. Espere ${minutos} minuto${minutos === 1 ? "" : "s"} e tente de novo.`);

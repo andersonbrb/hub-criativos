@@ -22,6 +22,8 @@ export type PedidoNaTela =
       destinoLocal: boolean;
       expiraEm: string;
       pessoa: PessoaNaTela;
+      // A organização aberta: o Claude vai trabalhar nela (memória, Biblioteca e Fluxo dela).
+      organizacao: string;
     }
   | { estado: "vencido" | "usado" | "invalido"; mensagem: string };
 

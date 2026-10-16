@@ -1,4 +1,6 @@
+import { mkdtempSync } from "node:fs";
 import { readdir, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,13 +11,18 @@ import { GET as midia } from "@/app/api/media/[file]/route";
 import { POST as enviar } from "@/app/api/uploads/route";
 import VerPage from "@/app/ver/[id]/page";
 import { bancoDeTeste } from "@/db/teste";
-import type { Chave } from "@/features/acesso/contrato";
+import { ORGANIZACAO_PADRAO, type Chave } from "@/features/acesso/contrato";
 import { criarConta } from "@/features/acesso/testes/ajuda";
 import { sessao } from "@/features/conector/testes/sessao-falsa";
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
-import { MEDIA_DIR, saveUploadedMedia } from "@/lib/server/media";
+import { saveUploadedMedia } from "@/lib/server/media";
+import { pastaDeMidiaDa, usarRaizDosDados } from "@/lib/server/pastas";
 import * as store from "@/lib/server/store";
+
+// Os arquivos das organizações vão para uma pasta temporária (a mídia da padrão fica em <temp>/media).
+usarRaizDosDados(mkdtempSync(path.join(os.tmpdir(), "hub-geracoes-")));
+const MEDIA_DIR = pastaDeMidiaDa(ORGANIZACAO_PADRAO.id);
 
 // Quem pode listar, apagar, renomear, baixar e enviar gerações: cada rota exige a chave das telas que a chamam
 // (antes bastava estar logado, e uma conta só com a Memória apagava a Biblioteca inteira).
@@ -32,8 +39,11 @@ vi.mock("@/lib/server/store", async () => {
   const os = await import("node:os");
   const caminho = await import("node:path");
   const geracoes: Generation[] = [];
+  const DATA_DIR = mkdtempSync(caminho.join(os.tmpdir(), "hub-geracoes-"));
   return {
-    DATA_DIR: mkdtempSync(caminho.join(os.tmpdir(), "hub-geracoes-")),
+    DATA_DIR,
+    // Não existe: o índice da mídia (features/drive) lê direto, sem cache.
+    arquivoDoBanco: async () => caminho.join(DATA_DIR, "db.json"),
     geracoes,
     listGenerations: async (tool?: string) => [...geracoes].reverse().filter((g) => !tool || g.tool === tool),
     getGeneration: async (id: string) => geracoes.find((g) => g.id === id),

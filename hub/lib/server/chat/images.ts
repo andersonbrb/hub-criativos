@@ -6,12 +6,13 @@ import path from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
 
-import { MEDIA_DIR } from "@/lib/server/media";
+import { pastaDeMidia } from "@/lib/server/pastas";
 
 // No histórico salvo, imagens são { type: "base64", data: "@file:<nome>" }; aqui viram base64 de verdade.
 // Sempre JPEG até 1568 px: cabe no limite da API e é determinístico (mesmo arquivo → mesmos bytes → cache do prompt intacto).
 
 const PREFIX = "@file:";
+// Pelo caminho completo: cada organização tem a própria pasta de mídia, e alguns nomes se repetem entre elas.
 const cache = new Map<string, string>();
 
 export const documentRef = (file: string, title: string): Anthropic.Beta.BetaRequestDocumentBlock => ({
@@ -26,16 +27,17 @@ export const imageRef = (file: string): Anthropic.Beta.BetaImageBlockParam => ({
 });
 
 async function encode(file: string): Promise<string> {
-  let data = cache.get(file);
+  const caminho = path.join(await pastaDeMidia(), path.basename(file));
+  let data = cache.get(caminho);
   if (!data) {
-    const buffer = await sharp(path.join(MEDIA_DIR, path.basename(file)))
+    const buffer = await sharp(caminho)
       .rotate()
       .resize({ width: 1568, height: 1568, fit: "inside", withoutEnlargement: true })
       .flatten({ background: "#ffffff" })
       .jpeg({ quality: 85 })
       .toBuffer();
     data = buffer.toString("base64");
-    cache.set(file, data);
+    cache.set(caminho, data);
   }
   return data;
 }
@@ -48,7 +50,7 @@ async function hydrateBlock<T extends Block>(block: T): Promise<T> {
     return { ...block, source: { ...block.source, data: await encode(block.source.data.slice(PREFIX.length)) } };
   }
   if (block.type === "document" && block.source.type === "base64" && block.source.data.startsWith(PREFIX)) {
-    const data = (await readFile(path.join(MEDIA_DIR, path.basename(block.source.data.slice(PREFIX.length))))).toString("base64");
+    const data = (await readFile(path.join(await pastaDeMidia(), path.basename(block.source.data.slice(PREFIX.length))))).toString("base64");
     return { ...block, source: { ...block.source, data } };
   }
   if (block.type === "tool_result" && Array.isArray(block.content)) {

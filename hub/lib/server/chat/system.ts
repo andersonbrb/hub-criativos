@@ -3,7 +3,8 @@ import "server-only";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { podeUsar, type Usuario } from "@/features/acesso/contrato";
+import { ORGANIZACAO_PADRAO, podeUsar, type Usuario } from "@/features/acesso/contrato";
+import { organizacaoAtual } from "@/features/acesso/servicos/organizacao-atual";
 import { FRENTE_ROTULO, TIPO_ROTULO } from "@/features/memoria/contrato";
 import { documentosDoPrompt, listarIndice } from "@/features/memoria/servicos/memoria";
 import { getAgentProfile } from "@/lib/agent-profiles";
@@ -13,9 +14,15 @@ import { agentPromptSection } from "@/lib/server/agent-settings";
 // então editar um playbook ou um documento da Memória vale para as próximas conversas.
 
 const PLAYBOOKS_DIR = path.join(process.cwd(), "playbooks");
+// O contexto do Grupo Chegou (frentes, contas, lotes) é dado do negócio dele: só entra nas conversas da organização
+// padrão. Os métodos de produção (os outros playbooks) valem para todas as organizações.
+const SO_DA_ORGANIZACAO_PADRAO = new Set(["contexto-grupo-chegou.md"]);
 
 async function playbooks(): Promise<string> {
-  const names = (await readdir(PLAYBOOKS_DIR).catch(() => [] as string[])).filter((n) => n.endsWith(".md")).sort();
+  const padrao = (await organizacaoAtual()) === ORGANIZACAO_PADRAO.id;
+  const names = (await readdir(PLAYBOOKS_DIR).catch(() => [] as string[]))
+    .filter((n) => n.endsWith(".md") && (padrao || !SO_DA_ORGANIZACAO_PADRAO.has(n)))
+    .sort();
   const docs = await Promise.all(
     names.map(async (n) => `<playbook arquivo="${n}">\n${(await readFile(path.join(PLAYBOOKS_DIR, n), "utf8")).trim()}\n</playbook>`),
   );

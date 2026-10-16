@@ -9,6 +9,7 @@ import { agentesDaPessoa, menuDaPessoa } from "@/components/nav";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -20,10 +21,11 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { telaInicial, type Usuario } from "@/features/acesso/contrato";
+import { SeletorDeOrganizacao } from "@/features/acesso/tela/seletor-de-organizacao";
 import { cn } from "@/lib/utils";
 
-// Menu lateral no estilo do ElevenLabs: a marca e as telas que a conta pode abrir (o servidor também confere). A busca
-// e a conta ficam na barra do topo.
+// Menu lateral no estilo do ElevenLabs: marca, as telas que a conta pode abrir (o servidor também confere) e a
+// organização no rodapé. A busca e a conta ficam na barra do topo.
 export function AppSidebar({ usuario, semBanco = false }: { usuario: Usuario; semBanco?: boolean }) {
   const pathname = usePathname();
   const { state, isMobile, setOpenMobile } = useSidebar();
@@ -93,6 +95,13 @@ export function AppSidebar({ usuario, semBanco = false }: { usuario: Usuario; se
           </SidebarGroup>
         )}
       </SidebarContent>
+
+      {/* Organização aberta e troca (sem banco não há organizações: só a do PC). */}
+      {!semBanco && (
+        <SidebarFooter className="gap-2 px-3 pt-2 pb-3">
+          <SeletorDeOrganizacao usuario={usuario} recolhido={recolhido} lado={isMobile ? "bottom" : "right"} />
+        </SidebarFooter>
+      )}
     </Sidebar>
   );
 }

@@ -4,7 +4,8 @@ import { DELETE as rotaRemover, PUT as rotaSalvar } from "@/app/api/integracoes/
 import { banco } from "@/db/cliente";
 import { integracoesChaves } from "@/db/schema";
 import { bancoDeTeste } from "@/db/teste";
-import { paraUsuario } from "@/features/acesso/servicos/usuarios";
+import { ORGANIZACAO_PADRAO } from "@/features/acesso/contrato";
+import { usuarioNaOrganizacao } from "@/features/acesso/servicos/usuarios";
 import { criarPessoa } from "@/features/drive/testes/conta-apoio";
 import { apagarChave, esquecerChavesLembradas, gravarChave, lerChave, resumoDasChaves } from "@/features/integracoes/servicos/chaves";
 
@@ -97,7 +98,7 @@ describe("integrações: chaves", () => {
 describe("integrações: rota das chaves", () => {
   it("só quem tem a chave Integrações salva ou remove", async () => {
     expect((await rotaSalvar(pedido("PUT", { valor: "x" }), ctx("venice"))).status).toBe(401);
-    sessao.logado = paraUsuario(await criarPessoa(["biblioteca"]));
+    sessao.logado = await usuarioNaOrganizacao((await criarPessoa(["biblioteca"])).id, ORGANIZACAO_PADRAO.id);
     expect((await rotaSalvar(pedido("PUT", { valor: "x" }), ctx("venice"))).status).toBe(403);
     expect((await rotaRemover(pedido("DELETE"), ctx("venice"))).status).toBe(403);
     expect(await lerChave("venice")).toBeNull();
@@ -105,7 +106,7 @@ describe("integrações: rota das chaves", () => {
 
   it("salva conferindo no serviço, devolve só o final e remove", async () => {
     const pessoa = await criarPessoa(["integracoes"]);
-    sessao.logado = paraUsuario(pessoa);
+    sessao.logado = await usuarioNaOrganizacao(pessoa.id, ORGANIZACAO_PADRAO.id);
     const conferidas: string[] = [];
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
       conferidas.push(new Headers(init?.headers).get("x-api-key") ?? "");

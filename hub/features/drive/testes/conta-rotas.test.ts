@@ -5,7 +5,8 @@ import { GET as rotaEntrar } from "@/app/api/integracoes/google-drive/login/rout
 import { DELETE as rotaDesconectar, GET as rotaStatus } from "@/app/api/integracoes/google-drive/status/route";
 import { banco } from "@/db/cliente";
 import { driveConta } from "@/db/schema";
-import { paraUsuario } from "@/features/acesso/servicos/usuarios";
+import { ORGANIZACAO_PADRAO } from "@/features/acesso/contrato";
+import { usuarioNaOrganizacao } from "@/features/acesso/servicos/usuarios";
 import { contaConectada, criarPessoa, googleFalso, json, ORIGEM, prepararConta, tokensDoGoogle } from "@/features/drive/testes/conta-apoio";
 
 // As rotas do card do Google Drive chamadas de verdade, com um login de mentira (a pessoa "logada" fica em sessao).
@@ -26,7 +27,7 @@ const destino = (res: Response) => res.headers.get("location") ?? "";
 
 async function entrarComo(chaves: Parameters<typeof criarPessoa>[0]) {
   const pessoa = await criarPessoa(chaves);
-  sessao.logado = paraUsuario(pessoa);
+  sessao.logado = await usuarioNaOrganizacao(pessoa.id, ORGANIZACAO_PADRAO.id);
   return pessoa;
 }
 

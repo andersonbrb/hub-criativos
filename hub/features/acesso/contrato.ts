@@ -17,7 +17,7 @@ export const CHAVES = [
   { chave: "memoria_editar", rotulo: "Memória (editar)", grupo: "Memória" },
   { chave: "conector_claude", rotulo: "Conector do Claude Code", grupo: "Memória" },
   { chave: "integracoes", rotulo: "Integrações (ligar e desligar contas)", grupo: "Administração", restrita: true },
-  { chave: "membros", rotulo: "Membros e convites", grupo: "Administração", restrita: true },
+  { chave: "membros", rotulo: "Equipe e convites", grupo: "Administração", restrita: true },
 ] as const satisfies readonly { chave: string; rotulo: string; grupo: string; restrita?: boolean }[];
 
 export type Chave = (typeof CHAVES)[number]["chave"];
@@ -29,6 +29,11 @@ export const ehChave = (v: unknown): v is Chave => typeof v === "string" && (TOD
 // Remove chaves desconhecidas ou repetidas (dado vindo de formulário ou do banco).
 export const limparChaves = (v: unknown): Chave[] => (Array.isArray(v) ? [...new Set(v.filter(ehChave))] : []);
 
+// Organização aberta na sessão (a pessoa pode participar de várias e troca pelo menu).
+export type OrganizacaoAtiva = { id: string; nome: string; situacao: SituacaoDaOrganizacao };
+
+// Pessoa logada, vista DENTRO da organização aberta: papel, ativo e chaves são os dela nessa organização.
+// organizacao null: a conta não participa de nenhuma organização ativa (ativo false, nenhuma chave).
 export type Usuario = {
   id: string;
   email: string;
@@ -36,12 +41,15 @@ export type Usuario = {
   papel: Papel;
   ativo: boolean;
   chaves: Chave[];
+  organizacao: OrganizacaoAtiva | null;
+  // Opera a plataforma: cria e suspende organizações (tela Plataforma). Não dá acesso aos dados de nenhuma.
+  operaPlataforma: boolean;
 };
 
 export const ehAdmin = (u: Pick<Usuario, "papel">) => u.papel === "dono" || u.papel === "admin";
 
-// Fonte única da permissão: conta ativa e (admin/dono ou chave liberada).
-export const podeUsar = (u: Usuario, chave: Chave) => u.ativo && (ehAdmin(u) || u.chaves.includes(chave));
+// Fonte única da permissão: ativo na organização aberta (e ela ativa) e (admin/dono ou chave liberada).
+export const podeUsar = (u: Usuario, chave: Chave) => u.ativo && u.organizacao?.situacao === "ativa" && (ehAdmin(u) || u.chaves.includes(chave));
 
 // Sem sessão válida: 401 na API, ida para /entrar nas páginas.
 export class NaoAutenticado extends Error {
@@ -66,7 +74,7 @@ export const ROTULO_DO_PAPEL: Record<Papel, string> = { dono: "Dono", admin: "Ad
 export const rotuloDaChave = (chave: string) => CHAVES.find((c) => c.chave === chave)?.rotulo ?? chave;
 
 // Chaves que a pessoa usa de fato (admin e dono: o catálogo inteiro). É o que a sidebar e o /api/acesso/eu mostram.
-export const chavesLiberadas = (u: Usuario): Chave[] => (u.ativo ? (ehAdmin(u) ? [...TODAS_AS_CHAVES] : u.chaves) : []);
+export const chavesLiberadas = (u: Usuario): Chave[] => TODAS_AS_CHAVES.filter((c) => podeUsar(u, c));
 
 // "Marcar tudo" do convite e da edição: deixa de fora as restritas (administração e gasto), que só se ligam uma a uma.
 export const CHAVES_SEM_RESTRITAS: Chave[] = CHAVES.filter((c) => !("restrita" in c && c.restrita)).map((c) => c.chave);
@@ -120,8 +128,16 @@ export const TELAS: { href: string; chave: Chave }[] = [
 export const telaInicial = (u: Usuario): string | null => TELAS.find((t) => podeUsar(u, t.chave))?.href ?? null;
 
 // Formatos que a API de acesso devolve (datas em texto ISO, como chegam no JSON).
-export type Membro = Usuario & {
-  criadoEm: string;
+// Membro da equipe da organização aberta (papel, chaves e ativo são os dessa organização).
+export type Membro = {
+  id: string;
+  email: string;
+  nome: string;
+  papel: Papel;
+  ativo: boolean;
+  chaves: Chave[];
+  // Quando entrou nesta organização.
+  entrouEm: string;
   ultimoAcessoEm: string | null;
   // false enquanto a pessoa não definiu senha (não consegue entrar).
   temSenha: boolean;
@@ -131,7 +147,7 @@ export type ConvitePendente = {
   id: string;
   email: string;
   nome: string | null;
-  papel: Exclude<Papel, "dono">;
+  papel: Papel;
   chaves: Chave[];
   criadoEm: string;
   expiraEm: string;
@@ -139,5 +155,46 @@ export type ConvitePendente = {
   criadoPor: string | null;
 };
 
-// O que a tela de aceitar convite mostra antes de a pessoa criar a conta.
-export type ConviteParaAceitar = { email: string; nome: string | null; papel: Exclude<Papel, "dono">; expiraEm: string };
+// O que a tela de aceitar convite mostra antes de a pessoa aceitar.
+// contaExiste: o e-mail já tem conta no hub (de outra organização). Aí a pessoa confirma com a senha dela em vez de
+// criar uma conta nova.
+export type ConviteParaAceitar = { email: string; nome: string | null; papel: Papel; expiraEm: string; organizacao: string; contaExiste: boolean };
+
+// ---------------------------------------------------------------------------------------------------------------
+// Organizações (como no Cifra): cada uma tem a própria equipe e os próprios dados (criativos, conversas, Fluxo,
+// Memória, integrações, Drive). Uma conta participa de várias, com um papel em cada.
+
+export type SituacaoDaOrganizacao = "ativa" | "suspensa";
+
+// A organização que já existia antes das organizações (todos os dados de antes são dela). O id é fixo para o hub
+// saber, sem ir ao banco, que os arquivos dela continuam na raiz de .data/ (lib/server/store.ts).
+export const ORGANIZACAO_PADRAO = { id: "00000000-0000-4000-8000-000000000001", nome: "Grupo Chegou" } as const;
+
+export const NOME_DA_ORGANIZACAO_MAXIMO = 80;
+
+export function normalizarNomeDaOrganizacao(nome: unknown): string | null {
+  if (typeof nome !== "string") return null;
+  const limpo = nome.trim().replace(/\s+/g, " ");
+  return limpo && limpo.length <= NOME_DA_ORGANIZACAO_MAXIMO ? limpo : null;
+}
+
+// Organização no seletor do menu: as que a pessoa participa, com o papel dela em cada.
+export type MinhaOrganizacao = { id: string; nome: string; situacao: SituacaoDaOrganizacao; papel: Papel; ativo: boolean };
+
+// Organização na tela Plataforma.
+export type OrganizacaoDaPlataforma = {
+  id: string;
+  nome: string;
+  situacao: SituacaoDaOrganizacao;
+  criadoEm: string;
+  membros: number;
+  donos: string[];
+  convitesPendentes: number;
+  padrao: boolean;
+};
+
+// As telas mandam a organização que carregaram neste header. Se outra aba trocou de organização no meio do
+// caminho, a API responde 409 em vez de gravar numa organização o que era para a outra.
+export const CABECALHO_ORGANIZACAO = "x-hub-organizacao";
+
+export const ROTULO_DA_SITUACAO: Record<SituacaoDaOrganizacao, string> = { ativa: "Ativa", suspensa: "Suspensa" };

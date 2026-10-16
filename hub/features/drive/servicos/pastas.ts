@@ -1,5 +1,6 @@
 import "server-only";
 
+import { organizacaoAtual } from "@/features/acesso/servicos/organizacao-atual";
 import { PASTA_RAIZ, PASTAS, type PastaDoDrive } from "@/features/drive/contrato";
 import { esquecerTokenDeAcesso, tokenDeAcesso } from "@/features/drive/servicos/conta";
 
@@ -88,29 +89,37 @@ export async function erroDoDrive(resposta: Response, acao: string): Promise<Err
 
 type ChaveDaPasta = PastaDoDrive | "raiz";
 
-// Memória do processo. Em globalThis porque o Next pode carregar este arquivo mais de uma vez (rotas compiladas à
-// parte, recarga no desenvolvimento): com um mapa por cópia do módulo, dois envios criariam duas pastas iguais.
+// Memória do processo, uma por organização (cada uma tem a própria conta Google, com as próprias pastas). Em
+// globalThis porque o Next pode carregar este arquivo mais de uma vez (rotas compiladas à parte, recarga no
+// desenvolvimento): com um mapa por cópia do módulo, dois envios criariam duas pastas iguais.
 type MemoriaDasPastas = {
   ids: Map<ChaveDaPasta, string>;
   // Uma promessa por pasta: dois envios ao mesmo tempo esperam a mesma busca/criação em vez de criar duas pastas.
   garantindo: Map<ChaveDaPasta, Promise<string>>;
 };
-const g = globalThis as typeof globalThis & { __hubDrivePastas?: MemoriaDasPastas };
-const { ids, garantindo } = (g.__hubDrivePastas ??= { ids: new Map(), garantindo: new Map() });
+const g = globalThis as typeof globalThis & { __hubDrivePastas?: Map<string, MemoriaDasPastas> };
+const memorias = (g.__hubDrivePastas ??= new Map());
+function memoriaDa(org: string): MemoriaDasPastas {
+  let m = memorias.get(org);
+  if (!m) memorias.set(org, (m = { ids: new Map(), garantindo: new Map() }));
+  return m;
+}
 
 // Id da subpasta do tipo, dentro de "Hub de Criativos". Cria o que faltar.
 export async function pastaDoDrive(pasta: PastaDoDrive): Promise<string> {
   if (!(pasta in PASTAS)) throw new Error(`Tipo de pasta desconhecido no Drive: ${pasta}.`);
-  const raiz = await garantir("raiz", PASTA_RAIZ, "root");
-  return garantir(pasta, PASTAS[pasta], raiz);
+  const m = memoriaDa(await organizacaoAtual());
+  const raiz = await garantir(m, "raiz", PASTA_RAIZ, "root");
+  return garantir(m, pasta, PASTAS[pasta], raiz);
 }
 
-// Esquece os ids guardados (ex.: outra conta Google foi conectada). A próxima chamada procura de novo.
+// Esquece os ids guardados, de todas as organizações (ex.: uma pasta sumiu no meio de um envio). A próxima chamada
+// procura de novo (e só confere de novo nas outras organizações).
 export function esquecerPastas(): void {
-  ids.clear();
+  for (const m of memorias.values()) m.ids.clear();
 }
 
-function garantir(chave: ChaveDaPasta, nome: string, pai: string): Promise<string> {
+function garantir({ ids, garantindo }: MemoriaDasPastas, chave: ChaveDaPasta, nome: string, pai: string): Promise<string> {
   const emAndamento = garantindo.get(chave);
   if (emAndamento) return emAndamento;
   const promessa = (async () => {

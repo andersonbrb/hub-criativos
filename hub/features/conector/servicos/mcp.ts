@@ -3,6 +3,7 @@ import "server-only";
 import { banco } from "@/db/cliente";
 import { chamadasMcp } from "@/db/schema";
 import { CHAVES, SemPermissao, podeUsar } from "@/features/acesso/contrato";
+import { comOrganizacao } from "@/features/acesso/servicos/organizacao-atual";
 import { buscarUsuario } from "@/features/acesso/servicos/sessao";
 import { ErroDaFerramenta, ErroDeParametro } from "@/features/conector/erros";
 import {
@@ -49,7 +50,8 @@ export const LIMITE_CHAMADAS_POR_MINUTO = 240;
 const TETO_ARGUMENTO_AUDITADO = 200;
 const TETO_AUDITORIA = 2_000;
 
-const INSTRUCOES = `Este é o Hub de Criativos do Grupo Chegou: a memória da operação (regras, fluxos, dados do negócio, projetos e lições), a Biblioteca de arquivos e o Fluxo da produção.
+// O nome da organização da conexão entra no lugar de {organizacao}: o Claude sabe de qual empresa é a memória.
+const INSTRUCOES = `Este é o Hub de Criativos da organização {organizacao}: a memória da operação (regras, fluxos, dados do negócio, projetos e lições), a Biblioteca de arquivos e o Fluxo da produção.
 
 - Antes de qualquer tarefa, chame \`instrucoes\` e siga o que ela traz.
 - Use a memória: busque (\`memoria_buscar\`) antes de afirmar qualquer fato, fluxo ou dado do negócio. Sem fonte, diga que não sabe.
@@ -104,6 +106,7 @@ async function auditar(ctx: Contexto, ferramenta: string, args: Record<string, u
       .insert(chamadasMcp)
       .values({
         usuarioId: ctx.usuario.id,
+        organizacaoId: ctx.usuario.organizacao?.id ?? null,
         conexaoId: ctx.conexaoId,
         ferramenta: ferramenta.slice(0, 64),
         argumentos: resumoDosArgumentos(args),
@@ -156,7 +159,7 @@ async function executarMetodo(metodo: string, params: Record<string, unknown>, c
     case "initialize": {
       const pedida = typeof params.protocolVersion === "string" ? params.protocolVersion : "";
       const versao = VERSOES_SUPORTADAS.includes(pedida) ? pedida : VERSOES_SUPORTADAS[0];
-      return { protocolVersion: versao, capabilities: { tools: {} }, serverInfo: identificacao(versao, ctx.base), instructions: INSTRUCOES };
+      return { protocolVersion: versao, capabilities: { tools: {} }, serverInfo: identificacao(versao, ctx.base), instructions: INSTRUCOES.replace("{organizacao}", ctx.usuario.organizacao?.nome ?? "desta pessoa") };
     }
     case "ping":
       return {};
@@ -228,8 +231,9 @@ export async function atenderMcp(request: Request): Promise<Response> {
   const conexao = await conexaoDoToken(token, enderecoMcp(base));
   if (!conexao) return naoAutenticado(base, "invalid_token");
 
-  // A pessoa como está AGORA no banco: desativada, a conexão cai; sem a chave do conector, 403.
-  const usuario = await buscarUsuario(conexao.usuarioId);
+  // A pessoa como está AGORA no banco, na organização da conexão: removida ou desativada lá, a conexão cai; sem a
+  // chave do conector, 403.
+  const usuario = await buscarUsuario(conexao.usuarioId, conexao.organizacaoId);
   if (!usuario?.ativo) {
     await revogarConexao(conexao.id, "usuario_inativo");
     return naoAutenticado(base, "invalid_token");
@@ -250,7 +254,8 @@ export async function atenderMcp(request: Request): Promise<Response> {
   if (texto === null) return json(erro(null, INVALID_REQUEST, "Mensagem grande demais (máximo de 1 MB)."), 413);
 
   await registrarUso(conexao.id);
-  const { status, corpo } = await processar(texto, { usuario, conexaoId: conexao.id, base });
+  // Tudo o que as ferramentas lerem ou gravarem é da organização da conexão.
+  const { status, corpo } = await comOrganizacao(conexao.organizacaoId, () => processar(texto, { usuario, conexaoId: conexao.id, base }));
   return corpo === null ? new Response(null, { status: 202 }) : json(corpo, status);
 }
 

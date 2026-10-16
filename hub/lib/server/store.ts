@@ -5,42 +5,48 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { Generation, GenerationTool } from "@/lib/generations";
+import { DATA_DIR, esperarFila, naFila, pastaDeDados } from "@/lib/server/pastas";
 
-// Banco local simples em JSON (hub/.data/db.json). Suficiente para uso local de uma pessoa;
-// trocar por SQLite/Postgres quando o hub tiver mais usuários.
+// Banco local simples em JSON: um db.json por organização (lib/server/pastas.ts). Suficiente para o tamanho das
+// equipes; vai para o Postgres na Onda 3 (PLANO-HUB.md).
 
-export const DATA_DIR = path.join(process.cwd(), ".data");
-const DB_FILE = path.join(DATA_DIR, "db.json");
+export { DATA_DIR };
 
 type Db = { generations: Generation[] };
 
-let queue: Promise<unknown> = Promise.resolve();
+// Caminho do db.json da organização atual, resolvido uma vez por chamada.
+export const arquivoDoBanco = async () => path.join(await pastaDeDados(), "db.json");
 
-async function load(): Promise<Db> {
+async function load(arquivo: string): Promise<Db> {
   try {
-    return JSON.parse(await readFile(DB_FILE, "utf8")) as Db;
+    return JSON.parse(await readFile(arquivo, "utf8")) as Db;
   } catch {
     return { generations: [] };
   }
 }
 
-async function save(db: Db) {
-  await mkdir(DATA_DIR, { recursive: true });
-  const tmp = `${DB_FILE}.tmp`;
+async function save(arquivo: string, db: Db) {
+  await mkdir(path.dirname(arquivo), { recursive: true });
+  const tmp = `${arquivo}.tmp`;
   await writeFile(tmp, JSON.stringify(db, null, 2));
-  await rename(tmp, DB_FILE);
+  await rename(tmp, arquivo);
 }
 
 // Serializa as escritas para não perder atualizações concorrentes.
-function withDb<T>(fn: (db: Db) => T | Promise<T>): Promise<T> {
-  const run = queue.then(async () => {
-    const db = await load();
+async function withDb<T>(fn: (db: Db) => T | Promise<T>): Promise<T> {
+  const arquivo = await arquivoDoBanco();
+  return naFila(arquivo, async () => {
+    const db = await load(arquivo);
     const result = await fn(db);
-    await save(db);
+    await save(arquivo, db);
     return result;
   });
-  queue = run.catch(() => undefined);
-  return run;
+}
+
+async function lerDb(): Promise<Db> {
+  const arquivo = await arquivoDoBanco();
+  await esperarFila(arquivo);
+  return load(arquivo);
 }
 
 // Esconde os vídeos apagados ou mandados para a lixeira direto no Drive (`foraDoDrive`, marcado pelo espelho em
@@ -48,16 +54,14 @@ function withDb<T>(fn: (db: Db) => T | Promise<T>): Promise<T> {
 // editor, Fluxo, chat e conector) pararem de mostrar o vídeo de uma vez. Só o espelho e a migração pedem tudo.
 // getGeneration continua achando: a rota de mídia responde "apagado no Drive" e a lixeira do hub ainda apaga o registro.
 export async function listGenerations(tool?: GenerationTool, opcoes: { incluirForaDoDrive?: boolean } = {}): Promise<Generation[]> {
-  await queue;
-  const db = await load();
+  const db = await lerDb();
   return db.generations
     .filter((g) => (!tool || g.tool === tool) && (opcoes.incluirForaDoDrive || !g.foraDoDrive))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function getGeneration(id: string): Promise<Generation | undefined> {
-  await queue;
-  return (await load()).generations.find((g) => g.id === id);
+  return (await lerDb()).generations.find((g) => g.id === id);
 }
 
 // Criativos finais (edição final, exportação do editor, tradução) entram sozinhos na Biblioteca ao ficarem prontos.

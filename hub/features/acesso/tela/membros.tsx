@@ -1,20 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, KeyRound, Loader2, Power, PowerOff, Trash2, UserPlus } from "lucide-react";
+import { Check, Copy, KeyRound, Loader2, LogOut, Power, PowerOff, Save, Trash2, UserMinus, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
 import {
   CHAVES_SEM_RESTRITAS,
   ehAdmin,
+  NOME_DA_ORGANIZACAO_MAXIMO,
   ROTULO_DO_PAPEL,
   TODAS_AS_CHAVES,
   type Chave,
   type ConvitePendente,
   type Membro,
+  type Papel,
   type Usuario,
 } from "@/features/acesso/contrato";
 import { Campo } from "@/features/acesso/tela/cartao";
+import { recarregarNoInicio } from "@/features/acesso/tela/seletor-de-organizacao";
 import { SeletorDeChaves } from "@/features/acesso/tela/seletor-de-chaves";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -25,15 +28,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { apiFetch } from "@/lib/generations";
 
-type PapelEditavel = "admin" | "membro";
+type PapelEditavel = Papel;
 type Mudancas = { papel?: PapelEditavel; chaves?: Chave[]; ativo?: boolean };
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const quando = (iso: string | null) => (iso ? new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "Nunca");
 const erroDe = (err: unknown, padrao: string) => (err instanceof Error ? err.message : padrao);
 
-// Membros e convites (modelo do Chegou Operações). As regras de quem pode o quê valem no servidor; aqui a tela só
-// esconde o que não vai funcionar.
+// Equipe da organização aberta, convites e o nome da organização (modelo do Chegou Operações e do Cifra). As regras de
+// quem pode o quê valem no servidor; aqui a tela só esconde o que não vai funcionar.
 export function TelaDeMembros({ eu }: { eu: Usuario }) {
   const [membros, setMembros] = useState<Membro[]>([]);
   const [convites, setConvites] = useState<ConvitePendente[]>([]);
@@ -41,6 +44,9 @@ export function TelaDeMembros({ eu }: { eu: Usuario }) {
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [editando, setEditando] = useState<Membro | null>(null);
   const [convidando, setConvidando] = useState(false);
+  const [nomeDaOrganizacao, setNomeDaOrganizacao] = useState(eu.organizacao?.nome ?? "");
+  const [nomeSalvo, setNomeSalvo] = useState(eu.organizacao?.nome ?? "");
+  const [salvandoNome, setSalvandoNome] = useState(false);
 
   const gestor = ehAdmin(eu);
   const souDono = eu.papel === "dono";
@@ -79,13 +85,57 @@ export function TelaDeMembros({ eu }: { eu: Usuario }) {
   }
 
   async function mudarPapel(m: Membro, papel: PapelEditavel) {
-    const texto = papel === "admin" ? `Tornar ${m.nome} admin? Admins veem todas as telas e gerenciam membros.` : `Tirar ${m.nome} de admin? Passa a ver só as telas marcadas para ela.`;
+    const texto =
+      papel === "dono"
+        ? `Tornar ${m.nome} dono de ${eu.organizacao?.nome}? Donos mandam em tudo na organização, inclusive em outros donos.`
+        : papel === "admin"
+          ? `Tornar ${m.nome} admin? Admins veem todas as telas e gerenciam a equipe.`
+          : `Tornar ${m.nome} membro? Passa a ver só as telas marcadas para essa pessoa.`;
     if (!confirm(texto)) return;
-    await atualizar(m, { papel }, `${m.nome} agora é ${papel}.`);
+    await atualizar(m, { papel }, `${m.nome} agora é ${ROTULO_DO_PAPEL[papel].toLowerCase()}.`);
+  }
+
+  async function remover(m: Membro) {
+    if (!confirm(`Tirar ${m.nome} de ${eu.organizacao?.nome}? A pessoa perde o acesso a esta organização na hora. A conta dela e as outras organizações não mudam.`)) return;
+    setOcupado(m.id);
+    try {
+      await apiFetch(`/api/acesso/membros/${m.id}`, { method: "DELETE" });
+      setMembros((lista) => lista.filter((x) => x.id !== m.id));
+      toast.success(`${m.nome} saiu da equipe.`);
+    } catch (err) {
+      toast.error(erroDe(err, "Não deu para remover."));
+    } finally {
+      setOcupado(null);
+    }
+  }
+
+  async function salvarNome(e: React.FormEvent) {
+    e.preventDefault();
+    setSalvandoNome(true);
+    try {
+      const r = await apiFetch<{ organizacao: { nome: string } }>("/api/acesso/organizacao", { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify({ nome: nomeDaOrganizacao }) });
+      setNomeDaOrganizacao(r.organizacao.nome);
+      setNomeSalvo(r.organizacao.nome);
+      toast.success("Nome da organização salvo.");
+    } catch (err) {
+      toast.error(erroDe(err, "Não deu para salvar o nome."));
+    } finally {
+      setSalvandoNome(false);
+    }
+  }
+
+  async function sairDaOrganizacao() {
+    if (!confirm(`Sair de ${eu.organizacao?.nome}? Você perde o acesso a ela na hora. Para voltar, alguém da equipe precisa convidar você de novo.`)) return;
+    try {
+      await apiFetch("/api/acesso/organizacao", { method: "DELETE" });
+      recarregarNoInicio();
+    } catch (err) {
+      toast.error(erroDe(err, "Não deu para sair da organização."));
+    }
   }
 
   async function alternarAtivo(m: Membro) {
-    if (m.ativo && !confirm(`Desativar ${m.nome}? A pessoa sai do hub na hora e não consegue mais entrar.`)) return;
+    if (m.ativo && !confirm(`Desativar ${m.nome}? A pessoa perde o acesso a esta organização na hora (continua na lista, para reativar depois).`)) return;
     await atualizar(m, { ativo: !m.ativo }, m.ativo ? `${m.nome} foi desativado.` : `${m.nome} foi reativado.`);
   }
 
@@ -105,7 +155,11 @@ export function TelaDeMembros({ eu }: { eu: Usuario }) {
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9">
-      <PageHeader eyebrow="Administração" title="Membros" description="Quem entra no hub e quais telas cada pessoa vê. Admins e o dono veem tudo e gerenciam a equipe.">
+      <PageHeader
+        eyebrow={eu.organizacao?.nome ?? "Organização"}
+        title="Equipe"
+        description="Quem participa desta organização e quais telas cada pessoa vê. Admins e donos veem tudo e gerenciam a equipe. Cada organização tem os próprios criativos, conversas, Fluxo, Memória e integrações."
+      >
         {gestor && (
           <Button onClick={() => setConvidando(true)} className="bg-rec text-white hover:bg-rec/85">
             <UserPlus />
@@ -115,7 +169,27 @@ export function TelaDeMembros({ eu }: { eu: Usuario }) {
       </PageHeader>
 
       {!gestor && (
-        <p className="border px-3 py-2 text-sm text-muted-foreground">Você pode ver a equipe, mas só admins e o dono mudam acessos e convidam pessoas.</p>
+        <p className="border px-3 py-2 text-sm text-muted-foreground">Você pode ver a equipe, mas só admins e donos mudam acessos e convidam pessoas.</p>
+      )}
+
+      {gestor && (
+        <form onSubmit={salvarNome} className="grid max-w-xl gap-2">
+          <h2 className="font-heading text-lg font-bold">Organização</h2>
+          <div className="flex gap-2">
+            <Input
+              aria-label="Nome da organização"
+              value={nomeDaOrganizacao}
+              onChange={(e) => setNomeDaOrganizacao(e.target.value)}
+              maxLength={NOME_DA_ORGANIZACAO_MAXIMO}
+              required
+            />
+            <Button type="submit" variant="outline" disabled={salvandoNome || !nomeDaOrganizacao.trim() || nomeDaOrganizacao.trim() === nomeSalvo}>
+              {salvandoNome ? <Loader2 className="animate-spin" /> : <Save />}
+              Salvar nome
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">É o nome que aparece no menu, nos convites e para o Claude conectado.</p>
+        </form>
       )}
 
       {!carregado ? (
@@ -141,7 +215,8 @@ export function TelaDeMembros({ eu }: { eu: Usuario }) {
               <TableBody>
                 {membros.map((m) => {
                   const proprio = m.id === eu.id;
-                  const trocaPapel = souDono && !proprio && m.papel !== "dono";
+                  // Só um dono muda papéis (inclusive o de outro dono); ninguém muda o próprio.
+                  const trocaPapel = souDono && !proprio;
                   return (
                     <TableRow key={m.id} className={m.ativo ? undefined : "text-muted-foreground"}>
                       <TableCell className="font-medium">
@@ -159,6 +234,7 @@ export function TelaDeMembros({ eu }: { eu: Usuario }) {
                             <SelectContent>
                               <SelectItem value="membro">Membro</SelectItem>
                               <SelectItem value="admin">Admin</SelectItem>
+                              <SelectItem value="dono">Dono</SelectItem>
                             </SelectContent>
                           </Select>
                         ) : (
@@ -186,6 +262,12 @@ export function TelaDeMembros({ eu }: { eu: Usuario }) {
                             <Button size="xs" variant={m.ativo ? "destructive" : "outline"} onClick={() => alternarAtivo(m)} disabled={ocupado === m.id}>
                               {ocupado === m.id ? <Loader2 className="animate-spin" /> : m.ativo ? <PowerOff /> : <Power />}
                               {m.ativo ? "Desativar" : "Reativar"}
+                            </Button>
+                          )}
+                          {podeMexer(m) && !proprio && (
+                            <Button size="xs" variant="outline" onClick={() => remover(m)} disabled={ocupado === m.id} title="Tirar da organização">
+                              <UserMinus />
+                              Remover
                             </Button>
                           )}
                         </div>
@@ -253,6 +335,15 @@ export function TelaDeMembros({ eu }: { eu: Usuario }) {
             )}
             <p className="text-xs text-muted-foreground">O link do convite aparece uma vez só, ao criar. Perdeu o link? Convide de novo: o link antigo para de valer.</p>
           </section>
+
+          <section className="grid justify-items-start gap-2 border-t pt-6">
+            <h2 className="font-heading text-lg font-bold">Sair da organização</h2>
+            <p className="text-sm text-muted-foreground">Você deixa de ver tudo de {eu.organizacao?.nome}. A sua conta e as outras organizações continuam.</p>
+            <Button variant="outline" onClick={sairDaOrganizacao}>
+              <LogOut />
+              Sair de {eu.organizacao?.nome}
+            </Button>
+          </section>
         </>
       )}
 
@@ -268,6 +359,7 @@ export function TelaDeMembros({ eu }: { eu: Usuario }) {
       {convidando && (
         <Convidar
           souDono={souDono}
+          organizacao={eu.organizacao?.nome ?? "a organização"}
           aoFechar={() => setConvidando(false)}
           aoCriar={(c) => setConvites((lista) => [c, ...lista.filter((x) => x.email !== c.email)])}
         />
@@ -308,7 +400,7 @@ function EditarTelas({ membro, aoFechar, aoSalvar }: { membro: Membro; aoFechar:
   );
 }
 
-function Convidar({ souDono, aoFechar, aoCriar }: { souDono: boolean; aoFechar: () => void; aoCriar: (c: ConvitePendente) => void }) {
+function Convidar({ souDono, organizacao, aoFechar, aoCriar }: { souDono: boolean; organizacao: string; aoFechar: () => void; aoCriar: (c: ConvitePendente) => void }) {
   const [email, setEmail] = useState("");
   const [nome, setNome] = useState("");
   const [papel, setPapel] = useState<PapelEditavel>("membro");
@@ -354,7 +446,7 @@ function Convidar({ souDono, aoFechar, aoCriar }: { souDono: boolean; aoFechar: 
           <DialogDescription>
             {link
               ? "Copie o link e mande para a pessoa. Ele vale 7 dias, serve uma vez só e não aparece de novo."
-              : "O hub não manda e-mail: ao criar, aparece um link para você copiar e mandar."}
+              : `Convite para ${organizacao}. O hub não manda e-mail: ao criar, aparece um link para você copiar e mandar.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -387,6 +479,7 @@ function Convidar({ souDono, aoFechar, aoCriar }: { souDono: boolean; aoFechar: 
                 <SelectContent>
                   <SelectItem value="membro">Membro: vê só as telas marcadas</SelectItem>
                   {souDono && <SelectItem value="admin">Admin: vê tudo e gerencia a equipe</SelectItem>}
+                  {souDono && <SelectItem value="dono">Dono: manda em tudo, inclusive nos outros donos</SelectItem>}
                 </SelectContent>
               </Select>
             </Campo>

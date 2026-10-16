@@ -31,10 +31,19 @@ Edição, transcrição e "remover legenda" precisam de programas fora do Node: 
 
 ## Arquitetura
 
+### Organizações (como no Cifra)
+O hub é multiempresa. Cada organização tem a própria equipe e os próprios dados: gerações e mídias, conversas, Fluxo, editor, agentes personalizados, sessões das integrações (FLORA, HeyGen, ElevenLabs, Higgsfield), conta do Google Drive, Memória e conexões do Conector. Uma conta participa de várias organizações, com papel (`dono`, `admin`, `membro`) e telas liberadas em cada uma (`organizacao_membros`). A organização que já existia é a **Grupo Chegou**, de id fixo (`ORGANIZACAO_PADRAO` em `features/acesso/contrato.ts`).
+- **Organização atual:** `organizacaoAtual()` / `comOrganizacao(id, fn)` (`features/acesso/servicos/organizacao-atual.ts`, AsyncLocalStorage). `route()` roda cada rota dentro da organização aberta na sessão; páginas caem na sessão do pedido; a MCP do hub (`?org=`), o Conector (a organização da conexão) e os links de arquivo (a do link) entram na deles. Fora disso, com banco, lança: nunca adivinhe a organização. No PC sem banco é sempre a padrão.
+- **Todo dado novo é de uma organização:** arquivo pela pasta dela (`pastaDeDados()` / `pastaDeMidia()` em `lib/server/pastas.ts`), tabela com `organizacao_id` e filtro em toda consulta. Cache em memória com chave de organização (veja `lib/server/mcp-client.ts`, `features/drive/servicos/*`). Trabalho em segundo plano herda a organização do pedido; callback de processo filho usa `comOrganizacao` (veja `montage.ts`).
+- **Usuario** (`features/acesso/contrato.ts`) é a pessoa vista na organização aberta: `papel`, `ativo` e `chaves` são de lá, e `organizacao` traz id, nome e situação (`null`: nenhuma ativa). `podeUsar` exige a organização ativa.
+- **Telas:** seletor no topo do menu (`features/acesso/tela/seletor-de-organizacao.tsx`), Equipe (`/membros`: nome, papéis, convites, remover, sair), Plataforma (`/plataforma`, só `usuarios.opera_plataforma` + `DONOS_DA_PLATAFORMA`: cria organização com o convite do primeiro dono, renomeia, suspende). Convite para e-mail que já tem conta pede a senha de sempre.
+- **Aba velha:** o `apiFetch` manda a organização da tela em `x-hub-organizacao`; se a sessão trocou em outra aba, a rota responde 409 (`codigo: organizacao_trocada`) e a tela recarrega.
+
 ### Dados: arquivos JSON em `hub/.data/`, sem banco
-- `db.json`: todas as gerações (`lib/server/store.ts`). Uma fila serializa as escritas, então passe sempre por `createGeneration`/`updateGeneration`.
+A organização padrão usa a raiz de `.data/`; cada outra organização tem a sua em `.data/organizacoes/<id>/`, com as mesmas pastas e arquivos. Modelos (LaMa), temporários e logs da montagem ficam na raiz para todas.
+- `db.json`: todas as gerações da organização (`lib/server/store.ts`). Uma fila serializa as escritas, então passe sempre por `createGeneration`/`updateGeneration`.
 - `media/`: imagens, áudios e arquivos enviados pelas pessoas, servidos por `/api/media/<arquivo>`. **Vídeos gerados não ficam aqui:** veja "Vídeos no Google Drive" abaixo.
-- `chats/<id>.json`, `board.json` (Fluxo), `editor/`, `analysis/` (decupagens em cache), `agents/` (personalização dos agentes), `montagem/` (logs) e `<serviço>-mcp.json` (sessões OAuth).
+- `chats/<id>.json`, `board.json` (Fluxo), `editor/`, `analysis/` (decupagens em cache), `agents/` (personalização dos agentes), `ad-writer/` (nichos), `heygen-avatars.json` e `<serviço>-mcp.json` (sessões OAuth). Na raiz, para todas: `montagem/` (logs), `models/` e `tmp/`.
 
 No Railway essa pasta é o volume montado em `/app/.data`. Ela nunca vai para o git.
 
@@ -45,7 +54,8 @@ Tudo que é gerado ou enviado vira uma `Generation` (`lib/generations.ts`), com 
 
 ### Vídeos no Google Drive (regra do dono)
 Todo vídeo gerado mora **só** no Drive de uma conta Google, na pasta "Hub de Criativos/<tipo>" (`features/drive`). Ao ficar pronto, `guardarNoDrive` (`features/drive/servicos/videos.ts`) sobe o vídeo, grava `drive: { id, pasta }` na geração e apaga a cópia local. Sem Drive conectado (ou se o envio falhar), o vídeo fica no disco marcado `params.paraDrive`; o espelho dispara a migração sozinho quando o Drive volta (e o botão "Levar vídeos antigos para o Drive", em Integrações, força na hora). Antes de apagar a cópia local, o tamanho no Drive é conferido.
-- **Ler vídeo do disco:** sempre por `await arquivoLocal(file)`, que baixa uma cópia temporária do Drive (`.data/tmp/drive`, limpa sozinha). Nunca `path.join(MEDIA_DIR, file)` para vídeo.
+- **Ler vídeo do disco:** sempre por `await arquivoLocal(file)`, que baixa uma cópia temporária do Drive (`.data/tmp/drive`, limpa sozinha). Nunca `path.join(await pastaDeMidia(), file)` para vídeo.
+- **Uma conta Google por organização** (`drive_conta.organizacao_id`). A mesma conta Google não serve a duas organizações.
 - **Mostrar:** `/api/media/<file>` repassa do Drive com Range. Os componentes não mudam.
 - **Espelho:** `sincronizarComDrive` marca `foraDoDrive` o que foi apagado ou foi para a lixeira no Drive (e acompanha nomes); as listas escondem. Apagar no hub manda para a lixeira do Drive.
 - **Acesso:** escopo `drive.file` (o hub só vê o que criou; não exige verificação do Google). Tokens cifrados com `HUB_CHAVE_SEGREDOS`. Passo a passo e variáveis em `docs/google-drive.md`.
@@ -72,7 +82,7 @@ Chaves de API (Claude, Venice), o cliente OAuth do Google (Drive) e o modelo do 
 2. **Sem Claude Code (a nuvem)** (`chat/run.ts`): API da Anthropic com a chave e o modelo de Integrações → Claude, e loop de ferramentas próprio. A escolha é automática (`usesApiBrain`). `HUB_CHAT=off` desliga o chat.
 3. **Modo Black** (`chat/venice.ts`): modelo da Venice. Converte o histórico na hora de enviar, sem reescrevê-lo.
 
-As ferramentas ficam em `lib/server/chat/tools.ts` (`definitions` + `handlers`). No modo Claude Code elas chegam pela MCP do hub, em `app/api/mcp/route.ts`, com um token Bearer gerado a cada início do servidor e `?chat=<id>`. Cada resultado termina numa tag `<hub_result summary generations/>`, que o hub usa para montar os cards. Para adicionar uma ferramenta, crie a definição e o handler em `tools.ts` (isso vale para os três cérebros). Se o agente precisar saber quando usá-la, acrescente uma linha no prompt de sistema.
+As ferramentas ficam em `lib/server/chat/tools.ts` (`definitions` + `handlers`). No modo Claude Code elas chegam pela MCP do hub, em `app/api/mcp/route.ts`, com `?chat=<id>&org=<id>` e um token Bearer da organização (`mcpTokenDa`, derivado do segredo gerado a cada início do servidor). Cada resultado termina numa tag `<hub_result summary generations/>`, que o hub usa para montar os cards. Para adicionar uma ferramenta, crie a definição e o handler em `tools.ts` (isso vale para os três cérebros). Se o agente precisar saber quando usá-la, acrescente uma linha no prompt de sistema.
 
 Regras que evitam quebrar conversas existentes:
 - O prompt de sistema e a lista de ferramentas são congelados quando a conversa é criada, por causa do cache de prompt e dos blocos de thinking. Uma edição em playbook, agente ou prompt só vale para conversas novas.
@@ -82,7 +92,8 @@ Regras que evitam quebrar conversas existentes:
 ### O comportamento dos agentes é texto, não código
 - `lib/server/chat/system.ts` monta o prompt base (regras de custo, b-roll, FLORA e Fluxo) e acrescenta todos os `hub/playbooks/*.md`.
 - `lib/agent-profiles.ts` é a definição única de cada agente (Estrategista, Copy, VSL…). A lista do menu lateral ainda vem de `lib/data.ts` (dados de exemplo do protótipo), então os ids dos dois arquivos precisam bater.
-- A personalização feita pelo usuário ("Editar agente") fica em `.data/agents/<id>.json` e entra no fim do prompt.
+- A personalização feita pelo usuário ("Editar agente") fica em `agents/<id>.json`, na pasta da organização, e entra no fim do prompt.
+- `hub/playbooks/contexto-grupo-chegou.md` é dado do negócio da Grupo Chegou: só entra no prompt das conversas dela (`SO_DA_ORGANIZACAO_PADRAO` em `system.ts`).
 - `lib/server/ad-writer.ts` usa a base `hub/knowledge/ad-writer-light`. Ela é só local (sem licença) e fica fora do git.
 
 ### Vídeo local, sem custo
@@ -98,6 +109,8 @@ Nesta máquina Windows, o Controle de Aplicativo bloqueia a DLL do PyAV e o ffmp
 As rotas de API são envolvidas em `route()` (`lib/server/http.ts`), que devolve `{ error }` em JSON. Os status são:
 - entrada inválida (`InputError`): 400;
 - chave faltando (`MissingKeyError`): 400;
+- sem login (`NaoAutenticado`): 401; sem a chave da tela ou sem organização ativa (`SemPermissao`, `SemOrganizacao`): 403;
+- a tela é de outra organização que não a aberta na sessão (`OrganizacaoTrocada`): 409;
 - qualquer outro erro: 502.
 
 As mensagens são em português, legíveis tanto para quem usa quanto para o agente. O código de servidor importa `"server-only"`.
@@ -108,7 +121,8 @@ As mensagens são em português, legíveis tanto para quem usa quanto para o age
 ## Deploy (Railway)
 O `Dockerfile` e o `railway.json` da raiz montam uma imagem com Node 22, ffmpeg, Python (faster-whisper, torch CPU, OpenCV), o Chrome headless do Remotion e as fontes, e fazem o build de `hub/`. Variáveis de lá:
 - `DATABASE_URL`: o Postgres do projeto (referência ao serviço `Postgres`).
-- `DONOS_DA_PLATAFORMA`: e-mails que podem ser dono (separados por vírgula). O login é por conta (`features/acesso`); o primeiro dono sai de `npm run criar-dono -- --email X --nome "Nome"`. `HUB_PASSWORD` não é mais usada.
+- `DONOS_DA_PLATAFORMA`: e-mails que podem operar a plataforma (separados por vírgula). O login é por conta (`features/acesso`); o primeiro dono sai de `npm run criar-dono -- --email X --nome "Nome"`, que faz a conta operar a plataforma e ser dona da Grupo Chegou. Os donos das outras organizações vêm do convite criado na tela Plataforma. `HUB_PASSWORD` não é mais usada.
+- A memória de outra organização entra por `npm run importar-memoria -- <pasta> --organizacao <id>` (sem `--organizacao`, vai para a Grupo Chegou).
 - `HUB_CHAVE_SEGREDOS`: cifra as chaves das integrações e a autorização do Google guardadas no banco.
 - `HUB_PUBLIC_URL`: endereço público do hub.
 - `HUB_CHAT` (opcional): `off` desliga o chat.

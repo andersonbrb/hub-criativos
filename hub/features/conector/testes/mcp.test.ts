@@ -1,10 +1,12 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DELETE as mcpDelete, GET as mcpGet } from "@/app/mcp/route";
 import { banco } from "@/db/cliente";
-import { chamadasMcp, conexaoTokens, conexoes } from "@/db/schema";
-import type { Chave } from "@/features/acesso/contrato";
+import { chamadasMcp, conexaoTokens, conexoes, organizacaoMembros } from "@/db/schema";
+import { ORGANIZACAO_PADRAO, type Chave } from "@/features/acesso/contrato";
+import { criarOrganizacao, vincular } from "@/features/acesso/testes/ajuda";
+import { sessao } from "@/features/conector/testes/sessao-falsa";
 import { LIMITE_CHAMADAS_POR_MINUTO, SEGREDO_REMOVIDO } from "@/features/conector/servicos/mcp";
 import type { Doc } from "@/features/memoria/contrato";
 import { ConflitoDeVersao, SegredoDetectado } from "@/features/memoria/erros";
@@ -131,6 +133,27 @@ describe("conector MCP: autenticação", () => {
     // Reativar a conta não ressuscita a conexão: é preciso conectar de novo.
     await mudarPessoa(pessoa.id, { ativo: true });
     expect((await mcp(acesso, "ping")).status).toBe(401);
+  });
+
+  it("a conexão é da organização aberta na autorização: trabalha nela e cai se a pessoa sair de lá", async () => {
+    const outra = await criarOrganizacao("Loja da Bia");
+    const pessoa = await criarPessoa({ chaves: ["conector_claude"] });
+    await vincular(pessoa.id, outra, { chaves: ["conector_claude"] });
+    sessao.organizacao = outra;
+    const { access_token } = await conectar(pessoa.id);
+    sessao.organizacao = ORGANIZACAO_PADRAO.id;
+
+    const [conexao] = await banco().select().from(conexoes);
+    expect(conexao.organizacaoId).toBe(outra);
+    const inicio = await mcp(access_token, "initialize", { protocolVersion: "2025-06-18" });
+    expect(JSON.stringify(await inicio.json())).toContain("Loja da Bia");
+    await mcp(access_token, "tools/call", { name: "fluxo_ver", arguments: {} });
+    const [chamada] = await banco().select().from(chamadasMcp);
+    expect(chamada.organizacaoId).toBe(outra);
+
+    // Sair da Loja da Bia corta o Claude dela, mesmo continuando na organização padrão.
+    await banco().delete(organizacaoMembros).where(and(eq(organizacaoMembros.organizacaoId, outra), eq(organizacaoMembros.usuarioId, pessoa.id)));
+    expect((await mcp(access_token, "ping")).status).toBe(401);
   });
 
   it("sem a chave do conector é 403 insufficient_scope", async () => {
