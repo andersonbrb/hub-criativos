@@ -20,14 +20,19 @@ import {
   situacao,
   soltarTemp,
 } from "@/features/drive/servicos/arquivos";
-import { tokenDeAcesso } from "@/features/drive/servicos/conta";
-import { esquecerPastas, pastaDoDrive } from "@/features/drive/servicos/pastas";
+import { pastaEscolhida, tokenDeAcesso } from "@/features/drive/servicos/conta";
+import { escolherPasta, esquecerPastas, pastaDoDrive, voltarParaMeuDrive } from "@/features/drive/servicos/pastas";
 import { DATA_DIR } from "@/lib/server/store";
 
-// A conta Google é de outro agente: aqui o token é sempre o que o teste mandar.
+// A conta Google é de outro agente: aqui o token é sempre o que o teste mandar, e a pasta escolhida fica na memória.
+const conta = vi.hoisted(() => ({ pasta: null as { id: string; nome: string; driveId: string | null } | null }));
 vi.mock("@/features/drive/servicos/conta", () => ({
   tokenDeAcesso: vi.fn(async () => "token-bom"),
   esquecerTokenDeAcesso: vi.fn(async () => undefined),
+  pastaEscolhida: vi.fn(async () => conta.pasta),
+  gravarPasta: vi.fn(async (pasta: typeof conta.pasta) => {
+    conta.pasta = pasta;
+  }),
   DriveNaoConectado: class DriveNaoConectado extends Error {},
 }));
 // A pasta .data do teste é temporária (o store de verdade aponta para hub/.data).
@@ -58,6 +63,8 @@ type ArquivoFalso = {
   parents: string[];
   trashed: boolean;
   appProperties?: Record<string, string>;
+  // O Drive compartilhado onde o arquivo fica (vazio no Meu Drive).
+  driveId?: string;
   conteudo: Buffer;
 };
 type Sessao = { meta: Omit<ArquivoFalso, "id" | "trashed" | "conteudo">; total: number; partes: Buffer[]; tamanho: number; arquivo?: ArquivoFalso };
@@ -85,6 +92,8 @@ class DriveFalso {
   cortarDownload = false;
   aoReceberPedaco: (n: number) => Destino = () => "guardar";
   aoBaixar: (n: number) => Entrega = () => "entregar";
+  // O Google às vezes não olha todos os Drives compartilhados numa busca e avisa com incompleteSearch.
+  buscaIncompleta = false;
   atrasoMs = 0;
   simultaneos = 0;
   maxSimultaneos = 0;
@@ -160,6 +169,7 @@ class DriveFalso {
       modifiedTime: "2026-10-15T12:00:00.000Z",
       trashed: a.trashed,
       parents: a.parents,
+      ...(a.driveId ? { driveId: a.driveId } : {}),
     };
   }
 
@@ -183,6 +193,7 @@ class DriveFalso {
     const fim = inicio + porPagina;
     return Response.json({
       ...(fim < todos.length ? { nextPageToken: String(fim) } : {}),
+      ...(this.buscaIncompleta ? { incompleteSearch: true } : {}),
       files: todos.slice(inicio, fim).map((a) => this.meta(a)),
     });
   }
@@ -307,6 +318,7 @@ beforeEach(async () => {
   drive = new DriveFalso();
   vi.stubGlobal("fetch", vi.fn(drive.atender));
   vi.mocked(tokenDeAcesso).mockReset().mockResolvedValue("token-bom");
+  conta.pasta = null;
   esquecerPastas();
   ajustes.esperaInicialMs = 1;
   disco(1024 * GiB);
@@ -365,6 +377,87 @@ describe("drive: pastas do hub", () => {
     const raizNova = drive.arquivos.get(terceira)!.parents[0];
     expect(raizNova).not.toBe(raizAntiga);
     expect(drive.arquivos.get(raizNova)).toMatchObject({ name: PASTA_RAIZ, trashed: false });
+  });
+});
+
+describe("drive: pasta escolhida (inclusive num Drive compartilhado)", () => {
+  const ID_DA_PASTA = "pasta-criativos-da-empresa";
+
+  it("cria a Hub de Criativos dentro da pasta escolhida e os vídeos novos vão para lá", async () => {
+    const criativos = drive.criar({ id: ID_DA_PASTA, name: "Criativos", mimeType: MIME_PASTA, parents: ["raiz-do-drive-da-empresa"], driveId: "drive-da-empresa" });
+
+    expect(await escolherPasta(ID_DA_PASTA)).toEqual({ id: ID_DA_PASTA, nome: "Criativos", compartilhado: true });
+    expect(await pastaEscolhida()).toEqual({ id: ID_DA_PASTA, nome: "Criativos", driveId: "drive-da-empresa" });
+    const raiz = drive.pastas().find((p) => p.name === PASTA_RAIZ)!;
+    expect(raiz.parents).toEqual([criativos.id]);
+
+    const { caminho } = await arquivoLocal(3 * KiB);
+    const video = await enviarArquivo(caminho, { nome: "corte.mp4", pasta: "batida", mimeType: "video/mp4" });
+    const sub = drive.pastas().find((p) => p.name === PASTAS.batida)!;
+    expect(sub.parents).toEqual([raiz.id]);
+    expect(drive.arquivos.get(video.id)!.parents).toEqual([sub.id]);
+  });
+
+  it("todo pedido ao Google vale para Drive compartilhado, e as buscas olham todos os Drives", async () => {
+    drive.criar({ id: ID_DA_PASTA, name: "Criativos", mimeType: MIME_PASTA, parents: ["raiz-do-drive-da-empresa"], driveId: "drive-da-empresa" });
+    await escolherPasta(ID_DA_PASTA);
+    const { caminho } = await arquivoLocal(3 * KiB);
+    const video = await enviarArquivo(caminho, { nome: "corte.mp4", pasta: "batida", mimeType: "video/mp4" });
+    await corpoDe((await abrirTrecho(video.id, null)).corpo);
+    await renomear(video.id, "novo nome.mp4");
+    await listarArquivosDoHub();
+
+    // A sessão de envio já vem pronta do Google (upload_id): o que vale é o pedido que a abriu.
+    const pedidos = drive.pedidos.filter((p) => !p.url.searchParams.has("upload_id"));
+    expect(pedidos.length).toBeGreaterThan(5);
+    for (const { url } of pedidos) expect(url.searchParams.get("supportsAllDrives")).toBe("true");
+    const buscas = pedidos.filter((p) => p.metodo === "GET" && p.url.pathname === "/drive/v3/files");
+    expect(buscas.length).toBeGreaterThan(0);
+    for (const { url } of buscas) {
+      expect(url.searchParams.get("includeItemsFromAllDrives")).toBe("true");
+      expect(url.searchParams.get("corpora")).toBe("allDrives");
+    }
+  });
+
+  it("pasta que o Google não liberou, ou um arquivo no lugar da pasta: recusa e continua no Meu Drive", async () => {
+    await expect(escolherPasta("pasta-que-o-hub-nao-ve")).rejects.toThrow("não liberou essa pasta");
+    const { caminho } = await arquivoLocal(KiB);
+    await enviarArquivo(caminho, { nome: "a.mp4", pasta: "batida", mimeType: "video/mp4" });
+    drive.criar({ id: "um-video-qualquer-01", name: "x.mp4", mimeType: "video/mp4" });
+    await expect(escolherPasta("um-video-qualquer-01")).rejects.toThrow("Escolha uma pasta");
+    await expect(escolherPasta("curto")).rejects.toThrow("Pasta inválida");
+    expect(await pastaEscolhida()).toBeNull();
+    expect(drive.pastas().find((p) => p.name === PASTA_RAIZ)!.parents).toEqual([RAIZ_DO_DRIVE]);
+  });
+
+  it("sem poder criar dentro da pasta escolhida: volta para a pasta de antes", async () => {
+    drive.criar({ id: ID_DA_PASTA, name: "Criativos", mimeType: MIME_PASTA, parents: ["raiz-do-drive-da-empresa"] });
+    const atender = drive.atender;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (entrada: RequestInfo | URL, init?: RequestInit) =>
+        init?.method === "POST" && String(entrada).includes("/drive/v3/files?")
+          ? Response.json({ error: { code: 403, message: "Insufficient permissions", errors: [{ reason: "insufficientFilePermissions" }] } }, { status: 403 })
+          : atender(entrada, init),
+      ),
+    );
+    await expect(escolherPasta(ID_DA_PASTA)).rejects.toThrow(`Não deu para criar a pasta "${PASTA_RAIZ}" dentro de "Criativos"`);
+    expect(await pastaEscolhida()).toBeNull();
+  });
+
+  it("voltar para o Meu Drive: os vídeos novos voltam para a raiz", async () => {
+    drive.criar({ id: ID_DA_PASTA, name: "Criativos", mimeType: MIME_PASTA, parents: ["raiz-do-drive-da-empresa"] });
+    await escolherPasta(ID_DA_PASTA);
+    await voltarParaMeuDrive();
+    expect(await pastaEscolhida()).toBeNull();
+    await pastaDoDrive("batida");
+    const raizes = drive.pastas().filter((p) => p.name === PASTA_RAIZ);
+    expect(raizes.map((r) => r.parents[0]).sort()).toEqual([ID_DA_PASTA, RAIZ_DO_DRIVE].sort());
+  });
+
+  it("lista dos vídeos pela metade não serve para o espelho", async () => {
+    drive.buscaIncompleta = true;
+    await expect(listarArquivosDoHub()).rejects.toThrow("pela metade");
   });
 });
 
@@ -792,7 +885,7 @@ describe("drive: listarArquivosDoHub (espelho)", () => {
     expect(pedidos.map((p) => p.url.searchParams.get("pageToken"))).toEqual([null, "1000", "2000"]);
     for (const { url } of pedidos) {
       expect(url.searchParams.get("q")).toBe("appProperties has { key='hub' and value='1' }");
-      expect(url.searchParams.get("fields")).toBe("nextPageToken,files(id,name,mimeType,size,modifiedTime,trashed)");
+      expect(url.searchParams.get("fields")).toBe("nextPageToken,incompleteSearch,files(id,name,mimeType,size,modifiedTime,trashed)");
       expect(url.searchParams.get("pageSize")).toBe("1000");
     }
   });

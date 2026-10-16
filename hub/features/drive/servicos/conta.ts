@@ -8,7 +8,7 @@ import { banco, type Banco } from "@/db/cliente";
 import { driveConta, drivePedidosLogin } from "@/db/schema";
 import { caminhoSeguro } from "@/features/acesso/contrato";
 import { organizacaoAtual } from "@/features/acesso/servicos/organizacao-atual";
-import type { StatusDrive } from "@/features/drive/contrato";
+import type { PastaEscolhida, StatusDrive } from "@/features/drive/contrato";
 import type { MotivoDoLogin } from "@/features/drive/tela/avisos";
 import { lerChave } from "@/features/integracoes/servicos/chaves";
 import { cifrar, decifrar, problemaNaChave } from "@/features/integracoes/servicos/cifra";
@@ -213,7 +213,7 @@ const contaDoHub = (id: string | null | undefined) => (id && UUID.test(id) ? id 
 
 export async function statusDrive(): Promise<StatusDrive> {
   const configurado = (await credenciais()) !== null;
-  const desligado: StatusDrive = { configurado, conectado: false, conta: null, espaco: null };
+  const desligado: StatusDrive = { configurado, conectado: false, conta: null, espaco: null, pasta: null };
   if (!configurado) return desligado;
 
   let conta: Awaited<ReturnType<typeof lerConta>>;
@@ -227,15 +227,18 @@ export async function statusDrive(): Promise<StatusDrive> {
   if (!conta) return desligado;
 
   const quem = { email: conta.email, nome: conta.nome };
+  const pasta: PastaEscolhida | null = conta.pastaId ? { id: conta.pastaId, nome: conta.pastaNome ?? "Pasta escolhida", compartilhado: Boolean(conta.pastaDriveId) } : null;
   try {
-    return { configurado, conectado: true, conta: quem, espaco: await espacoDaConta(conta.email) };
+    // Num Drive compartilhado o espaço é o da empresa, não o da conta: o número da conta enganaria.
+    const espaco = pasta?.compartilhado ? null : await espacoDaConta(conta.email);
+    return { configurado, conectado: true, conta: quem, espaco, pasta };
   } catch (err) {
     // invalid_grant já apagou a conta; chave trocada mantém a linha e mostra QUAL conta precisa de um login novo.
     if (err instanceof DriveSemChave) return { ...desligado, conta: quem };
     if (err instanceof DriveNaoConectado) return desligado;
     // Google fora do ar ou lento: a conta continua conectada, só o espaço fica sem número.
     console.error("[drive] não deu para ler o espaço do Drive:", err instanceof Error ? err.message : err);
-    return { configurado, conectado: true, conta: quem, espaco: null };
+    return { configurado, conectado: true, conta: quem, espaco: null, pasta };
   }
 }
 
@@ -365,7 +368,10 @@ export async function concluirLogin(code: string, state: string, origem: string,
     throw new ErroNoLoginDoDrive("conta-em-outra-organizacao", "Essa conta Google já está conectada em outra organização.");
 
   const anterior = await lerConta(org);
+  const outraConta = Boolean(anterior && anterior.email !== perfil.email.toLowerCase());
   const valores = {
+    // Outra conta Google não enxerga a pasta escolhida pela anterior: volta para o Meu Drive até escolher de novo.
+    ...(outraConta ? { pastaId: null, pastaNome: null, pastaDriveId: null } : {}),
     email: perfil.email.toLowerCase(),
     nome: perfil.name?.trim() || null,
     refreshTokenCifrado: cifrar(tokens.refresh_token),
@@ -398,6 +404,28 @@ export async function desconectar(): Promise<void> {
   if (!db) return;
   const [conta] = await db.delete(driveConta).where(eq(driveConta.organizacaoId, org)).returning();
   if (conta) await revogarGuardado(conta.refreshTokenCifrado);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Pasta escolhida (onde fica a "Hub de Criativos"). A conferência no Google e a troca ficam em pastas.ts.
+
+export type PastaDoHub = { id: string; nome: string; driveId: string | null };
+
+// A pasta escolhida da organização aberta, ou null (raiz do Meu Drive).
+export async function pastaEscolhida(): Promise<PastaDoHub | null> {
+  const conta = await lerConta(await organizacaoAtual());
+  return conta?.pastaId ? { id: conta.pastaId, nome: conta.pastaNome ?? "Pasta escolhida", driveId: conta.pastaDriveId } : null;
+}
+
+// Grava a pasta (ou null, de volta ao Meu Drive). Lança DriveNaoConectado sem conta conectada.
+export async function gravarPasta(pasta: PastaDoHub | null): Promise<void> {
+  const db = bancoOuNada();
+  const org = await organizacaoAtual();
+  if (!db || !(await lerConta(org))) throw new DriveNaoConectado();
+  await db
+    .update(driveConta)
+    .set({ pastaId: pasta?.id ?? null, pastaNome: pasta?.nome ?? null, pastaDriveId: pasta?.driveId ?? null })
+    .where(eq(driveConta.organizacaoId, org));
 }
 
 // ---------------------------------------------------------------------------------------------------------------

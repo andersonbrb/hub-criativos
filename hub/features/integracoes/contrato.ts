@@ -16,6 +16,9 @@ export const CHAVES = {
   venice: { rotulo: "Chave da API da Venice", segredo: true, variavelAntiga: "VENICE_API_KEY" },
   "google-client-id": { rotulo: "ID do cliente do Google", segredo: false, variavelAntiga: "GOOGLE_CLIENT_ID" },
   "google-client-secret": { rotulo: "Chave secreta do cliente do Google", segredo: true, variavelAntiga: "GOOGLE_CLIENT_SECRET" },
+  // Abre a janela de pastas do Google (Picker) no navegador de quem escolhe a pasta do Drive. Não é segredo de verdade
+  // (o Google a expõe ao navegador), mas a tela mostra só o final, como as outras.
+  "google-api-key": { rotulo: "Chave de API do Google", segredo: true, variavelAntiga: "GOOGLE_API_KEY" },
   "modelo-api": { rotulo: "Modelo do chat na nuvem", segredo: false, variavelAntiga: "HUB_API_MODEL" },
 } as const satisfies Record<string, { rotulo: string; segredo: boolean; variavelAntiga: string }>;
 

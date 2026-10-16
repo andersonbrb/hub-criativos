@@ -36,9 +36,14 @@ export type StatusDrive = {
   configurado: boolean; // GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET existem
   conectado: boolean;
   conta: { email: string; nome: string | null } | null;
-  // Espaço da conta em bytes (null se o Google não informar).
+  // Espaço da conta em bytes (null se o Google não informar, ou com a pasta num Drive compartilhado, que usa o espaço
+  // da empresa e não o da conta).
   espaco: { usado: number; limite: number | null } | null;
+  // Onde fica a pasta "Hub de Criativos": null = raiz do Meu Drive; senão a pasta escolhida na janela do Google.
+  pasta: PastaEscolhida | null;
 };
+
+export type PastaEscolhida = { id: string; nome: string; compartilhado: boolean };
 
 // Pedaço de arquivo para tocar no navegador (Range) ou baixar.
 export type Trecho = { status: 200 | 206 | 416; cabecalhos: Record<string, string>; corpo: ReadableStream<Uint8Array> | null };

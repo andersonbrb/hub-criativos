@@ -15,8 +15,10 @@ import {
   DriveSemChave,
   ESCOPO_DRIVE,
   esquecerTokenDeAcesso,
+  gravarPasta,
   iniciarLogin,
   oQueFaltaParaConectar,
+  pastaEscolhida,
   statusDrive,
   tokenDeAcesso,
 } from "@/features/drive/servicos/conta";
@@ -211,6 +213,24 @@ describe("drive: login", () => {
     expect(chamadas.filter((c) => c.tipo === "revogar")).toHaveLength(1);
     expect(await banco().select().from(driveConta)).toHaveLength(1);
   });
+
+  it("a pasta escolhida continua ao reconectar a mesma conta e volta para o Meu Drive com outra conta", async () => {
+    await contaConectada(30 * 60_000, { email: "antiga@gmail.com" });
+    await gravarPasta({ id: "pasta-criativos", nome: "Criativos", driveId: "drive-da-empresa" });
+    let email = "antiga@gmail.com";
+    googleFalso({ token: () => tokensDoGoogle(), perfil: () => json({ email }), revogar: () => json({}) });
+
+    await concluirLogin("codigo", (await comecarLogin()).state, ORIGEM);
+    expect(await pastaEscolhida()).toEqual({ id: "pasta-criativos", nome: "Criativos", driveId: "drive-da-empresa" });
+
+    email = "nova@gmail.com";
+    await concluirLogin("codigo", (await comecarLogin()).state, ORIGEM);
+    expect(await pastaEscolhida()).toBeNull();
+  });
+
+  it("sem conta conectada não grava pasta", async () => {
+    await expect(gravarPasta({ id: "pasta-criativos", nome: "Criativos", driveId: null })).rejects.toBeInstanceOf(DriveNaoConectado);
+  });
 });
 
 describe("drive: token de acesso", () => {
@@ -322,13 +342,13 @@ describe("drive: status", () => {
     delete process.env.GOOGLE_CLIENT_SECRET;
     const chamadas = googleFalso();
     await contaConectada(30 * 60_000);
-    expect(await statusDrive()).toEqual({ configurado: false, conectado: false, conta: null, espaco: null });
+    expect(await statusDrive()).toEqual({ configurado: false, conectado: false, conta: null, espaco: null, pasta: null });
     expect(await oQueFaltaParaConectar()).toMatch(/cliente do Google/);
     expect(chamadas).toHaveLength(0);
   });
 
   it("configurado e sem conta: desconectado, pronto para conectar", async () => {
-    expect(await statusDrive()).toEqual({ configurado: true, conectado: false, conta: null, espaco: null });
+    expect(await statusDrive()).toEqual({ configurado: true, conectado: false, conta: null, espaco: null, pasta: null });
     expect(await oQueFaltaParaConectar()).toBeNull();
     delete process.env.HUB_CHAVE_SEGREDOS;
     expect(await oQueFaltaParaConectar()).toMatch(/HUB_CHAVE_SEGREDOS/);
@@ -339,7 +359,7 @@ describe("drive: status", () => {
     delete process.env.DATABASE_URL;
     usarBanco(undefined);
     try {
-      expect(await statusDrive()).toEqual({ configurado: true, conectado: false, conta: null, espaco: null });
+      expect(await statusDrive()).toEqual({ configurado: true, conectado: false, conta: null, espaco: null, pasta: null });
       expect(await oQueFaltaParaConectar()).toMatch(/banco/);
       await recusaCom(iniciarLogin("/integracoes", ORIGEM), "configuracao");
     } finally {
@@ -353,7 +373,7 @@ describe("drive: status", () => {
     });
     await contaConectada(30 * 60_000);
 
-    const esperado = { configurado: true, conectado: true, conta: { email: "videos@gmail.com", nome: "Vídeos do Hub" }, espaco: { usado: 1073741824, limite: 16106127360 } };
+    const esperado = { configurado: true, conectado: true, conta: { email: "videos@gmail.com", nome: "Vídeos do Hub" }, espaco: { usado: 1073741824, limite: 16106127360 }, pasta: null };
     expect(await statusDrive()).toEqual(esperado);
     expect(chamadas[0]).toMatchObject({ tipo: "sobre", autorizacao: "Bearer acesso-guardado" });
     expect(new URL(chamadas[0].url).searchParams.get("fields")).toBe("storageQuota,user");
@@ -365,6 +385,14 @@ describe("drive: status", () => {
     vi.spyOn(Date, "now").mockReturnValue(agora + 61_000);
     await statusDrive();
     expect(chamadas).toHaveLength(2);
+  });
+
+  it("pasta num Drive compartilhado: mostra a pasta e não o espaço da conta (o espaço é o da empresa)", async () => {
+    const chamadas = googleFalso();
+    await contaConectada(30 * 60_000);
+    await gravarPasta({ id: "pasta-criativos", nome: "Criativos", driveId: "drive-da-empresa" });
+    expect(await statusDrive()).toMatchObject({ conectado: true, espaco: null, pasta: { id: "pasta-criativos", nome: "Criativos", compartilhado: true } });
+    expect(chamadas).toHaveLength(0);
   });
 
   it("conta sem limite de espaço e Google fora do ar", async () => {

@@ -92,6 +92,28 @@ Os vídeos que já estavam no disco do hub antes da conexão vão para o Drive s
 usado. O card mostra quantos ainda estão no hub. Para começar na hora, use o botão **Levar vídeos antigos para o
 Drive**, no mesmo card. O progresso aparece ali e atualiza sozinho.
 
+## 4. Escolher a pasta (opcional, inclusive num Drive compartilhado)
+
+Sem escolher, a pasta **Hub de Criativos** fica na raiz do Meu Drive da conta conectada. Para ela ficar dentro de
+outra pasta (por exemplo, uma pasta de um Drive compartilhado da empresa):
+
+1. No mesmo projeto do Google Cloud: **APIs e serviços** → **Biblioteca** → procure **Google Picker API** →
+   **Ativar**.
+2. **APIs e serviços** → **Credenciais** → **Criar credenciais** → **Chave de API**. Em **Restrições da API**,
+   deixe só a **Google Picker API**. Em **Restrições do aplicativo**, se quiser, escolha **Sites** e coloque o
+   endereço do hub com `/*` no fim.
+3. No hub, card **Google Drive** → cole a **Chave de API do Google**.
+4. Clique em **Escolher pasta**. Abre a janela de pastas do próprio Google: escolha a pasta e confirme. O hub cria a
+   **Hub de Criativos** lá dentro e os vídeos novos passam a ir para ela.
+
+- A conta Google conectada precisa poder criar arquivos na pasta (no Drive compartilhado: **Administrador de
+  conteúdo** ou **Gerente**).
+- O hub continua sem enxergar o resto do Drive: só a pasta escolhida na janela e o que ele mesmo cria.
+- Os vídeos que já estavam no Drive ficam onde estão. Só os novos vão para a pasta nova.
+- Num Drive compartilhado o espaço é o da empresa, então o card não mostra o espaço usado.
+- O ícone de voltar, ao lado de **Escolher pasta**, faz os vídeos novos voltarem para o Meu Drive.
+- Conectar outra conta Google volta para o Meu Drive (a outra conta não enxerga a pasta escolhida).
+
 ## O que acontece se a conta for desconectada
 
 - **Pelo botão Desconectar (Integrações):** o hub tira o próprio acesso na conta Google e apaga a autorização dele.
@@ -124,3 +146,6 @@ Drive**, no mesmo card. O progresso aparece ali e atualiza sozinho.
   logotipo nem outros escopos na tela de consentimento.
 - **"Faltou liberar o Google Drive":** na tela do Google, a caixa do Drive estava desmarcada. Conecte de novo e deixe
   marcada.
+- **"O Google não liberou essa pasta para o hub":** a pasta foi escolhida fora da janela do Google, ou a janela usou
+  outro projeto. Confira se a chave de API é do mesmo projeto do cliente OAuth e escolha de novo pela janela.
+- **A janela de pastas não abre:** a Google Picker API não está ativada, ou a chave de API está restrita a outro site.

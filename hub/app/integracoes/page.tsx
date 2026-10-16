@@ -104,6 +104,7 @@ export default async function IntegrationsPage({ searchParams }: PageProps<"/int
           falta={await oQueFaltaParaConectar()}
           retorno={retornoDoDrive}
           cliente={{ id: chaves["google-client-id"], segredo: chaves["google-client-secret"] }}
+          chaveDeApi={chaves["google-api-key"]}
         />
         <CartaoMcp service="elevenlabs" app="elevenlabs" descricao="Voz, narração e transcrição com a sua conta." estudio={{ href: "/estudios/voz", label: "Voz" }} />
         <CartaoMcp service="heygen" app="heygen" descricao="Avatar falando, lipsync e tradução de vídeo." estudio={{ href: "/estudios/avatar", label: "Avatar" }} />

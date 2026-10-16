@@ -59,6 +59,7 @@ Todo vídeo gerado mora **só** no Drive de uma conta Google, na pasta "Hub de C
 - **Mostrar:** `/api/media/<file>` repassa do Drive com Range. Os componentes não mudam.
 - **Espelho:** `sincronizarComDrive` marca `foraDoDrive` o que foi apagado ou foi para a lixeira no Drive (e acompanha nomes); as listas escondem. Apagar no hub manda para a lixeira do Drive.
 - **Acesso:** escopo `drive.file` (o hub só vê o que criou; não exige verificação do Google). Tokens cifrados com `HUB_CHAVE_SEGREDOS`. Passo a passo e variáveis em `docs/google-drive.md`.
+- **Pasta escolhida:** a "Hub de Criativos" fica na raiz do Meu Drive ou dentro da pasta escolhida na janela do Google (Picker, `features/drive/tela/escolher-pasta.tsx`), gravada em `drive_conta.pasta_*`. Só a janela libera para o `drive.file` uma pasta que o hub não criou. A pasta pode estar num Drive compartilhado: todo pedido ao Google leva `supportsAllDrives` e as buscas, `BUSCA_EM_TODOS_OS_DRIVES` (`servicos/pastas.ts`). Chamada nova à API do Drive precisa deles.
 
 `lib/server/actions.ts` concentra as ações dos estúdios. As rotas da interface e as ferramentas do chat usam esse mesmo arquivo, então mude a regra lá e não em um dos lados.
 

@@ -75,7 +75,8 @@ export function CaixaDeStatus({
   children,
 }: {
   titulo: React.ReactNode;
-  selo?: string;
+  // null: sem selo (a caixa da pasta do Drive).
+  selo?: string | null;
   tom?: "ok" | "aviso";
   detalhe?: React.ReactNode;
   acoes?: React.ReactNode;
@@ -88,7 +89,7 @@ export function CaixaDeStatus({
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{titulo}</p>
           <p className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-            <Selo tom={tom}>{selo}</Selo>
+            {selo && <Selo tom={tom}>{selo}</Selo>}
             {detalhe && <span className="truncate">{detalhe}</span>}
           </p>
         </div>

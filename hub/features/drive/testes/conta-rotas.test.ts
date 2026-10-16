@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GET as rotaVolta } from "@/app/api/integracoes/google-drive/callback/route";
 import { GET as rotaEntrar } from "@/app/api/integracoes/google-drive/login/route";
+import { DELETE as rotaVoltarPasta, GET as rotaJanela, POST as rotaEscolherPasta } from "@/app/api/integracoes/google-drive/pasta/route";
 import { DELETE as rotaDesconectar, GET as rotaStatus } from "@/app/api/integracoes/google-drive/status/route";
 import { banco } from "@/db/cliente";
 import { driveConta } from "@/db/schema";
 import { ORGANIZACAO_PADRAO } from "@/features/acesso/contrato";
 import { usuarioNaOrganizacao } from "@/features/acesso/servicos/usuarios";
 import { contaConectada, criarPessoa, googleFalso, json, ORIGEM, prepararConta, tokensDoGoogle } from "@/features/drive/testes/conta-apoio";
+import { gravarChave } from "@/features/integracoes/servicos/chaves";
 
 // As rotas do card do Google Drive chamadas de verdade, com um login de mentira (a pessoa "logada" fica em sessao).
 const sessao = vi.hoisted(() => ({ logado: null as import("@/features/acesso/contrato").Usuario | null }));
@@ -90,7 +92,34 @@ describe("drive: rotas da conta", () => {
 
     const res = await rotaDesconectar(pedir("/api/integracoes/google-drive/status", { method: "DELETE" }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ configurado: true, conectado: false, conta: null, espaco: null, falta: null });
+    expect(await res.json()).toEqual({ configurado: true, conectado: false, conta: null, espaco: null, pasta: null, falta: null });
     expect(await banco().select().from(driveConta)).toHaveLength(0);
+  });
+});
+
+describe("drive: rota da pasta escolhida", () => {
+  const pasta = (init?: RequestInit) => pedir("/api/integracoes/google-drive/pasta", init);
+
+  it("só quem tem a chave Integrações abre a janela do Google e troca a pasta", async () => {
+    expect((await rotaJanela(pasta())).status).toBe(401);
+    await entrarComo(["biblioteca"]);
+    expect((await rotaJanela(pasta())).status).toBe(403);
+    expect((await rotaEscolherPasta(pasta({ method: "POST", body: JSON.stringify({ id: "pasta-criativos" }) }))).status).toBe(403);
+    expect((await rotaVoltarPasta(pasta({ method: "DELETE" }))).status).toBe(403);
+  });
+
+  it("a janela recebe o token, a chave de API e o número do projeto (o começo do ID do cliente)", async () => {
+    await entrarComo(["integracoes"]);
+    await contaConectada(30 * 60_000);
+    const semChave = await rotaJanela(pasta());
+    expect(semChave.status).toBe(400);
+    expect(((await semChave.json()) as { error: string }).error).toMatch(/chave de API do Google/);
+
+    await gravarChave("google-api-key", "AIza-chave-de-teste");
+    await gravarChave("google-client-id", "123456789012-abc.apps.googleusercontent.com");
+    const res = await rotaJanela(pasta());
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await res.json()).toEqual({ token: "acesso-guardado", chave: "AIza-chave-de-teste", projeto: "123456789012" });
   });
 });

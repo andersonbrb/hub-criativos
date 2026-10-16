@@ -10,6 +10,7 @@ import { Progress } from "@/components/ui/progress";
 import { PASTA_RAIZ, type StatusDrive } from "@/features/drive/contrato";
 import { AVISOS_DO_LOGIN, ehMotivoDoLogin } from "@/features/drive/tela/avisos";
 import type { ResumoDaChave } from "@/features/integracoes/contrato";
+import { BotaoEscolherPasta, BotaoVoltarParaMeuDrive } from "@/features/drive/tela/escolher-pasta";
 import { CampoDeChave } from "@/features/integracoes/tela/campo-de-chave";
 import { CaixaDeStatus, CartaoDeIntegracao, LinkDoRodape } from "@/features/integracoes/tela/cartao";
 
@@ -64,7 +65,20 @@ function CamposDoCliente({ cliente }: { cliente: Cliente }) {
   );
 }
 
-export function CardGoogleDrive({ status, falta, retorno, cliente }: { status: StatusDrive; falta: string | null; retorno: Retorno; cliente: Cliente }) {
+export function CardGoogleDrive({
+  status,
+  falta,
+  retorno,
+  cliente,
+  chaveDeApi,
+}: {
+  status: StatusDrive;
+  falta: string | null;
+  retorno: Retorno;
+  cliente: Cliente;
+  // Abre a janela de pastas do Google (escolher onde a "Hub de Criativos" fica).
+  chaveDeApi: ResumoDaChave;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const [saindo, setSaindo] = useState(false);
@@ -159,7 +173,7 @@ export function CardGoogleDrive({ status, falta, retorno, cliente }: { status: S
     }
   };
 
-  const { conectado, conta, espaco } = status;
+  const { conectado, conta, espaco, pasta } = status;
   const precisaRefazer = !conectado && conta !== null;
   const pctEspaco = espaco?.limite ? Math.min(100, Math.round((espaco.usado / espaco.limite) * 100)) : null;
   const pctMigracao = migracao?.total ? Math.min(100, Math.round(((migracao.feitos + migracao.falhas) / migracao.total) * 100)) : 0;
@@ -167,7 +181,9 @@ export function CardGoogleDrive({ status, falta, retorno, cliente }: { status: S
     ? espaco.limite
       ? `${formatarBytes(espaco.usado)} de ${formatarBytes(espaco.limite)} usados`
       : `${formatarBytes(espaco.usado)} usados`
-    : `Pasta "${PASTA_RAIZ}"`;
+    : pasta?.compartilhado
+      ? "Drive compartilhado da empresa"
+      : `Pasta "${PASTA_RAIZ}"`;
   // Sem o cliente do Google, os campos para colar já dizem o que falta; o texto só aparece nos outros casos.
   const aviso = status.configurado ? falta : null;
 
@@ -179,7 +195,9 @@ export function CardGoogleDrive({ status, falta, retorno, cliente }: { status: S
           Levar vídeos antigos
         </Button>
       )}
-      <LinkDoRodape href="https://drive.google.com/drive/my-drive">Abrir o Drive</LinkDoRodape>
+      <LinkDoRodape href={pasta ? `https://drive.google.com/drive/folders/${encodeURIComponent(pasta.id)}` : "https://drive.google.com/drive/my-drive"}>
+        Abrir o Drive
+      </LinkDoRodape>
     </>
   ) : status.configurado ? (
     <>
@@ -223,6 +241,37 @@ export function CardGoogleDrive({ status, falta, retorno, cliente }: { status: S
         >
           {pctEspaco !== null && <Progress value={pctEspaco} className="mt-2.5 h-1" aria-label="Espaço usado no Drive" />}
         </CaixaDeStatus>
+      )}
+
+      {conectado && (
+        <CaixaDeStatus
+          titulo="Pasta dos vídeos"
+          selo={null}
+          detalhe={`${pasta?.nome ?? "Meu Drive"} › ${PASTA_RAIZ}`}
+          acoes={
+            <>
+              <BotaoEscolherPasta podeAbrir={chaveDeApi.salva} />
+              {pasta && <BotaoVoltarParaMeuDrive />}
+            </>
+          }
+        />
+      )}
+      {conectado && !chaveDeApi.salva && (
+        <div className="space-y-1.5">
+          <CampoDeChave nome="google-api-key" titulo="Chave de API do Google" resumo={chaveDeApi} exemplo="AIza..." />
+          <p className="text-xs text-muted-foreground">
+            Para escolher a pasta: no Google Cloud, ative a Google Picker API e crie uma chave de API (Credenciais → Criar
+            credenciais → Chave de API).
+          </p>
+        </div>
+      )}
+      {conectado && chaveDeApi.salva && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Chave de API do Google</summary>
+          <div className="pt-2">
+            <CampoDeChave nome="google-api-key" titulo="Chave de API do Google" resumo={chaveDeApi} exemplo="AIza..." />
+          </div>
+        </details>
       )}
 
       {precisaRefazer && <CaixaDeStatus titulo={conta.email} selo="Parou de valer" tom="aviso" detalhe="Conecte de novo" />}

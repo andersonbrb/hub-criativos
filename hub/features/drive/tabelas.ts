@@ -25,6 +25,11 @@ export const driveConta = pgTable("drive_conta", {
   escopos: jsonb("escopos").$type<string[]>().notNull().default([]),
   conectadoPor: uuid("conectado_por").references(() => usuarios.id, { onDelete: "set null" }),
   conectadoEm: timestamp("conectado_em", { withTimezone: true }).notNull().defaultNow(),
+  // Pasta escolhida na janela do Google (tela Integrações) para guardar a "Hub de Criativos". Vazia: a raiz do Meu
+  // Drive. pastaDriveId: o Drive compartilhado onde ela fica (vazio no Meu Drive).
+  pastaId: text("pasta_id"),
+  pastaNome: text("pasta_nome"),
+  pastaDriveId: text("pasta_drive_id"),
 });
 
 // Login em andamento: o que o hub precisa lembrar entre mandar a pessoa ao Google e ela voltar (10 minutos, uso

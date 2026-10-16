@@ -10,12 +10,14 @@ import type { ReadableStream as ReadableStreamDoNode } from "node:stream/web";
 import type { ArquivoDrive, PastaDoDrive, Trecho } from "@/features/drive/contrato";
 import {
   API_DRIVE,
+  BUSCA_EM_TODOS_OS_DRIVES,
   chamarDrive,
   descartar,
   ErroDoDrive,
   erroDoDrive,
   esquecerPastas,
   pastaDoDrive,
+  TODOS_OS_DRIVES,
   UPLOAD_DRIVE,
 } from "@/features/drive/servicos/pastas";
 import { DATA_DIR } from "@/lib/server/store";
@@ -79,8 +81,10 @@ function exigirId(id: string): string {
   return id;
 }
 
-const urlDoArquivo = (id: string, campos = CAMPOS) => `${API_DRIVE}/files/${encodeURIComponent(id)}?fields=${campos}`;
-const urlDoConteudo = (id: string) => `${API_DRIVE}/files/${encodeURIComponent(id)}?alt=media`;
+// supportsAllDrives: sem ele o Google responde "não encontrado" para arquivos de um Drive compartilhado (a pasta
+// escolhida em Integrações pode estar num).
+const urlDoArquivo = (id: string, campos = CAMPOS) => `${API_DRIVE}/files/${encodeURIComponent(id)}?fields=${campos}&${TODOS_OS_DRIVES}`;
+const urlDoConteudo = (id: string) => `${API_DRIVE}/files/${encodeURIComponent(id)}?alt=media&${TODOS_OS_DRIVES}`;
 // Sem compressão: o Content-Length precisa ser o do arquivo, para repassar ao navegador e conferir o download.
 const SEM_COMPRESSAO = { "Accept-Encoding": "identity" };
 const JSON_UTF8 = { "Content-Type": "application/json; charset=UTF-8" };
@@ -207,7 +211,7 @@ export async function enviarArquivo(
 
 // Abre a sessão de envio e devolve o endereço dela. O `fields` daqui vale para a resposta final do envio.
 async function abrirSessao(total: number, pasta: string, opcoes: { nome: string; mimeType: string }): Promise<string> {
-  const url = `${UPLOAD_DRIVE}/files?uploadType=resumable&fields=${CAMPOS}`;
+  const url = `${UPLOAD_DRIVE}/files?uploadType=resumable&fields=${CAMPOS}&${TODOS_OS_DRIVES}`;
   const init: RequestInit = {
     method: "POST",
     headers: { ...JSON_UTF8, "X-Upload-Content-Type": opcoes.mimeType, "X-Upload-Content-Length": String(total) },
@@ -643,13 +647,16 @@ export async function listarArquivosDoHub(): Promise<ArquivoDrive[]> {
   do {
     const busca = new URLSearchParams({
       q: "appProperties has { key='hub' and value='1' }",
-      fields: `nextPageToken,files(${CAMPOS})`,
+      fields: `nextPageToken,incompleteSearch,files(${CAMPOS})`,
       pageSize: "1000",
+      ...BUSCA_EM_TODOS_OS_DRIVES,
     });
     if (pagina) busca.set("pageToken", pagina);
     const resposta = await chamarDrive(`${API_DRIVE}/files?${busca}`);
     if (!resposta.ok) throw await erroDoDrive(resposta, "listar os vídeos do hub");
-    const lista = (await resposta.json()) as { nextPageToken?: string; files?: ArquivoDoGoogle[] };
+    const lista = (await resposta.json()) as { nextPageToken?: string; incompleteSearch?: boolean; files?: ArquivoDoGoogle[] };
+    // Busca pela metade (o Google às vezes não olha todos os Drives compartilhados): o que faltou pareceria apagado.
+    if (lista.incompleteSearch) throw new ErroDoDrive("O Google Drive devolveu a lista dos vídeos pela metade. O hub confere de novo depois.", 200);
     for (const arquivo of lista.files ?? []) achados.push(paraArquivo(arquivo));
     pagina = lista.nextPageToken || undefined;
   } while (pagina);
