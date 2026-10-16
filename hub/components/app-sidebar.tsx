@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import {
   BookOpen,
   Cable,
-  Clapperboard,
   Film,
   Languages,
   LayoutGrid,
@@ -22,6 +21,7 @@ import {
 } from "lucide-react";
 
 import { podeUsar, telaInicial, type Chave, type Usuario } from "@/features/acesso/contrato";
+import { LogoHub } from "@/components/logo-hub";
 import {
   Sidebar,
   SidebarContent,
@@ -104,9 +104,8 @@ export function AppSidebar({ usuario, semBanco = false }: { usuario: Usuario; se
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link href={telaInicial(usuario) ?? "/"}>
-                <div className="flex size-8 items-center justify-center rounded-md bg-rec text-white">
-                  <Clapperboard className="size-4" />
-                </div>
+                {/* size-8! vence o tamanho que o menu força nos ícones; a cor fixa não muda ao passar o mouse. */}
+                <LogoHub className="size-8! text-sidebar-foreground" />
                 <div className="grid leading-tight">
                   <span className="font-heading text-base font-bold">Hub de Criativos</span>
                   <span className="text-xs text-muted-foreground">Produção de anúncios</span>

@@ -1,4 +1,4 @@
-import { Clapperboard } from "lucide-react";
+import { LogoHub } from "@/components/logo-hub";
 
 // Moldura das telas fora do menu (entrar, aceitar convite, sem acesso): marca do hub, título e o conteúdo.
 export function CartaoDeAcesso({ titulo, descricao, children }: { titulo: string; descricao?: React.ReactNode; children?: React.ReactNode }) {
@@ -6,9 +6,7 @@ export function CartaoDeAcesso({ titulo, descricao, children }: { titulo: string
     <main className="grid min-h-svh place-items-center px-4 py-10">
       <section className="flex w-full max-w-sm flex-col gap-5 border bg-card p-6 shadow-xs">
         <div className="flex items-center gap-2.5">
-          <div className="flex size-8 items-center justify-center bg-rec text-white">
-            <Clapperboard className="size-4" />
-          </div>
+          <LogoHub />
           <div className="grid leading-tight">
             <span className="font-heading text-base font-bold">Hub de Criativos</span>
             <span className="text-xs text-muted-foreground">Produção de anúncios</span>

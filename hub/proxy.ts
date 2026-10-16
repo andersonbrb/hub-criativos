@@ -37,10 +37,10 @@ export function proxy(request: NextRequest) {
 export const config = {
   // O proxy só olha as páginas. Todo pedido que passa por ele (menos GET) tem o corpo inteiro guardado na memória
   // pelo Next, então qualquer POST, mesmo sem conta, ocuparia memória do servidor. Por isso ficam de fora:
-  // - arquivos do Next, o ícone do site e o ícone do conector;
+  // - arquivos do Next, os ícones do site (aba do navegador e tela inicial do celular) e o ícone do conector;
   // - /api/: toda rota confere o login sozinha em route() (lib/server/http.ts) ou tem token próprio (/api/mcp com o
   //   bearer do cérebro local, /api/conector/arquivos com o token do link);
   // - o conector do Claude Code e o OAuth dele (/mcp, /oauth2/, /.well-known/), com o bearer OAuth;
   // - /oauth/: os metadados públicos do hub como cliente OAuth (o ElevenLabs lê /oauth/<id>-client.json).
-  matcher: ["/((?!_next/static|_next/image|favicon\\.ico|mcp-icone|api/|mcp(?:/|$)|oauth2/|oauth/|\\.well-known/).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon\\.ico|icon\\.svg|apple-icon\\.png|mcp-icone|api/|mcp(?:/|$)|oauth2/|oauth/|\\.well-known/).*)"],
 };

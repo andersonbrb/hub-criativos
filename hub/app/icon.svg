@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Ícone da aba: a logo do hub (components/logo-hub.tsx), com barras pretas ou brancas conforme o tema do navegador. -->
+  <style>
+    .barras { fill: #070707; }
+    .centro { fill: #0337dc; }
+    @media (prefers-color-scheme: dark) {
+      .barras { fill: #f5f5f5; }
+      .centro { fill: #427bff; }
+    }
+  </style>
+  <path class="barras" d="M0 0h40v16H0zM48 0h16v40H48zM24 48h40v16H24zM0 24h16v40H0z"/>
+  <rect class="centro" x="24" y="24" width="16" height="16"/>
+</svg>
