@@ -1,18 +1,17 @@
 "use client";
 
-import { CloudUpload, ExternalLink, Loader2, Plug, Unplug } from "lucide-react";
+import { CloudUpload, Loader2, Plug, Trash2 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { PASTA_RAIZ, type StatusDrive } from "@/features/drive/contrato";
 import { AVISOS_DO_LOGIN, ehMotivoDoLogin } from "@/features/drive/tela/avisos";
 import type { ResumoDaChave } from "@/features/integracoes/contrato";
 import { CampoDeChave } from "@/features/integracoes/tela/campo-de-chave";
+import { CaixaDeStatus, CartaoDeIntegracao, LinkDoRodape } from "@/features/integracoes/tela/cartao";
 
 // Card do Google Drive na tela Integrações: qual conta guarda os vídeos, quanto espaço ela tem, Conectar/Desconectar
 // e o botão que leva para o Drive os vídeos que ainda estão no disco do hub.
@@ -54,13 +53,13 @@ type Retorno = { drive: string | null; motivo: string | null };
 // O cliente OAuth do Google (criado uma vez no Google Cloud) é colado aqui, no lugar das variáveis do servidor.
 type Cliente = { id: ResumoDaChave; segredo: ResumoDaChave };
 
-const CREDENCIAIS_DO_GOOGLE = { texto: "Google Cloud → APIs e serviços → Credenciais", href: "https://console.cloud.google.com/apis/credentials" };
+const CREDENCIAIS_DO_GOOGLE = "https://console.cloud.google.com/apis/credentials";
 
 function CamposDoCliente({ cliente }: { cliente: Cliente }) {
   return (
     <div className="space-y-2">
-      <CampoDeChave nome="google-client-id" resumo={cliente.id} exemplo="....apps.googleusercontent.com" ajuda={CREDENCIAIS_DO_GOOGLE} />
-      <CampoDeChave nome="google-client-secret" resumo={cliente.segredo} exemplo="GOCSPX-..." />
+      <CampoDeChave nome="google-client-id" titulo="ID do cliente" resumo={cliente.id} exemplo="....apps.googleusercontent.com" />
+      <CampoDeChave nome="google-client-secret" titulo="Chave secreta do cliente" resumo={cliente.segredo} exemplo="GOCSPX-..." />
     </div>
   );
 }
@@ -162,124 +161,96 @@ export function CardGoogleDrive({ status, falta, retorno, cliente }: { status: S
 
   const { conectado, conta, espaco } = status;
   const precisaRefazer = !conectado && conta !== null;
-  const detalhe = !status.configurado ? "Falta o cliente do Google" : conectado ? `Pasta "${PASTA_RAIZ}" no Drive` : "Nenhuma conta conectada";
   const pctEspaco = espaco?.limite ? Math.min(100, Math.round((espaco.usado / espaco.limite) * 100)) : null;
   const pctMigracao = migracao?.total ? Math.min(100, Math.round(((migracao.feitos + migracao.falhas) / migracao.total) * 100)) : 0;
+  const textoDoEspaco = espaco
+    ? espaco.limite
+      ? `${formatarBytes(espaco.usado)} de ${formatarBytes(espaco.limite)} usados`
+      : `${formatarBytes(espaco.usado)} usados`
+    : `Pasta "${PASTA_RAIZ}"`;
+  // Sem o cliente do Google, os campos para colar já dizem o que falta; o texto só aparece nos outros casos.
+  const aviso = status.configurado ? falta : null;
+
+  const rodape = conectado ? (
+    <>
+      {!migracao?.rodando && (
+        <Button size="sm" variant="outline" onClick={levarAntigos} disabled={comecando}>
+          {comecando ? <Loader2 className="animate-spin" /> : <CloudUpload />}
+          Levar vídeos antigos
+        </Button>
+      )}
+      <LinkDoRodape href="https://drive.google.com/drive/my-drive">Abrir o Drive</LinkDoRodape>
+    </>
+  ) : status.configurado ? (
+    <>
+      {falta ? (
+        <Button size="sm" disabled>
+          <Plug />
+          Conectar Google Drive
+        </Button>
+      ) : (
+        <Button size="sm" asChild>
+          <a href={ENTRAR}>
+            <Plug />
+            Conectar Google Drive
+          </a>
+        </Button>
+      )}
+    </>
+  ) : (
+    <LinkDoRodape href={CREDENCIAIS_DO_GOOGLE}>Criar no Google Cloud</LinkDoRodape>
+  );
 
   return (
-    <Card className="gap-3 py-4">
-      <CardHeader className="px-4">
-        <CardTitle className="font-heading text-base">Google Drive</CardTitle>
-        <CardDescription>Onde os vídeos gerados ficam guardados</CardDescription>
-        <CardAction>
-          <StatusBadge status={conectado ? "ok" : "warn"} label={conectado ? "Conectado" : "Configurar"} />
-        </CardAction>
-      </CardHeader>
-
-      <CardContent className="space-y-3 px-4 text-sm">
-        <p className="text-muted-foreground">Os vídeos gerados ficam só no Drive desta conta, na pasta {PASTA_RAIZ}.</p>
-
-        {conectado && conta && (
-          <div className="space-y-1.5">
-            <p className="break-words">
-              Conectado como <strong>{conta.nome ?? conta.email}</strong>
-              {conta.nome && <span className="text-muted-foreground"> ({conta.email})</span>}
-            </p>
-            {espaco && (
-              <>
-                {pctEspaco !== null && <Progress value={pctEspaco} aria-label="Espaço usado no Drive" />}
-                <p className="text-xs text-muted-foreground">
-                  {espaco.limite
-                    ? `${formatarBytes(espaco.usado)} de ${formatarBytes(espaco.limite)} usados (${pctEspaco}%)`
-                    : `${formatarBytes(espaco.usado)} usados (sem limite de espaço)`}
-                </p>
-              </>
-            )}
-          </div>
-        )}
-
-        {precisaRefazer && <p className="text-warn">A conexão com {conta.email} parou de valer. Conecte de novo.</p>}
-        {!conectado && !precisaRefazer && !falta && (
-          <p className="text-muted-foreground">Nenhuma conta conectada. Até conectar, os vídeos novos ficam guardados no próprio hub.</p>
-        )}
-        {falta && <p className="break-words text-warn">{falta}</p>}
-        {!status.configurado ? (
-          <CamposDoCliente cliente={cliente} />
-        ) : (
-          !conectado && (
-            <details className="text-xs">
-              <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Cliente do Google</summary>
-              <div className="pt-2">
-                <CamposDoCliente cliente={cliente} />
-              </div>
-            </details>
-          )
-        )}
-
-        {conectado && (
-          <div className="space-y-2 border-t pt-3">
-            {migracao?.rodando ? (
-              <>
-                <p>
-                  Levando vídeos antigos para o Drive: {migracao.feitos} de {migracao.total}
-                  {migracao.falhas > 0 && <span className="text-warn"> · {migracao.falhas} com erro</span>}
-                </p>
-                <Progress value={pctMigracao} aria-label="Vídeos antigos levados para o Drive" />
-              </>
-            ) : (
-              <Button size="xs" variant="outline" onClick={levarAntigos} disabled={comecando}>
-                {comecando ? <Loader2 className="animate-spin" /> : <CloudUpload />}
-                Levar vídeos antigos para o Drive
-              </Button>
-            )}
-            {!migracao?.rodando && naFila > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {naFila === 1 ? "1 vídeo ainda no hub, indo para o Drive." : `${naFila} vídeos ainda no hub, indo para o Drive.`}
-              </p>
-            )}
-            {!migracao?.rodando && migracao && migracao.total > 0 && (
-              <p className="text-xs text-muted-foreground">
-                Última vez: {migracao.feitos} de {migracao.total} levados
-                {migracao.falhas > 0 && `, ${migracao.falhas} com erro`}.
-              </p>
-            )}
-            {migracao?.ultimoErro && <p className="text-xs break-words text-warn">Último erro: {migracao.ultimoErro}</p>}
-            {semAcompanhar && <p className="text-xs text-warn">Não deu para acompanhar o progresso agora. Recarregue a página para ver.</p>}
-          </div>
-        )}
-      </CardContent>
-
-      <CardFooter className="mt-auto flex flex-wrap items-center justify-between gap-2 px-4 text-xs text-muted-foreground">
-        <span className="min-w-0 break-words">{detalhe}</span>
-        <span className="flex flex-wrap gap-1.5">
-          {conectado ? (
-            <>
-              <Button size="xs" variant="outline" disabled={saindo} onClick={desconectar}>
-                {saindo ? <Loader2 className="animate-spin" /> : <Unplug />}
-                Desconectar
-              </Button>
-              <Button size="xs" variant="outline" asChild>
-                <a href="https://drive.google.com/drive/my-drive" target="_blank" rel="noreferrer">
-                  <ExternalLink />
-                  Abrir o Drive
-                </a>
-              </Button>
-            </>
-          ) : falta ? (
-            <Button size="xs" disabled>
-              <Plug />
-              Conectar
+    <CartaoDeIntegracao logo={{ src: "/logos/google-drive.png" }} nome="Google Drive" descricao="Onde os vídeos gerados ficam guardados." rodape={rodape}>
+      {conectado && conta && (
+        <CaixaDeStatus
+          titulo={conta.nome ?? conta.email}
+          detalhe={textoDoEspaco}
+          acoes={
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              disabled={saindo}
+              onClick={desconectar}
+              aria-label="Desconectar o Google Drive"
+              title="Desconectar"
+            >
+              {saindo ? <Loader2 className="animate-spin" /> : <Trash2 />}
             </Button>
-          ) : (
-            <Button size="xs" asChild>
-              <a href={ENTRAR}>
-                <Plug />
-                Conectar
-              </a>
-            </Button>
-          )}
-        </span>
-      </CardFooter>
-    </Card>
+          }
+        >
+          {pctEspaco !== null && <Progress value={pctEspaco} className="mt-2.5 h-1" aria-label="Espaço usado no Drive" />}
+        </CaixaDeStatus>
+      )}
+
+      {precisaRefazer && <CaixaDeStatus titulo={conta.email} selo="Parou de valer" tom="aviso" detalhe="Conecte de novo" />}
+      {aviso && <p className="text-xs break-words text-warn">{aviso}</p>}
+      {!status.configurado && <CamposDoCliente cliente={cliente} />}
+      {status.configurado && !conectado && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Cliente do Google</summary>
+          <div className="pt-2">
+            <CamposDoCliente cliente={cliente} />
+          </div>
+        </details>
+      )}
+
+      {conectado && migracao?.rodando && (
+        <div className="space-y-1.5">
+          <p className="text-xs text-muted-foreground">
+            Levando vídeos antigos para o Drive: {migracao.feitos} de {migracao.total}
+            {migracao.falhas > 0 && <span className="text-warn"> · {migracao.falhas} com erro</span>}
+          </p>
+          <Progress value={pctMigracao} className="h-1" aria-label="Vídeos antigos levados para o Drive" />
+        </div>
+      )}
+      {conectado && !migracao?.rodando && naFila > 0 && (
+        <p className="text-xs text-muted-foreground">{naFila === 1 ? "1 vídeo ainda no hub, indo para o Drive." : `${naFila} vídeos ainda no hub, indo para o Drive.`}</p>
+      )}
+      {conectado && migracao?.ultimoErro && <p className="text-xs break-words text-warn">Último erro: {migracao.ultimoErro}</p>}
+      {semAcompanhar && <p className="text-xs text-warn">Não deu para acompanhar o progresso agora. Recarregue a página para ver.</p>}
+    </CartaoDeIntegracao>
   );
 }

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CHAVES, MODELO_PADRAO, MODELOS_DA_API, type NomeDaChave, type ResumoDaChave } from "@/features/integracoes/contrato";
+import { CaixaDeStatus } from "@/features/integracoes/tela/cartao";
 import { apiFetch } from "@/lib/generations";
 
 // Campos da tela Integrações para colar as chaves das integrações (no lugar das variáveis do servidor).
@@ -19,12 +20,12 @@ const endereco = (nome: NomeDaChave) => `/api/integracoes/chaves/${nome}`;
 type Props = {
   nome: NomeDaChave;
   resumo: ResumoDaChave;
-  // Onde a pessoa pega a chave (link e texto curto).
-  ajuda?: { texto: string; href: string };
+  // Nome curto dentro do cartão ("Chave da API"); sem ele, o rótulo completo da chave.
+  titulo?: string;
   exemplo?: string;
 };
 
-export function CampoDeChave({ nome, resumo, ajuda, exemplo }: Props) {
+export function CampoDeChave({ nome, resumo, titulo, exemplo }: Props) {
   const router = useRouter();
   const [editando, setEditando] = useState(!resumo.salva);
   const [valor, setValor] = useState("");
@@ -63,35 +64,42 @@ export function CampoDeChave({ nome, resumo, ajuda, exemplo }: Props) {
 
   if (resumo.salva && !editando) {
     return (
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-xs">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <KeyRound className="size-3.5 shrink-0 text-ok" />
-          <span className="truncate">
-            {rotulo}: <span className="font-mono">{resumo.mostra}</span>
-          </span>
-        </span>
-        <span className="flex gap-1">
-          <Button size="xs" variant="outline" disabled={ocupado} onClick={() => setEditando(true)}>
-            Trocar
-          </Button>
-          <Button size="xs" variant="ghost" disabled={ocupado} onClick={remover} aria-label={`Remover ${rotulo}`}>
-            {ocupado ? <Loader2 className="animate-spin" /> : <Trash2 />}
-          </Button>
-        </span>
-      </div>
+      <CaixaDeStatus
+        titulo={titulo ?? rotulo}
+        detalhe={<span className="font-mono">{resumo.mostra}</span>}
+        acoes={
+          <>
+            <Button size="sm" disabled={ocupado} onClick={() => setEditando(true)}>
+              <KeyRound />
+              Trocar
+            </Button>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              disabled={ocupado}
+              onClick={remover}
+              aria-label={`Remover ${rotulo}`}
+              title="Remover"
+            >
+              {ocupado ? <Loader2 className="animate-spin" /> : <Trash2 />}
+            </Button>
+          </>
+        }
+      />
     );
   }
 
   return (
     <form
-      className="grid gap-1.5"
+      className="grid gap-2 rounded-xl border px-3.5 py-3"
       onSubmit={(e) => {
         e.preventDefault();
         if (valor.trim()) void salvar();
       }}
     >
-      <label htmlFor={`chave-${nome}`} className="text-xs font-medium">
-        {rotulo}
+      <label htmlFor={`chave-${nome}`} className="text-sm font-medium">
+        {titulo ?? rotulo}
       </label>
       <div className="flex gap-1.5">
         <Input
@@ -102,27 +110,18 @@ export function CampoDeChave({ nome, resumo, ajuda, exemplo }: Props) {
           placeholder={exemplo ?? "Cole aqui"}
           value={valor}
           onChange={(e) => setValor(e.target.value)}
-          className="h-7 font-mono text-xs"
+          className="h-8 min-w-0 font-mono text-xs placeholder:font-sans"
         />
-        <Button type="submit" size="sm" disabled={ocupado || !valor.trim()}>
+        <Button type="submit" size="sm" className="h-8" disabled={ocupado || !valor.trim()}>
           {ocupado ? <Loader2 className="animate-spin" /> : <Check />}
           Salvar
         </Button>
         {resumo.salva && (
-          <Button type="button" size="sm" variant="ghost" disabled={ocupado} onClick={() => setEditando(false)}>
+          <Button type="button" size="sm" variant="ghost" className="h-8" disabled={ocupado} onClick={() => setEditando(false)}>
             Cancelar
           </Button>
         )}
       </div>
-      {ajuda && (
-        <p className="text-xs text-muted-foreground">
-          Pegue em{" "}
-          <a href={ajuda.href} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-foreground">
-            {ajuda.texto}
-          </a>
-          .
-        </p>
-      )}
     </form>
   );
 }
@@ -148,12 +147,12 @@ export function SeletorDeModelo({ resumo }: { resumo: ResumoDaChave }) {
   };
 
   return (
-    <div className="grid gap-1.5">
-      <label htmlFor="modelo-api" className="text-xs font-medium">
-        {CHAVES["modelo-api"].rotulo}
+    <div className="flex items-center justify-between gap-3 rounded-xl border px-3.5 py-2">
+      <label htmlFor="modelo-api" className="text-sm font-medium">
+        Modelo
       </label>
       <Select value={atual} onValueChange={escolher} disabled={ocupado}>
-        <SelectTrigger id="modelo-api" size="sm" className="w-full">
+        <SelectTrigger id="modelo-api" size="sm" className="w-auto min-w-0">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

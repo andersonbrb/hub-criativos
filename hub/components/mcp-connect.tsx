@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Loader2, Plug, Unplug } from "lucide-react";
+import { Loader2, Plug, Trash2, Unplug } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -30,13 +30,17 @@ export function McpConnectButton({ service, size = "xs" }: { service: McpService
   );
 }
 
-export function McpDisconnectButton({ service }: { service: McpService }) {
+// compacto: só a lixeira (cartões da tela Integrações).
+export function McpDisconnectButton({ service, compacto = false }: { service: McpService; compacto?: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   return (
     <Button
-      size="xs"
-      variant="outline"
+      size={compacto ? "icon-sm" : "xs"}
+      variant={compacto ? "ghost" : "outline"}
+      className={compacto ? "text-destructive hover:text-destructive" : undefined}
+      aria-label={compacto ? `Desconectar o ${MCP_LABEL[service]}` : undefined}
+      title={compacto ? "Desconectar" : undefined}
       disabled={busy}
       onClick={async () => {
         if (!confirm(`Desconectar o ${MCP_LABEL[service]} deste hub?`)) return;
@@ -52,8 +56,8 @@ export function McpDisconnectButton({ service }: { service: McpService }) {
         }
       }}
     >
-      {busy ? <Loader2 className="animate-spin" /> : <Unplug />}
-      Desconectar
+      {busy ? <Loader2 className="animate-spin" /> : compacto ? <Trash2 /> : <Unplug />}
+      {!compacto && "Desconectar"}
     </Button>
   );
 }

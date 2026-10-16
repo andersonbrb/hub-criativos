@@ -1,13 +1,11 @@
+import { Clapperboard } from "lucide-react";
 import Link from "next/link";
 import { connection } from "next/server";
 
 import { McpConnectButton, McpDisconnectButton, type McpService } from "@/components/mcp-connect";
-import { OpenAppButton } from "@/components/open-app-button";
 import { PageHeader } from "@/components/page-header";
-import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import type { AppId } from "@/lib/apps";
+import { APPS, type AppId } from "@/lib/apps";
 import { usesApiBrain } from "@/lib/server/chat/claude-code";
 import { mcp } from "@/lib/server/mcp-client";
 import { exigirPagina } from "@/features/acesso/servicos/sessao";
@@ -15,34 +13,66 @@ import { oQueFaltaParaConectar, statusDrive } from "@/features/drive/servicos/co
 import { CardGoogleDrive } from "@/features/drive/tela/card-google-drive";
 import { problemaParaGravar, resumoDasChaves } from "@/features/integracoes/servicos/chaves";
 import { CampoDeChave, SeletorDeModelo } from "@/features/integracoes/tela/campo-de-chave";
-
-type Integration = {
-  name: string;
-  role: string;
-  features: string[];
-  studio?: { href: string; label: string };
-  app?: AppId;
-  status: "ok" | "warn";
-  detail: string;
-  mcp?: { service: McpService; connected: boolean };
-  // Campos para colar as chaves (Claude, Venice), dentro do card.
-  campos?: React.ReactNode;
-};
-
-// HeyGen, FLORA, ElevenLabs e Higgsfield vão pelo MCP do serviço: login da conta (OAuth), sem chave de API.
-async function viaMcp(service: McpService, base: Omit<Integration, "status" | "detail" | "mcp">): Promise<Integration> {
-  const { connected, account } = await mcp(service).connectionStatus();
-  const who = account?.email ?? account?.name;
-  return {
-    ...base,
-    status: connected ? "ok" : "warn",
-    detail: connected ? `Conectado${who ? ` · ${who}` : ""}` : "Entre na sua conta para usar",
-    mcp: { service, connected },
-  };
-}
+import { CaixaDeStatus, CartaoDeIntegracao, LinkDoRodape } from "@/features/integracoes/tela/cartao";
 
 // Primeiro valor de um parâmetro da URL (?drive=...&motivo=..., a volta do login do Google).
 const primeiro = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? null;
+
+// Logos em public/logos (as oficiais de cada serviço). `cheia`: o ícone já é um quadrado com fundo próprio.
+const LOGOS = {
+  elevenlabs: { src: "/logos/elevenlabs.svg", cheia: true },
+  heygen: { src: "/logos/heygen.png" },
+  flora: { src: "/logos/flora.png", cheia: true },
+  higgsfield: { src: "/logos/higgsfield.png", cheia: true },
+  claude: { src: "/logos/claude.png", cheia: true },
+  venice: { src: "/logos/venice.png", cheia: true },
+};
+
+// HeyGen, FLORA, ElevenLabs e Higgsfield vão pelo MCP do serviço: login da conta (OAuth), sem chave de API.
+async function CartaoMcp({
+  service,
+  app,
+  descricao,
+  estudio,
+}: {
+  service: McpService;
+  app: AppId;
+  descricao: string;
+  estudio?: { href: string; label: string };
+}) {
+  const { connected, account } = await mcp(service).connectionStatus();
+  const nome = APPS[app].name;
+  return (
+    <CartaoDeIntegracao
+      logo={LOGOS[service]}
+      nome={nome}
+      descricao={descricao}
+      rodape={
+        <>
+          {!connected && <McpConnectButton service={service} size="sm" />}
+          <LinkDoRodape href={APPS[app].url}>Abrir site</LinkDoRodape>
+        </>
+      }
+    >
+      {connected && (
+        <CaixaDeStatus
+          titulo={account?.email ?? account?.name ?? `Conta do ${nome}`}
+          detalhe="Login da conta"
+          acoes={
+            <>
+              {estudio && (
+                <Button size="sm" asChild>
+                  <Link href={estudio.href}>Abrir {estudio.label}</Link>
+                </Button>
+              )}
+              <McpDisconnectButton service={service} compacto />
+            </>
+          }
+        />
+      )}
+    </CartaoDeIntegracao>
+  );
+}
 
 export default async function IntegrationsPage({ searchParams }: PageProps<"/integracoes">) {
   await exigirPagina("integracoes");
@@ -59,131 +89,71 @@ export default async function IntegrationsPage({ searchParams }: PageProps<"/int
 
   // Sem o Claude Code instalado (o hub da nuvem), o chat responde pela API da Anthropic com a chave colada aqui.
   const pelaApi = usesApiBrain();
-  const claude: Integration = {
-    name: "Claude",
-    role: "Chat principal e agentes",
-    features: ["Usa todas as ferramentas do hub", "Vê o histórico de gerações e os playbooks", "Pesquisa e lê páginas na web"],
-    studio: { href: "/chat", label: "Chat" },
-    app: "anthropic",
-    status: !pelaApi || chaves.anthropic.salva ? "ok" : "warn",
-    detail: pelaApi
-      ? chaves.anthropic.salva
-        ? "Chat pela API da Anthropic"
-        : "Cole a chave da API para ligar o chat"
-      : "Neste computador o chat usa o Claude Code da sua assinatura",
-    campos: (
-      <>
-        <CampoDeChave
-          nome="anthropic"
-          resumo={chaves.anthropic}
-          exemplo="sk-ant-..."
-          ajuda={{ texto: "platform.claude.com → API Keys", href: "https://platform.claude.com/settings/keys" }}
-        />
-        {pelaApi && <SeletorDeModelo resumo={chaves["modelo-api"]} />}
-      </>
-    ),
-  };
-
-  const venice: Integration = {
-    name: "Venice",
-    role: "Modo Black do chat e dos agentes",
-    features: ["Modelo sem filtro da Venice AI", "Usa as mesmas ferramentas do hub", "Ligado pelo botão Modo Black"],
-    studio: { href: "/chat", label: "Chat" },
-    app: "venice",
-    status: chaves.venice.salva ? "ok" : "warn",
-    detail: chaves.venice.salva ? "Modo Black pronto" : "Cole a chave da API para usar o Modo Black",
-    campos: <CampoDeChave nome="venice" resumo={chaves.venice} ajuda={{ texto: "venice.ai → Settings → API", href: "https://venice.ai/settings/api" }} />,
-  };
-
-  // Edição final: o pipeline do playbook de edição roda nesta máquina, sem custo.
-  const edicao: Integration = {
-    name: "Edição final",
-    role: "Cortes, junção, b-rolls e legenda (padrão)",
-    features: ["Junta os vídeos do avatar e corta silêncios", "B-rolls nos momentos certos, com dissolve", "Legenda Montserrat MAIÚSCULA queimada"],
-    studio: { href: "/estudios/edicao", label: "Edição" },
-    status: "ok",
-    detail: "Roda no próprio hub (Whisper + ffmpeg), sem créditos",
-  };
-
-  const integrations: Integration[] = [
-    await viaMcp("elevenlabs", {
-      name: "ElevenLabs",
-      role: "Voz, narração e transcrição",
-      features: ["Vozes da sua conta", "Narração com eleven_v4 e audio tags", "Transcrição palavra por palavra (Scribe)"],
-      studio: { href: "/estudios/voz", label: "Voz" },
-      app: "elevenlabs",
-    }),
-    await viaMcp("heygen", {
-      name: "HeyGen",
-      role: "Avatar falando, lipsync e tradução",
-      features: ["Seus avatares e os públicos", "Criar avatar por foto, descrição ou vídeo", "Lipsync com narração do ElevenLabs"],
-      studio: { href: "/estudios/avatar", label: "Avatar" },
-      app: "heygen",
-    }),
-    edicao,
-    await viaMcp("flora", {
-      name: "FLORA",
-      role: "Geração de imagem e vídeo",
-      features: ["Modelos de imagem e vídeo da conta", "Variações em lote", "Foto ou geração anterior como referência"],
-      studio: { href: "/estudios/geracao", label: "Geração" },
-      app: "flora",
-    }),
-    await viaMcp("higgsfield", {
-      name: "Higgsfield",
-      role: "Créditos e gerações antigas",
-      features: ["Créditos do plano no rodapé do menu", "Acompanha as gerações antigas do Higgsfield", "Login da conta, sem chave de API"],
-      app: "higgsfield",
-    }),
-    claude,
-    venice,
-  ];
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9">
       <PageHeader
         eyebrow="Administração"
         title="Integrações"
-        description="Tudo o que o hub usa se conecta aqui. HeyGen, FLORA, ElevenLabs, Higgsfield e o Google Drive entram com o login da sua conta; Claude e Venice, colando a chave da API. As chaves ficam guardadas cifradas no hub."
+        description="Conecte aqui as ferramentas que o hub usa: com o login da conta ou colando a chave da API. As chaves ficam guardadas cifradas."
       />
       {semCofre && <p className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm text-warn">Este servidor ainda não consegue guardar chaves: {semCofre}</p>}
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <section className="hub-stagger grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <CardGoogleDrive
           status={drive}
           falta={await oQueFaltaParaConectar()}
           retorno={retornoDoDrive}
           cliente={{ id: chaves["google-client-id"], segredo: chaves["google-client-secret"] }}
         />
-        {integrations.map((i) => (
-          <Card key={i.name} className="gap-3 py-4">
-            <CardHeader className="px-4">
-              <CardTitle className="font-heading text-base">{i.name}</CardTitle>
-              <CardDescription>{i.role}</CardDescription>
-              <CardAction>
-                <StatusBadge status={i.status} label={i.status === "ok" ? "Conectado" : "Configurar"} />
-              </CardAction>
-            </CardHeader>
-            <CardContent className="space-y-3 px-4">
-              <ul className="list-disc space-y-0.5 pl-4 text-sm text-muted-foreground">
-                {i.features.map((f) => (
-                  <li key={f}>{f}</li>
-                ))}
-              </ul>
-              {i.campos && <div className="space-y-2 border-t pt-3">{i.campos}</div>}
-            </CardContent>
-            <CardFooter className="mt-auto flex flex-wrap items-center justify-between gap-2 px-4 text-xs text-muted-foreground">
-              <span className="min-w-0 break-words">{i.detail}</span>
-              <span className="flex flex-wrap gap-1.5">
-                {i.mcp && (i.mcp.connected ? <McpDisconnectButton service={i.mcp.service} /> : <McpConnectButton service={i.mcp.service} />)}
-                {i.app && <OpenAppButton app={i.app} variant="outline" />}
-                {i.studio && (
-                  <Button size="xs" variant="outline" asChild>
-                    <Link href={i.studio.href}>Abrir {i.studio.label}</Link>
-                  </Button>
-                )}
-              </span>
-            </CardFooter>
-          </Card>
-        ))}
+        <CartaoMcp service="elevenlabs" app="elevenlabs" descricao="Voz, narração e transcrição com a sua conta." estudio={{ href: "/estudios/voz", label: "Voz" }} />
+        <CartaoMcp service="heygen" app="heygen" descricao="Avatar falando, lipsync e tradução de vídeo." estudio={{ href: "/estudios/avatar", label: "Avatar" }} />
+        <CartaoMcp service="flora" app="flora" descricao="Imagem e vídeo com os modelos da sua conta." estudio={{ href: "/estudios/geracao", label: "Geração" }} />
+        <CartaoMcp service="higgsfield" app="higgsfield" descricao="Créditos do plano e as gerações antigas." />
+
+        <CartaoDeIntegracao
+          logo={LOGOS.claude}
+          nome="Claude"
+          descricao="O cérebro do chat e dos agentes."
+          rodape={pelaApi && <LinkDoRodape href="https://platform.claude.com/settings/keys">Pegar a chave</LinkDoRodape>}
+        >
+          {pelaApi ? (
+            <>
+              <CampoDeChave nome="anthropic" titulo="Chave da API" resumo={chaves.anthropic} exemplo="sk-ant-..." />
+              {chaves.anthropic.salva && <SeletorDeModelo resumo={chaves["modelo-api"]} />}
+            </>
+          ) : (
+            <CaixaDeStatus
+              titulo="Claude Code"
+              detalhe="Sua assinatura"
+              acoes={
+                <Button size="sm" asChild>
+                  <Link href="/chat">Abrir Chat</Link>
+                </Button>
+              }
+            />
+          )}
+        </CartaoDeIntegracao>
+
+        <CartaoDeIntegracao
+          logo={LOGOS.venice}
+          nome="Venice"
+          descricao="Modo Black do chat, sem filtro."
+          rodape={<LinkDoRodape href="https://venice.ai/settings/api">Pegar a chave</LinkDoRodape>}
+        >
+          <CampoDeChave nome="venice" titulo="Chave da API" resumo={chaves.venice} />
+        </CartaoDeIntegracao>
+
+        <CartaoDeIntegracao logo={{ icone: Clapperboard }} nome="Edição final" descricao="Cortes, b-rolls e legenda no próprio hub.">
+          <CaixaDeStatus
+            titulo="No próprio hub"
+            detalhe="Sem créditos"
+            acoes={
+              <Button size="sm" asChild>
+                <Link href="/estudios/edicao">Abrir Edição</Link>
+              </Button>
+            }
+          />
+        </CartaoDeIntegracao>
       </section>
     </main>
   );
