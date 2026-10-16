@@ -42,7 +42,7 @@ export function FormularioEntrar({ proximo, erro, email }: { proximo: string; er
         <CampoComIcone icone={LockKeyhole} id="senha" name="senha" type="password" autoComplete="current-password" placeholder="Digite sua senha" required autoFocus={Boolean(email)} />
       </Campo>
       {mensagem && <AvisoDeErro>{mensagem}</AvisoDeErro>}
-      <Button type="submit" size="lg" disabled={enviando} className="group/entrar mt-1 h-[2.875rem] w-full bg-rec text-[0.9375rem] font-semibold text-white hover:bg-rec/90">
+      <Button type="submit" size="lg" disabled={enviando} className="group/entrar mt-1 h-10 w-full bg-rec text-white hover:bg-rec/90">
         {enviando ? (
           <>
             <Loader2 className="animate-spin" />

@@ -19,7 +19,8 @@ import {
 import { podeUsar, type Chave, type Usuario } from "@/features/acesso/contrato";
 import { agents } from "@/lib/data";
 
-// Telas do hub, na ordem do menu. Uma lista só para o menu lateral e a busca rápida (Ctrl K).
+// Telas do hub, na ordem do menu. Uma lista só para o menu lateral, a busca rápida (Ctrl K) e o nome da página na
+// barra do topo.
 
 export type ItemDoMenu = { href: string; label: string; icon: LucideIcon; chave: Chave; tool?: string };
 export type GrupoDoMenu = { titulo: string; itens: ItemDoMenu[] };
@@ -74,3 +75,17 @@ export function menuDaPessoa(usuario: Usuario, semBanco: boolean): GrupoDoMenu[]
 
 export const agentesDaPessoa = (usuario: Usuario) => (podeUsar(usuario, "chat") ? agents : []);
 
+
+// Nome da página aberta (barra do topo).
+export function nomeDaPagina(pathname: string): string | null {
+  if (pathname.startsWith("/agentes/")) {
+    const id = pathname.split("/")[2];
+    return agents.find((a) => a.id === id)?.name ?? "Agente";
+  }
+  for (const g of MENU) {
+    const item = g.itens.find((i) => i.href === pathname);
+    if (item) return item.label;
+  }
+  const extras: Record<string, string> = { "/sem-acesso": "Sem acesso", "/conectar-claude": "Conectar o Claude", "/plataforma": "Plataforma" };
+  return extras[pathname] ?? null;
+}

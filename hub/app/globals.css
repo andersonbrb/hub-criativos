@@ -1,27 +1,26 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-/* Cores, fontes, luz e movimento do design do hub (padrão Ownly/Cifra, futurista). */
+/* Cores, fontes e acabamentos do design do hub (estilo ElevenLabs, com o azul do logo). */
 @import "./designs.css";
 
 @custom-variant dark (&:is(.dark *));
 
-/* Altura útil das telas com abas redimensionáveis: a tela inteira no computador (sem barra no topo) e, no celular,
-   a tela menos a barra do topo (--hub-top, definida no fim deste arquivo). */
+/* Altura útil das telas com abas redimensionáveis: a tela menos a barra do topo (--hub-top, definida no fim deste
+   arquivo). */
 @utility h-workspace {
   height: calc(100svh - var(--hub-top));
 }
 
-/* Painel de vidro (menus, janelas) e a sombra com o brilho da marca. */
+/* Menus e janelas: superfície sólida (o nome "glass" ficou dos designs anteriores) e a sombra suave. */
 @utility glass {
-  background-color: var(--glass-strong);
-  backdrop-filter: blur(18px) saturate(1.4);
+  background-color: var(--popover);
 }
 @utility shadow-glass {
-  box-shadow: inset 0 1px 0 var(--hairline-hi), var(--shadow-3), 0 24px 50px -26px var(--glow);
+  box-shadow: var(--shadow-3);
 }
 @utility shadow-hairline {
-  box-shadow: inset 0 1px 0 var(--hairline-hi), var(--shadow-1);
+  box-shadow: var(--shadow-1);
 }
 
 /* Versão celular forçada pelo botão "Versão celular" numa tela larga: o hub vira uma coluna do tamanho de um celular. */
@@ -31,11 +30,6 @@ html[data-mobile-frame] [data-slot="sidebar-inset"] {
   border-inline: 1px solid var(--border);
   box-shadow: 0 0 0 100vmax color-mix(in oklab, var(--background) 60%, black);
   overflow-x: clip;
-}
-html[data-mobile-frame] [data-slot="sidebar-inset"]::before,
-html[data-mobile-frame] [data-slot="sidebar-inset"]::after,
-html[data-mobile-frame] [data-hub-glow] {
-  position: absolute !important;
 }
 
 /* Botão do Modo Black ativo: brilho vermelho pulsando. */
@@ -156,20 +150,9 @@ html[data-mobile-frame] [data-hub-glow] {
   body {
     line-height: 1.5;
   }
-  /* Tamanho real (100%). A redução para 80% saiu: com o navegador em 100% tudo ficava pequeno demais.
-     A barra do topo só existe na versão celular (tela estreita ou botão "Versão celular"). */
+  /* Tamanho real (100%): não reduza a escala da página (com o navegador em 100% tudo ficava pequeno demais).
+     Altura da barra do topo, que existe no computador e no celular. */
   :root {
-    --hub-top: 0px;
-  }
-  @media (max-width: 767px) {
-    :root {
-      --hub-top: 3.5rem;
-    }
-  }
-  html[data-layout="mobile"] {
-    --hub-top: 3.5rem;
-  }
-  html[data-layout="desktop"] {
-    --hub-top: 0px;
+    --hub-top: 3.25rem;
   }
 }

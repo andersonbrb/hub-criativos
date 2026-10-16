@@ -1,42 +1,78 @@
 "use client";
 
-import { Menu, Search } from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { FolderOpen, PanelLeft, Search, Send } from "lucide-react";
 
 import { AccountMenu, abrirBusca } from "@/components/account-menu";
-import { HubLogo } from "@/components/hub-logo";
+import { nomeDaPagina } from "@/components/nav";
+import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/components/ui/sidebar";
-import type { Usuario } from "@/features/acesso/contrato";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { podeUsar, type Usuario } from "@/features/acesso/contrato";
 
-// Barra do topo só na versão celular (no computador o menu lateral faz tudo): abre o menu, mostra a marca,
-// a busca e a conta.
+// Barra do topo, como a do ElevenLabs: abrir/recolher o menu e o nome da página à esquerda, a busca no meio e, à
+// direita, o atalho para o chat ("Perguntar"), a Biblioteca e a conta.
 export function Topbar({ usuario }: { usuario: Usuario }) {
-  const { isMobile, setOpenMobile } = useSidebar();
-  if (!isMobile) return null;
+  const { isMobile, toggleSidebar } = useSidebar();
+  const pathname = usePathname();
+  const pagina = nomeDaPagina(pathname) ?? "Hub de Criativos";
+  const chat = podeUsar(usuario, "chat");
+  const biblioteca = podeUsar(usuario, "biblioteca");
 
   return (
-    <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border/70 bg-background/75 px-2.5 backdrop-blur-xl backdrop-saturate-150">
-      <button
-        type="button"
-        onClick={() => setOpenMobile(true)}
-        aria-label="Abrir menu"
-        className="grid size-10 shrink-0 place-items-center rounded-xl text-foreground/80 transition-colors hover:bg-foreground/[0.06]"
-      >
-        <Menu className="size-5" />
-      </button>
-      <span className="min-w-0 flex-1 truncate">
-        <HubLogo className="[&_.hub-wordmark]:text-[1.0625rem]" />
-      </span>
+    <header className="sticky top-0 z-20 grid h-13 shrink-0 grid-cols-[1fr_auto] items-center gap-3 border-b bg-background/95 px-3 backdrop-blur md:grid-cols-[1fr_minmax(0,24rem)_1fr] md:px-4">
+      <div className="flex min-w-0 items-center gap-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon-sm" onClick={toggleSidebar} aria-label={isMobile ? "Abrir menu" : "Abrir ou recolher o menu"} className="shrink-0 text-muted-foreground">
+              <PanelLeft />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            Menu <span className="opacity-60">Ctrl B</span>
+          </TooltipContent>
+        </Tooltip>
+        <span className="truncate text-[0.875rem] font-medium">{pagina}</span>
+      </div>
+
       <button
         type="button"
         onClick={abrirBusca}
-        aria-label="Buscar"
-        className="grid size-10 shrink-0 place-items-center rounded-xl text-foreground/80 transition-colors hover:bg-foreground/[0.06]"
+        className="hidden h-8 w-full items-center gap-2 rounded-lg border bg-background px-2.5 text-[0.8125rem] text-muted-foreground transition-colors hover:bg-muted md:flex"
       >
-        <Search className="size-[1.1875rem]" />
+        <Search className="size-4 shrink-0" />
+        <span className="flex-1 truncate text-left">Pesquise tudo…</span>
+        <kbd className="hub-kbd">Ctrl</kbd>
+        <kbd className="hub-kbd">K</kbd>
       </button>
-      <span className="pr-1">
-        <AccountMenu usuario={usuario} compact side="bottom" />
-      </span>
+
+      <div className="flex items-center justify-end gap-1.5">
+        <Button variant="ghost" size="icon-sm" onClick={abrirBusca} aria-label="Pesquisar" className="text-muted-foreground md:hidden">
+          <Search />
+        </Button>
+        {chat && (
+          <Button variant="outline" size="sm" asChild className="hidden sm:inline-flex">
+            <Link href="/chat">
+              <Send className="text-primary" />
+              Perguntar
+            </Link>
+          </Button>
+        )}
+        {biblioteca && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="icon-sm" asChild className="hidden sm:inline-flex">
+                <Link href="/biblioteca" aria-label="Biblioteca">
+                  <FolderOpen />
+                </Link>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Biblioteca</TooltipContent>
+          </Tooltip>
+        )}
+        <AccountMenu usuario={usuario} />
+      </div>
     </header>
   );
 }

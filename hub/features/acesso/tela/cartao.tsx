@@ -3,15 +3,16 @@
 import { useState } from "react";
 import { Eye, EyeOff, TriangleAlert } from "lucide-react";
 
-import { VitrineDoHub } from "@/features/acesso/tela/vitrine";
+import { HubLogo } from "@/components/hub-logo";
+import { ArteDoHub } from "@/features/acesso/tela/vitrine";
 import { cn } from "@/lib/utils";
 
-// Moldura das telas fora do menu (entrar, aceitar convite): a vitrine do hub à esquerda e o cartão de vidro à direita,
-// no padrão do Ownly e da Cifra. No celular a vitrine vira uma faixa e o cartão sobe por cima dela.
+// Moldura das telas fora do menu (entrar, aceitar convite), como no ElevenLabs: o formulário à esquerda, num fundo
+// limpo, e a arte do hub à direita. No celular fica só o formulário. (rotulo: aceito por compatibilidade; o estilo
+// atual não mostra rótulo acima do título.)
 export function CartaoDeAcesso({
   titulo,
   descricao,
-  rotulo = "Acesso ao hub",
   children,
 }: {
   titulo: string;
@@ -21,15 +22,16 @@ export function CartaoDeAcesso({
 }) {
   return (
     <main className="hub-auth">
-      <VitrineDoHub />
-      <section className="hub-auth-panel">
-        <div className="hub-auth-card hub-spot">
-          <span className="hub-eyebrow mb-3.5">{rotulo}</span>
-          <h2>{titulo}</h2>
-          {descricao && <p className="mb-7 text-[0.90625rem] leading-relaxed text-muted-foreground">{descricao}</p>}
+      <section className="hub-auth-form">
+        <HubLogo className="[&_.hub-mark]:size-7 [&_.hub-wordmark]:text-[1.0625rem]" />
+        <div className="hub-auth-form-body">
+          <h1 className={cn("font-heading text-[1.75rem] leading-tight", !descricao && "mb-7")}>{titulo}</h1>
+          {descricao && <p className="mt-2 mb-7 text-sm leading-relaxed text-muted-foreground">{descricao}</p>}
           <div className="grid gap-4">{children}</div>
         </div>
+        <p className="text-xs text-muted-foreground">© {new Date().getFullYear()} Grupo Chegou</p>
       </section>
+      <ArteDoHub />
     </main>
   );
 }
@@ -57,12 +59,12 @@ export function CampoComIcone({
   const senha = type === "password";
   return (
     <span className="group/campo relative flex items-center">
-      <Icone className="pointer-events-none absolute left-3.5 size-4 text-muted-foreground transition-colors group-focus-within/campo:text-primary dark:group-focus-within/campo:text-[var(--brand-300)]" />
+      <Icone className="pointer-events-none absolute left-3.5 size-4 text-muted-foreground transition-colors group-focus-within/campo:text-foreground" />
       <input
         data-slot="input"
         type={senha && ver ? "text" : type}
         className={cn(
-          "h-11 w-full min-w-0 rounded-[10px] border border-input bg-card pl-10 text-[0.9375rem] shadow-hairline outline-none placeholder:text-muted-foreground hover:border-foreground/30 focus-visible:border-ring dark:bg-white/[0.03]",
+          "h-10 w-full min-w-0 rounded-lg border border-input bg-background pl-10 text-sm outline-none placeholder:text-muted-foreground hover:border-foreground/25 focus-visible:border-ring",
           senha ? "pr-11" : "pr-3.5",
           className,
         )}
@@ -75,7 +77,7 @@ export function CampoComIcone({
           aria-label={ver ? "Esconder senha" : "Mostrar senha"}
           aria-pressed={ver}
           title={ver ? "Esconder senha" : "Mostrar senha"}
-          className="absolute right-1.5 grid size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+          className="absolute right-1.5 grid size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           {ver ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
         </button>
@@ -86,7 +88,7 @@ export function CampoComIcone({
 
 export function AvisoDeErro({ children }: { children: React.ReactNode }) {
   return (
-    <p role="alert" className="flex items-start gap-2 rounded-[10px] border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-[0.8125rem] leading-relaxed text-destructive">
+    <p role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-[0.8125rem] leading-relaxed text-destructive">
       <TriangleAlert className="mt-0.5 size-4 shrink-0" />
       <span className="min-w-0 break-words">{children}</span>
     </p>

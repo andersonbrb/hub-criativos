@@ -46,7 +46,7 @@ export function FormularioConvite({ token, nomeSugerido }: { token: string; nome
         <CampoComIcone icone={LockKeyhole} id="confirmacao" name="confirmacao" type="password" autoComplete="new-password" placeholder="Repita a senha" required minLength={SENHA_MINIMA} maxLength={200} />
       </Campo>
       {mensagem && <AvisoDeErro>{mensagem}</AvisoDeErro>}
-      <Button type="submit" size="lg" disabled={enviando} className="group/entrar mt-1 h-[2.875rem] w-full bg-rec text-[0.9375rem] font-semibold text-white hover:bg-rec/90">
+      <Button type="submit" size="lg" disabled={enviando} className="group/entrar mt-1 h-10 w-full bg-rec text-white hover:bg-rec/90">
         {enviando ? <Loader2 className="animate-spin" /> : null}
         Criar conta e entrar
         {!enviando && <ArrowRight className="transition-transform duration-300 group-hover/entrar:translate-x-1" />}

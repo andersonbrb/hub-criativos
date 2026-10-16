@@ -130,7 +130,7 @@ export function CommandMenu({ usuario, semBanco = false }: { usuario: Usuario; s
           <DialogTitle className="sr-only">Buscar</DialogTitle>
           <DialogDescription className="sr-only">Digite para achar uma tela, um agente ou uma ação.</DialogDescription>
           <div className="flex items-center gap-2.5 border-b border-border/70 pr-3.5 pl-4.5">
-            <Search className="size-[18px] shrink-0 text-primary dark:text-[var(--brand-300)]" />
+            <Search className="size-[18px] shrink-0 text-muted-foreground" />
             <input
               autoFocus
               value={busca}
@@ -139,7 +139,7 @@ export function CommandMenu({ usuario, semBanco = false }: { usuario: Usuario; s
                 setAtivo(0);
               }}
               onKeyDown={teclas}
-              placeholder="Ir para uma tela, agente ou ação…"
+              placeholder="Pesquise uma tela, um agente ou uma ação…"
               className="h-14 min-w-0 flex-1 bg-transparent text-[0.96875rem] outline-none placeholder:text-muted-foreground"
               aria-label="Buscar"
             />
@@ -153,7 +153,7 @@ export function CommandMenu({ usuario, semBanco = false }: { usuario: Usuario; s
               const selecionado = i === ativo;
               return (
                 <div key={item.id}>
-                  {titulo && <span className="block px-2.5 pt-3 pb-1.5 font-mono text-[0.65625rem] tracking-[0.12em] text-muted-foreground/80 uppercase">{titulo}</span>}
+                  {titulo && <span className="block px-2.5 pt-3 pb-1.5 text-xs font-medium text-muted-foreground">{titulo}</span>}
                   <div
                     role="option"
                     aria-selected={selecionado}
@@ -161,14 +161,13 @@ export function CommandMenu({ usuario, semBanco = false }: { usuario: Usuario; s
                     onMouseMove={() => setAtivo(i)}
                     onClick={() => executar(item)}
                     className={cn(
-                      "relative flex min-h-11 cursor-pointer items-center gap-3 rounded-[10px] px-3 text-sm text-foreground/80 transition-colors",
-                      selecionado &&
-                        "bg-accent text-foreground before:absolute before:top-[11px] before:bottom-[11px] before:left-0 before:w-0.5 before:rounded-full before:bg-[linear-gradient(var(--brand-400),var(--cyan-400))]",
+                      "flex min-h-10 cursor-pointer items-center gap-3 rounded-lg px-2.5 text-sm text-foreground/85",
+                      selecionado && "bg-accent text-foreground",
                     )}
                   >
-                    <item.icon className={cn("size-[18px] shrink-0 text-muted-foreground", selecionado && "text-primary dark:text-[var(--brand-300)]")} strokeWidth={1.75} />
+                    <item.icon className={cn("size-[18px] shrink-0 text-muted-foreground", selecionado && "text-primary")} strokeWidth={1.6} />
                     <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                    {item.dica && <span className="shrink-0 font-mono text-[0.6875rem] text-muted-foreground">{item.dica}</span>}
+                    {item.dica && <span className="shrink-0 text-xs text-muted-foreground">{item.dica}</span>}
                     <CornerDownLeft className={cn("size-3.5 shrink-0 text-muted-foreground opacity-0", selecionado && "opacity-100")} />
                   </div>
                 </div>

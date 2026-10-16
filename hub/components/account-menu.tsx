@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { ChevronsUpDown, LogOut, Monitor, Moon, Search, Smartphone, Sun } from "lucide-react";
+import { LogOut, Monitor, Moon, Search, Smartphone, Sun } from "lucide-react";
 
 import { setTheme, useTheme } from "@/components/theme";
 import {
@@ -28,13 +28,7 @@ export const iniciais = (nome: string) =>
 
 export function Avatar({ nome, className }: { nome: string; className?: string }) {
   return (
-    <span
-      aria-hidden
-      className={cn(
-        "inline-grid size-8 shrink-0 place-items-center rounded-full bg-[linear-gradient(135deg,var(--brand-500),var(--cyan-500))] text-[0.6875rem] font-semibold text-white shadow-[0_0_0_2px_rgb(255_255_255/0.08),0_6px_16px_-6px_var(--glow)]",
-        className,
-      )}
-    >
+    <span aria-hidden className={cn("inline-grid size-8 shrink-0 place-items-center rounded-full bg-primary text-[0.6875rem] font-semibold text-white", className)}>
       {iniciais(nome)}
     </span>
   );
@@ -50,9 +44,9 @@ export function useSair() {
   return { form, sair: () => ref.current?.submit() };
 }
 
-// Conta da pessoa: nome, papel e o menu com tema, versão celular/computador e sair.
-// compact: só o avatar (barra do celular e menu recolhido).
-export function AccountMenu({ usuario, compact = false, side = "top" }: { usuario: Usuario; compact?: boolean; side?: "top" | "bottom" | "right" }) {
+// Conta da pessoa, no canto da barra do topo (como no ElevenLabs): nome, e-mail e o menu com busca, tema,
+// versão celular/computador e sair.
+export function AccountMenu({ usuario, side = "bottom" }: { usuario: Usuario; side?: "top" | "bottom" | "right" }) {
   const theme = useTheme();
   const { isMobile, toggle } = useLayoutMode();
   const { form, sair } = useSair();
@@ -62,35 +56,24 @@ export function AccountMenu({ usuario, compact = false, side = "top" }: { usuari
       {form}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          {compact ? (
-            <button type="button" aria-label="Sua conta" className="rounded-full outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
-              <Avatar nome={usuario.nome} />
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="flex w-full min-w-0 items-center gap-2.5 rounded-[10px] p-2 text-left text-sidebar-foreground outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring data-[state=open]:bg-sidebar-accent group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-1"
-            >
-              <Avatar nome={usuario.nome} />
-              <span className="grid min-w-0 flex-1 gap-0.5 group-data-[collapsible=icon]:hidden">
-                <strong className="truncate text-[0.8125rem] font-medium text-white">{usuario.nome}</strong>
-                <small className="truncate text-[0.6875rem] text-sidebar-foreground/70">
-                  {ROTULO_DO_PAPEL[usuario.papel]}
-                </small>
-              </span>
-              <ChevronsUpDown className="size-4 shrink-0 text-sidebar-foreground/60 group-data-[collapsible=icon]:hidden" />
-            </button>
-          )}
+          <button
+            type="button"
+            aria-label="Sua conta"
+            className="rounded-full p-0.5 ring-1 ring-border transition-shadow outline-none hover:ring-foreground/25 focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:ring-foreground/30"
+          >
+            <Avatar nome={usuario.nome} className="size-7" />
+          </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent side={side} align={compact ? "end" : "start"} sideOffset={8} className="w-64">
-          <DropdownMenuLabel className="grid gap-0.5 px-2.5 py-2 font-sans tracking-normal normal-case">
+        <DropdownMenuContent side={side} align="end" sideOffset={8} className="w-64">
+          <DropdownMenuLabel className="grid gap-0.5 px-2.5 py-2">
             <span className="truncate text-sm font-semibold text-foreground">{usuario.nome}</span>
             <span className="truncate text-xs font-normal text-muted-foreground">{usuario.email}</span>
+            <span className="text-xs font-normal text-muted-foreground">{ROTULO_DO_PAPEL[usuario.papel]}</span>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={abrirBusca}>
             <Search />
-            Buscar
+            Pesquisar
             <DropdownMenuShortcut>Ctrl K</DropdownMenuShortcut>
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}>
@@ -102,7 +85,7 @@ export function AccountMenu({ usuario, compact = false, side = "top" }: { usuari
             {isMobile ? "Versão computador" : "Versão celular"}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onSelect={sair}>
+          <DropdownMenuItem onSelect={sair}>
             <LogOut />
             Sair
           </DropdownMenuItem>
