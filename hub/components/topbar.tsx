@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FolderOpen, PanelLeft, Search, Send } from "lucide-react";
+import { ChevronRight, FolderOpen, PanelLeft, Search, Send } from "lucide-react";
 
 import { AccountMenu, abrirBusca } from "@/components/account-menu";
-import { nomeDaPagina } from "@/components/nav";
+import { caminhoDaPagina } from "@/components/nav";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -16,7 +16,7 @@ import { podeUsar, type Usuario } from "@/features/acesso/contrato";
 export function Topbar({ usuario }: { usuario: Usuario }) {
   const { isMobile, toggleSidebar } = useSidebar();
   const pathname = usePathname();
-  const pagina = nomeDaPagina(pathname) ?? "Hub de Criativos";
+  const pagina = caminhoDaPagina(pathname);
   const chat = podeUsar(usuario, "chat");
   const biblioteca = podeUsar(usuario, "biblioteca");
 
@@ -35,7 +35,18 @@ export function Topbar({ usuario }: { usuario: Usuario }) {
             Menu <span className="opacity-60">Ctrl B</span>
           </TooltipContent>
         </Tooltip>
-        <span className="truncate text-[0.875rem] font-medium">{pagina}</span>
+        {/* Numa tela de grupo (um agente, um estúdio, Integrações...), o grupo vem antes e leva de volta à página dele. */}
+        <span className="flex min-w-0 items-center gap-1.5 text-[0.875rem] font-medium">
+          {pagina?.grupo && (
+            <>
+              <Link href={pagina.grupo.href} className="shrink-0 text-muted-foreground transition-colors hover:text-foreground">
+                {pagina.grupo.label}
+              </Link>
+              <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/70" aria-hidden />
+            </>
+          )}
+          <span className="truncate">{pagina?.nome ?? "Hub de Criativos"}</span>
+        </span>
       </div>
 
       <button

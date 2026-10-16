@@ -92,7 +92,7 @@ Regras que evitam quebrar conversas existentes:
 
 ### O comportamento dos agentes é texto, não código
 - `lib/server/chat/system.ts` monta o prompt base (regras de custo, b-roll, FLORA e Fluxo) e acrescenta todos os `hub/playbooks/*.md`.
-- `lib/agent-profiles.ts` é a definição única de cada agente (Estrategista, Copy, VSL…). A lista do menu lateral ainda vem de `lib/data.ts` (dados de exemplo do protótipo), então os ids dos dois arquivos precisam bater.
+- `lib/agent-profiles.ts` é a definição única de cada agente (Estrategista, Copy, VSL…). A lista da página Agentes (`/agentes`) e da busca rápida ainda vem de `lib/data.ts` (dados de exemplo do protótipo), então os ids dos dois arquivos precisam bater.
 - A personalização feita pelo usuário ("Editar agente") fica em `agents/<id>.json`, na pasta da organização, e entra no fim do prompt.
 - `hub/playbooks/contexto-grupo-chegou.md` é dado do negócio da Grupo Chegou: só entra no prompt das conversas dela (`SO_DA_ORGANIZACAO_PADRAO` em `system.ts`).
 - `lib/server/ad-writer.ts` usa a base `hub/knowledge/ad-writer-light`. Ela é só local (sem licença) e fica fora do git.
@@ -117,7 +117,7 @@ As rotas de API são envolvidas em `route()` (`lib/server/http.ts`), que devolve
 As mensagens são em português, legíveis tanto para quem usa quanto para o agente. O código de servidor importa `"server-only"`.
 
 ### Interface
-`hub/components/` é dividido por área: `chat`, `pipeline` (o Fluxo), `studios` e `editor`. Os componentes shadcn (estilo radix-nova) ficam em `components/ui`. O projeto usa Tailwind v4 e o tema padrão é o escuro. O design segue o estilo do ElevenLabs (superfícies planas, cinzas neutros, bordas finas, fonte Inter), com o azul do logo como cor de destaque: cores e a tela de entrar ficam em `app/designs.css`; a barra do topo (nome da página, busca Ctrl K e conta), o menu lateral e a busca rápida ficam em `components/topbar.tsx`, `app-sidebar.tsx` e `command-menu.tsx`, com a lista de telas em `components/nav.ts`. O hub roda em tamanho real (100%); não volte a reduzir a escala da página.
+`hub/components/` é dividido por área: `chat`, `pipeline` (o Fluxo), `studios` e `editor`. Os componentes shadcn (estilo radix-nova) ficam em `components/ui`. O projeto usa Tailwind v4 e o tema padrão é o escuro. O design segue o estilo do ElevenLabs (superfícies planas, cinzas neutros, bordas finas, fonte Inter), com o azul do logo como cor de destaque: cores e a tela de entrar ficam em `app/designs.css`; a barra do topo (nome da página, busca Ctrl K e conta), o menu lateral e a busca rápida ficam em `components/topbar.tsx`, `app-sidebar.tsx` e `command-menu.tsx`, com a lista de telas em `components/nav.ts`. O menu é curto (regra do dono): Chat, Agentes, Criativo automático, Fluxo, Biblioteca, Estúdios, Editor, Memória e, no pé, Configurações. Agentes, Estúdios e Configurações são um item só, que abre a página do grupo com um cartão por tela (`components/grade-de-telas.tsx`); a busca rápida continua indo direto a cada tela. Tela nova entra num grupo existente antes de virar item do menu. O hub roda em tamanho real (100%); não volte a reduzir a escala da página.
 
 ## Deploy (Railway)
 O `Dockerfile` e o `railway.json` da raiz montam uma imagem com Node 22, ffmpeg, Python (faster-whisper, torch CPU, OpenCV), o Chrome headless do Remotion e as fontes, e fazem o build de `hub/`. Variáveis de lá:

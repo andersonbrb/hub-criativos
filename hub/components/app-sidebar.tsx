@@ -5,17 +5,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { HubLogo, HubMark } from "@/components/hub-logo";
-import { agentesDaPessoa, menuDaPessoa } from "@/components/nav";
+import { itemAtivo, menuDaPessoa, type ItemDaBarra } from "@/components/nav";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
@@ -25,13 +23,13 @@ import { SeletorDeOrganizacao } from "@/features/acesso/tela/seletor-de-organiza
 import { cn } from "@/lib/utils";
 
 // Menu lateral no estilo do ElevenLabs: marca, as telas que a conta pode abrir (o servidor também confere) e a
-// organização no rodapé. A busca e a conta ficam na barra do topo.
+// organização no rodapé. A busca e a conta ficam na barra do topo. Agentes, Estúdios e Configurações são um item só
+// cada, que abre a página com todas as telas do grupo (components/nav.ts).
 export function AppSidebar({ usuario, semBanco = false }: { usuario: Usuario; semBanco?: boolean }) {
   const pathname = usePathname();
   const { state, isMobile, setOpenMobile } = useSidebar();
   const recolhido = state === "collapsed" && !isMobile;
-  const grupos = menuDaPessoa(usuario, semBanco);
-  const agentes = agentesDaPessoa(usuario);
+  const { itens, rodape } = menuDaPessoa(usuario, semBanco);
 
   // No celular o menu é uma gaveta: fecha ao trocar de tela.
   useEffect(() => {
@@ -47,49 +45,22 @@ export function AppSidebar({ usuario, semBanco = false }: { usuario: Usuario; se
       </SidebarHeader>
 
       <SidebarContent className="gap-1 px-1 pt-1 pb-3">
-        {grupos.map((g, i) => (
-          <SidebarGroup key={g.titulo} className="py-1">
-            {i > 0 && <SidebarGroupLabel>{g.titulo}</SidebarGroupLabel>}
-            <SidebarGroupContent>
-              <SidebarMenu className="gap-px">
-                {g.itens.map((item) => (
-                  <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton asChild isActive={pathname === item.href} tooltip={item.tool ? `${item.label} · ${item.tool}` : item.label}>
-                      <Link href={item.href}>
-                        <item.icon strokeWidth={1.6} />
-                        <span className="group-data-[collapsible=icon]:hidden">{item.label}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                    {item.tool && (
-                      <SidebarMenuBadge className="top-1/2! right-2 -translate-y-1/2 px-0 text-[0.6875rem] font-normal text-muted-foreground">{item.tool}</SidebarMenuBadge>
-                    )}
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        ))}
+        <SidebarGroup className="py-1">
+          <SidebarGroupContent>
+            <SidebarMenu className="gap-px">
+              {itens.map((item) => (
+                <ItemDaBarraLateral key={item.href} item={item} ativo={itemAtivo(item, pathname)} />
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
 
-        {agentes.length > 0 && (
-          <SidebarGroup className="py-1">
-            <SidebarGroupLabel>Agentes</SidebarGroupLabel>
+        {/* Configurações: no pé do menu, longe das telas do dia a dia. */}
+        {rodape && (
+          <SidebarGroup className="mt-auto py-1">
             <SidebarGroupContent>
               <SidebarMenu className="gap-px">
-                {agentes.map((agent) => {
-                  const href = `/agentes/${agent.id}`;
-                  return (
-                    <SidebarMenuItem key={agent.id}>
-                      <SidebarMenuButton asChild isActive={pathname === href} tooltip={agent.name} className="group/agente">
-                        <Link href={href}>
-                          <span className="flex size-[18px] shrink-0 items-center justify-center rounded-[5px] border border-sidebar-border text-[0.5625rem] font-semibold tracking-tight text-sidebar-foreground/80 group-data-[active=true]/agente:border-primary/40 group-data-[active=true]/agente:text-primary">
-                            {agent.short}
-                          </span>
-                          <span className="group-data-[collapsible=icon]:hidden">{agent.name}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
+                <ItemDaBarraLateral item={rodape} ativo={itemAtivo(rodape, pathname)} />
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -103,5 +74,18 @@ export function AppSidebar({ usuario, semBanco = false }: { usuario: Usuario; se
         </SidebarFooter>
       )}
     </Sidebar>
+  );
+}
+
+function ItemDaBarraLateral({ item, ativo }: { item: ItemDaBarra; ativo: boolean }) {
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton asChild isActive={ativo} tooltip={item.label}>
+        <Link href={item.href}>
+          <item.icon strokeWidth={1.6} />
+          <span className="group-data-[collapsible=icon]:hidden">{item.label}</span>
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   );
 }

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, Bot, CornerDownLeft, LogOut, Monitor, Moon, Search, Smartphone, Sun, type LucideIcon } from "lucide-react";
 
 import { useSair } from "@/components/account-menu";
-import { agentesDaPessoa, menuDaPessoa } from "@/components/nav";
+import { agentesDaPessoa, todasAsTelas } from "@/components/nav";
 import { setTheme, useTheme } from "@/components/theme";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import type { Usuario } from "@/features/acesso/contrato";
@@ -54,9 +54,15 @@ export function CommandMenu({ usuario, semBanco = false }: { usuario: Usuario; s
 
   const itens = useMemo<Item[]>(() => {
     const ir = (href: string) => () => router.push(href);
-    const telas = menuDaPessoa(usuario, semBanco).flatMap((g) =>
-      g.itens.map((i) => ({ id: i.href, grupo: "Telas", label: i.label, dica: i.tool ?? g.titulo, icon: i.icon, acao: ir(i.href) })),
-    );
+    // Também as telas que o menu agrupa (cada estúdio, Integrações, Equipe...): daqui se vai direto a qualquer uma.
+    const telas = todasAsTelas(usuario, semBanco).map((i) => ({
+      id: i.href,
+      grupo: "Telas",
+      label: i.label,
+      dica: [i.grupo, i.tool].filter(Boolean).join(" · ") || undefined,
+      icon: i.icon,
+      acao: ir(i.href),
+    }));
     const agentes = agentesDaPessoa(usuario).map((a) => ({
       id: `/agentes/${a.id}`,
       grupo: "Agentes",

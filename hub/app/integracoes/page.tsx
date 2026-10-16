@@ -93,7 +93,7 @@ export default async function IntegrationsPage({ searchParams }: PageProps<"/int
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9">
       <PageHeader
-        eyebrow="Administração"
+        eyebrow="Configurações"
         title="Integrações"
         description="Conecte aqui as ferramentas que o hub usa: com o login da conta ou colando a chave da API. As chaves ficam guardadas cifradas."
       />

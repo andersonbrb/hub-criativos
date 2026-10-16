@@ -16,7 +16,7 @@ export default async function ConectorPage() {
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9">
       <PageHeader
-        eyebrow="Memória"
+        eyebrow="Configurações"
         title="Conector do Claude Code"
         description="Ligue o seu Claude Code ao Hub: ele passa a usar a memória, a Biblioteca e o Fluxo com a sua conta, gastando a sua assinatura do Claude."
       />

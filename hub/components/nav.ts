@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  Bot,
   Building2,
   Cable,
   Film,
@@ -8,8 +9,10 @@ import {
   Library,
   MessageSquare,
   Mic,
+  Palette,
   Plug,
   Scissors,
+  Settings,
   Sparkles,
   UserRound,
   Users,
@@ -20,75 +23,98 @@ import {
 import { podeUsar, type Chave, type Usuario } from "@/features/acesso/contrato";
 import { agents } from "@/lib/data";
 
-// Telas do hub, na ordem do menu. Uma lista só para o menu lateral, a busca rápida (Ctrl K) e o nome da página na
-// barra do topo.
+// Telas do hub. Uma lista só para o menu lateral, as páginas que agrupam telas (Agentes, Estúdios, Configurações), a
+// busca rápida (Ctrl K) e o nome da página na barra do topo.
 
 // soOperador: a tela não depende de chave da organização, só de operar a plataforma (tela Plataforma).
-export type ItemDoMenu = { href: string; label: string; icon: LucideIcon; chave: Chave; tool?: string; soOperador?: boolean };
-export type GrupoDoMenu = { titulo: string; itens: ItemDoMenu[] };
+// descricao: uma linha no cartão da página que agrupa a tela.
+export type ItemDoMenu = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  chave: Chave;
+  tool?: string;
+  soOperador?: boolean;
+  descricao?: string;
+};
 
-export const MENU: GrupoDoMenu[] = [
-  {
-    titulo: "Produção",
-    itens: [
-      { href: "/chat", label: "Chat principal (Produção)", icon: MessageSquare, chave: "chat" },
-      { href: "/criativo-automatico", label: "Criativo automático", icon: WandSparkles, chave: "criativo-automatico" },
-      { href: "/", label: "Fluxo", icon: LayoutGrid, chave: "fluxo" },
-      { href: "/editor", label: "Editor", icon: Film, chave: "editor" },
-      { href: "/biblioteca", label: "Biblioteca", icon: Library, chave: "biblioteca" },
-    ],
-  },
-  {
-    titulo: "Estúdios",
-    itens: [
-      { href: "/estudios/geracao", label: "Geração", tool: "FLORA", icon: Sparkles, chave: "estudios" },
-      { href: "/estudios/voz", label: "Voz", tool: "ElevenLabs", icon: Mic, chave: "estudios" },
-      { href: "/estudios/avatar", label: "Avatar", tool: "HeyGen", icon: UserRound, chave: "estudios" },
-      { href: "/estudios/traducao", label: "Tradução", tool: "HeyGen", icon: Languages, chave: "estudios" },
-      { href: "/estudios/edicao", label: "Edição", tool: "Local", icon: Scissors, chave: "estudios" },
-    ],
-  },
-  {
-    titulo: "Memória",
-    itens: [
-      { href: "/memoria", label: "Memória", icon: BookOpen, chave: "memoria" },
-      { href: "/conector", label: "Conector do Claude", icon: Cable, chave: "conector_claude" },
-    ],
-  },
-  {
-    titulo: "Administração",
-    itens: [
-      { href: "/integracoes", label: "Integrações", icon: Plug, chave: "integracoes" },
-      { href: "/membros", label: "Equipe", icon: Users, chave: "membros" },
-      { href: "/plataforma", label: "Plataforma", icon: Building2, chave: "membros", soOperador: true },
-    ],
-  },
+// Estúdios: um item só no menu, que abre /estudios com os cinco.
+export const ESTUDIOS: ItemDoMenu[] = [
+  { href: "/estudios/geracao", label: "Geração", tool: "FLORA", icon: Sparkles, chave: "estudios", descricao: "Imagem e vídeo com IA, a partir de um texto ou de uma foto." },
+  { href: "/estudios/voz", label: "Voz", tool: "ElevenLabs", icon: Mic, chave: "estudios", descricao: "Narração do roteiro com as vozes da sua conta." },
+  { href: "/estudios/avatar", label: "Avatar", tool: "HeyGen", icon: UserRound, chave: "estudios", descricao: "Uma pessoa falando o roteiro, com a boca sincronizada." },
+  { href: "/estudios/traducao", label: "Tradução", tool: "HeyGen", icon: Languages, chave: "estudios", descricao: "O mesmo vídeo em outro idioma, com a voz da pessoa." },
+  { href: "/estudios/edicao", label: "Edição", tool: "No hub", icon: Scissors, chave: "estudios", descricao: "Edição final: cortes, cenas extras e legenda, sem gastar créditos." },
 ];
+
+// Configurações: um item só no pé do menu, que abre /configuracoes com estas telas.
+export const CONFIGURACOES: ItemDoMenu[] = [
+  { href: "/integracoes", label: "Integrações", icon: Plug, chave: "integracoes", descricao: "Contas do FLORA, ElevenLabs, HeyGen e Google Drive, e as chaves do Claude e da Venice." },
+  { href: "/conector", label: "Conector do Claude", icon: Cable, chave: "conector_claude", descricao: "Ligue o seu Claude Code ao hub para ele usar a Memória, a Biblioteca e o Fluxo." },
+  { href: "/membros", label: "Equipe", icon: Users, chave: "membros", descricao: "Quem participa da organização, o que cada pessoa abre e os convites." },
+  { href: "/plataforma", label: "Plataforma", icon: Building2, chave: "membros", soOperador: true, descricao: "Todas as organizações do hub: criar, renomear e suspender." },
+];
+
+// Itens do menu lateral, na ordem. `telas`: o item abre uma página que agrupa estas telas (e fica marcado nelas).
+export type ItemDaBarra = ItemDoMenu & { telas?: ItemDoMenu[] };
+
+export const BARRA: ItemDaBarra[] = [
+  { href: "/chat", label: "Chat", icon: MessageSquare, chave: "chat" },
+  { href: "/agentes", label: "Agentes", icon: Bot, chave: "chat" },
+  { href: "/criativo-automatico", label: "Criativo automático", icon: WandSparkles, chave: "criativo-automatico" },
+  { href: "/", label: "Fluxo", icon: LayoutGrid, chave: "fluxo" },
+  { href: "/biblioteca", label: "Biblioteca", icon: Library, chave: "biblioteca" },
+  { href: "/estudios", label: "Estúdios", icon: Palette, chave: "estudios", telas: ESTUDIOS },
+  { href: "/editor", label: "Editor", icon: Film, chave: "editor" },
+  { href: "/memoria", label: "Memória", icon: BookOpen, chave: "memoria" },
+];
+
+// Fica no pé do menu, separado das telas do dia a dia.
+export const ITEM_CONFIGURACOES: ItemDaBarra = { href: "/configuracoes", label: "Configurações", icon: Settings, chave: "integracoes", telas: CONFIGURACOES };
 
 // Telas que só existem com o banco (no PC sem banco ficam fora do menu).
 const SO_COM_BANCO = new Set<string>(["/memoria", "/conector", "/membros", "/plataforma"]);
 
-// Cada pessoa só vê as telas que a conta dela pode abrir (a página também confere no servidor).
-export function menuDaPessoa(usuario: Usuario, semBanco: boolean): GrupoDoMenu[] {
-  return MENU.map((g) => ({
-    titulo: g.titulo,
-    itens: g.itens.filter((i) => (i.soOperador ? usuario.operaPlataforma : podeUsar(usuario, i.chave)) && !(semBanco && SO_COM_BANCO.has(i.href))),
-  })).filter((g) => g.itens.length > 0);
+const podeAbrir = (usuario: Usuario, semBanco: boolean) => (i: ItemDoMenu) =>
+  (i.soOperador ? usuario.operaPlataforma : podeUsar(usuario, i.chave)) && !(semBanco && SO_COM_BANCO.has(i.href));
+
+// Telas de um grupo que a pessoa pode abrir (a página também confere no servidor).
+export const telasDaPessoa = (telas: ItemDoMenu[], usuario: Usuario, semBanco: boolean) => telas.filter(podeAbrir(usuario, semBanco));
+
+// Menu lateral da pessoa. Item que agrupa telas aparece se ela abre pelo menos uma delas.
+export function menuDaPessoa(usuario: Usuario, semBanco: boolean): { itens: ItemDaBarra[]; rodape: ItemDaBarra | null } {
+  const pode = podeAbrir(usuario, semBanco);
+  const visivel = (i: ItemDaBarra) => (i.telas ? i.telas.some(pode) : pode(i));
+  return { itens: BARRA.filter(visivel), rodape: visivel(ITEM_CONFIGURACOES) ? ITEM_CONFIGURACOES : null };
 }
 
 export const agentesDaPessoa = (usuario: Usuario) => (podeUsar(usuario, "chat") ? agents : []);
 
+// Todas as telas que a pessoa abre, com o grupo de cada uma (busca rápida).
+export function todasAsTelas(usuario: Usuario, semBanco: boolean): (ItemDoMenu & { grupo?: string })[] {
+  const { itens, rodape } = menuDaPessoa(usuario, semBanco);
+  return [...itens, ...(rodape ? [rodape] : [])].flatMap((i) => [
+    i,
+    ...(i.telas ? telasDaPessoa(i.telas, usuario, semBanco).map((t) => ({ ...t, grupo: i.label })) : []),
+  ]);
+}
 
-// Nome da página aberta (barra do topo).
-export function nomeDaPagina(pathname: string): string | null {
+const dentro = (pathname: string, href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`));
+
+// O item do menu fica marcado na própria página e nas telas que ele agrupa (/agentes/copy marca "Agentes").
+export const itemAtivo = (item: ItemDaBarra, pathname: string) => dentro(pathname, item.href) || Boolean(item.telas?.some((t) => dentro(pathname, t.href)));
+
+// Página aberta, para a barra do topo: o nome e, nas telas de um grupo, o grupo (link de volta para a página dele).
+export function caminhoDaPagina(pathname: string): { nome: string; grupo?: { href: string; label: string } } | null {
   if (pathname.startsWith("/agentes/")) {
     const id = pathname.split("/")[2];
-    return agents.find((a) => a.id === id)?.name ?? "Agente";
+    return { nome: agents.find((a) => a.id === id)?.name ?? "Agente", grupo: { href: "/agentes", label: "Agentes" } };
   }
-  for (const g of MENU) {
-    const item = g.itens.find((i) => i.href === pathname);
-    if (item) return item.label;
+  for (const item of [...BARRA, ITEM_CONFIGURACOES]) {
+    if (item.href === pathname) return { nome: item.label };
+    const tela = item.telas?.find((t) => dentro(pathname, t.href));
+    if (tela) return { nome: tela.label, grupo: { href: item.href, label: item.label } };
   }
-  const extras: Record<string, string> = { "/sem-acesso": "Sem acesso", "/conectar-claude": "Conectar o Claude", "/plataforma": "Plataforma" };
-  return extras[pathname] ?? null;
+  const extras: Record<string, string> = { "/sem-acesso": "Sem acesso", "/conectar-claude": "Conectar o Claude" };
+  return extras[pathname] ? { nome: extras[pathname] } : null;
 }
