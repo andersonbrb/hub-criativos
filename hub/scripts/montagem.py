@@ -217,7 +217,7 @@ def normalize_vf(h):
 FX_DEFAULTS = {
     "estilo": "drop",           # estilo da legenda do Sávio: "drop" (Poppins, y=1060) | "sb" (Anton, y=1480)
     "legenda": "bloco",         # "bloco" (o bloco inteiro com a palavra-chave em amarelo) | "palavra" (palavra a palavra)
-    "maiusculas": False,        # legenda em caixa alta (o kit do Sávio não diz no drop; decisão pendente do Vinícius)
+    "maiusculas": False,        # ignorado: a legenda sai do jeito que foi falada (decisão do Vinícius, 20/10/2026)
     "zoom_cortes": True,        # troca de plano: alterna 1,00/1,13 a cada 1,1–4 s
     "transicao": "corte",       # entrada do b-roll: "corte" (seco, padrão) | "dissolve" | "zoom" | "slide"
     "whoosh": False,            # som de whoosh na entrada de cada b-roll
@@ -300,7 +300,8 @@ def caption_events(groups, fx, y):
     hl = ass_color(AMARELO)
     out = []
     for a, b, ws in groups:
-        words_txt = [clean_word(w).upper() if fx.get("maiusculas") else clean_word(w) for w, _s, _e in ws]
+        # Do jeito que foi falada: maiúsculas e minúsculas normais, nunca tudo em caixa alta (decisão do Vinícius, 20/10/2026).
+        words_txt = [clean_word(w) for w, _s, _e in ws]
         key = keyword_index(ws)
         chars = len(" ".join(words_txt))
         # Palavra única muito longa: aperta na horizontal para caber na área segura.
@@ -815,7 +816,7 @@ def process(job):
     h = FORMATOS[formato]
     log(f"START {job['name']}")
     log(f"formato {formato}; legenda {fx['estilo']} ({fx['legenda']})")
-    on = [k for k in ("transicao", "whoosh", "musica", "cor", "barra_progresso", "maiusculas") if fx[k] != FX_DEFAULTS[k]]
+    on = [k for k in ("transicao", "whoosh", "musica", "cor", "barra_progresso") if fx[k] != FX_DEFAULTS[k]]
     if not fx["zoom_cortes"]:
         on.append("sem troca de enquadramento")
     if on:

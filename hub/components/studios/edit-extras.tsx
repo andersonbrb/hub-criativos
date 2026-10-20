@@ -15,7 +15,6 @@ import { cn } from "@/lib/utils";
 export type Fx = {
   estilo: "drop" | "sb";
   legenda: "bloco" | "palavra";
-  maiusculas: boolean;
   zoom_cortes: boolean;
   transicao: "corte" | "dissolve" | "zoom" | "slide";
   whoosh: boolean;
@@ -27,7 +26,6 @@ export type Fx = {
 export const FX_OFF: Fx = {
   estilo: "drop",
   legenda: "bloco",
-  maiusculas: false,
   zoom_cortes: true,
   transicao: "corte",
   whoosh: false,
@@ -37,7 +35,7 @@ export const FX_OFF: Fx = {
 };
 
 export const fxCount = (f: Fx) =>
-  [f.estilo !== "drop", f.legenda !== "bloco", f.maiusculas, !f.zoom_cortes, f.transicao !== "corte", f.whoosh, Boolean(f.musicId), f.cor !== "nenhuma", f.barra_progresso].filter(Boolean)
+  [f.estilo !== "drop", f.legenda !== "bloco", !f.zoom_cortes, f.transicao !== "corte", f.whoosh, Boolean(f.musicId), f.cor !== "nenhuma", f.barra_progresso].filter(Boolean)
     .length;
 
 // posicao "" = automática (título/contador no topo, lista no meio, destaque e CTA embaixo, longe do rosto).
@@ -93,7 +91,6 @@ export function EffectsPanel({ fx, onChange, audios }: { fx: Fx; onChange: (f: F
         <p className="text-[0.6875rem] text-muted-foreground">O padrão já segue o Sávio: legenda com palavra-chave amarela, troca de plano a cada 1,1 a 4s, cenas em corte seco e áudio tratado. Mude só o que o vídeo pedir.</p>
         <Mini label="Estilo da legenda" value={fx.estilo} onChange={(v) => set("estilo", v as Fx["estilo"])} options={[{ value: "drop", label: "Drop (Poppins)" }, { value: "sb", label: "San Benito (Anton)" }]} />
         <Mini label="Legenda" value={fx.legenda} onChange={(v) => set("legenda", v as Fx["legenda"])} options={[{ value: "bloco", label: "Bloco (padrão)" }, { value: "palavra", label: "Palavra a palavra" }]} />
-        <Toggle label="Legenda em maiúsculas" checked={fx.maiusculas} onChange={(v) => set("maiusculas", v)} />
         <Toggle label="Troca de enquadramento nos cortes" checked={fx.zoom_cortes} onChange={(v) => set("zoom_cortes", v)} />
         <Mini label="Transição do b-roll" value={fx.transicao} onChange={(v) => set("transicao", v as Fx["transicao"])} options={[{ value: "corte", label: "Corte seco (padrão)" }, { value: "dissolve", label: "Dissolve" }, { value: "zoom", label: "Zoom" }, { value: "slide", label: "Slide" }]} />
         <Toggle label="Whoosh na entrada do b-roll" checked={fx.whoosh} onChange={(v) => set("whoosh", v)} />

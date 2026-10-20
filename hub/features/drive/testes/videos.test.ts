@@ -1,5 +1,6 @@
+import { createHash, randomBytes } from "node:crypto";
 import { mkdtempSync } from "node:fs";
-import { access, mkdir, rm, utimes, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -13,7 +14,8 @@ import { GET as midia } from "@/app/api/media/[file]/route";
 import { bancoDeTeste } from "@/db/teste";
 import { ORGANIZACAO_PADRAO, type Chave } from "@/features/acesso/contrato";
 import { criarConta } from "@/features/acesso/testes/ajuda";
-import { criarLinkDeDownload, entregarDownload } from "@/features/conector/servicos/links";
+import { criarLinkDeDownload, entregarDownload, receberEnvio } from "@/features/conector/servicos/links";
+import { chamar, conectar, criarPessoa, prepararTeste } from "@/features/conector/testes/apoio";
 import { sessao } from "@/features/conector/testes/sessao-falsa";
 import type { ArquivoDrive } from "@/features/drive/contrato";
 import {
@@ -763,6 +765,80 @@ describe("vídeos no Google Drive", () => {
       const apagado = await entregarDownload(url.split("/").pop()!);
       expect(apagado.status).toBe(404);
       expect((await apagado.json()).error).toContain("apagado no Google Drive");
+    });
+
+    // O jeito padrão de trabalho (decisão do Vinícius): o Claude Code de cada PC, ligado ao hub pelo conector.
+    it("ponta a ponta pelo Claude Code: o vídeo enviado vai ao Drive, aparece na Biblioteca e no Fluxo, e o download vem do Drive", async () => {
+      await prepararTeste();
+      const pessoa = await criarPessoa({ chaves: ["conector_claude", "biblioteca", "fluxo"] });
+      const { access_token: acesso } = await conectar(pessoa.id);
+      vi.mocked(driveConectado).mockResolvedValue(true);
+      // Google Drive simulado: guarda os bytes que chegaram e devolve tamanho e impressão digital de verdade.
+      const noDrive = new Map<string, Buffer>();
+      vi.mocked(enviarArquivo).mockImplementation(async (caminho, opcoes) => {
+        const bytes = await readFile(caminho);
+        noDrive.set("drv-entrega-claude", bytes);
+        return arquivoNoDrive("drv-entrega-claude", opcoes.nome, { tamanho: bytes.length, md5: createHash("md5").update(bytes).digest("hex") });
+      });
+      vi.mocked(abrirTrecho).mockImplementation(async (id) => {
+        const bytes = noDrive.get(id)!;
+        return { status: 200, cabecalhos: { "Content-Length": String(bytes.length) }, corpo: new Response(new Uint8Array(bytes)).body };
+      });
+      const urlDoComando = (texto: string) => /"(https:\/\/hub\.teste\/api\/conector\/arquivos\/[^"]+)"/.exec(texto)![1];
+
+      // 1. Envio: o Claude pede o link e roda o curl.
+      const envio = await chamar(acesso, "link_de_envio", { nome_arquivo: "AD 01 - TESTE-9x16-ES-V1.mp4" });
+      expect(envio.isError).toBe(false);
+      const url = urlDoComando(envio.texto);
+      const video = randomBytes(300_000);
+      const res = await receberEnvio(new Request(url, { method: "PUT", body: video, headers: { "content-length": String(video.length) } }), url.split("/").pop()!);
+      expect(res.status).toBe(201);
+      const dados = await res.json();
+      // A resposta só volta depois de o vídeo estar no Drive, conferido, e diz isso.
+      expect(dados).toMatchObject({ ok: true, no_drive: true, tamanho_bytes: video.length });
+      expect(dados.mensagem).toContain("guardado no Google Drive");
+      expect(enviarArquivo).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ pasta: "entregas", nome: "AD 01 - TESTE-9x16-ES-V1.mp4" }));
+      const gen = daMemoria(dados.generation_id)!;
+      expect(gen.drive).toEqual({ id: "drv-entrega-claude", pasta: "entregas" });
+      // Regra do dono: nenhuma cópia fica no disco do hub.
+      expect(await existe(gen.file!)).toBe(false);
+
+      // 2. Biblioteca: o vídeo aparece (está no Drive).
+      const lista = JSON.parse((await chamar(acesso, "biblioteca_listar", { tipo: "video" })).texto);
+      expect(lista.itens).toEqual([expect.objectContaining({ id: dados.generation_id, tipo: "video", tamanho_bytes: video.length })]);
+
+      // 3. Fluxo: o card ganha o vídeo.
+      const card = await chamar(acesso, "fluxo_salvar_card", { titulo: "TESTE · AD 01", adicionar_geracoes: [dados.generation_id] });
+      expect(card.isError).toBe(false);
+      expect(JSON.stringify(JSON.parse((await chamar(acesso, "fluxo_ver")).texto))).toContain(dados.generation_id);
+
+      // 4. Download para o PC: vem do Drive, inteiro, com o nome do arquivo.
+      const pedido = await chamar(acesso, "link_de_download", { generation_id: dados.generation_id });
+      expect(pedido.isError).toBe(false);
+      const baixado = await entregarDownload(urlDoComando(pedido.texto).split("/").pop()!);
+      expect(baixado.status).toBe(200);
+      expect(baixado.headers.get("content-type")).toBe("video/mp4");
+      expect(baixado.headers.get("content-disposition")).toContain('filename="AD 01 - TESTE-9x16-ES-V1.mp4"');
+      expect(Buffer.from(await baixado.arrayBuffer()).equals(video)).toBe(true);
+      expect(abrirTrecho).toHaveBeenCalledWith("drv-entrega-claude", null);
+    });
+
+    it("pelo Claude Code, se o Drive não aceitar na hora, a resposta do curl diz que o vídeo ainda não está na Biblioteca", async () => {
+      await prepararTeste();
+      const pessoa = await criarPessoa({ chaves: ["conector_claude", "biblioteca"] });
+      const { access_token: acesso } = await conectar(pessoa.id);
+      vi.mocked(driveConectado).mockResolvedValue(true);
+      vi.mocked(enviarArquivo).mockRejectedValue(new Error("O Google Drive está sem espaço."));
+      const url = /"(https:\/\/hub\.teste\/api\/conector\/arquivos\/[^"]+)"/.exec((await chamar(acesso, "link_de_envio", { nome_arquivo: "AD 02.mp4" })).texto)![1];
+      const video = randomBytes(1000);
+      const res = await receberEnvio(new Request(url, { method: "PUT", body: video, headers: { "content-length": "1000" } }), url.split("/").pop()!);
+      expect(res.status).toBe(201);
+      const dados = await res.json();
+      expect(dados.no_drive).toBe(false);
+      expect(dados.mensagem).toContain("não aceitou agora");
+      // Não aparece na Biblioteca enquanto não chega ao Drive; fica no disco só até o prazo de 12 horas.
+      expect(JSON.parse((await chamar(acesso, "biblioteca_listar", {})).texto).itens).toEqual([]);
+      expect(daMemoria(dados.generation_id)!.params).toMatchObject({ paraDrive: true, prazoNoHub: expect.any(String) });
     });
   });
 

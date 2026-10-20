@@ -24,6 +24,11 @@ aqui o que já foi validado em produção.
   pede as duas para liberar o login com Google.
 
 ### 🔄 Mudanças
+- **[🎬 Edição]** Decisões do Vinícius nos 4 pontos que o Sávio não define: pode ter criança nos vídeos COD; quem gerou
+  o lote aprova; a legenda sai do jeito que foi falada (a opção "maiúsculas" saiu da Edição e do editor); upscale
+  conta 1,5× a duração do vídeo nos orçamentos.
+- **[🔌 Conector do Claude Code]** Ao enviar um vídeo pelo Claude Code, a resposta espera o Google Drive e diz se o
+  vídeo já está na Biblioteca. As instruções do conector explicam a regra de vídeo só no Drive.
 - **[☁️ Google Drive]** Vídeo só fica guardado no Google Drive. Os vídeos enviados pela equipe também vão para lá
   (pasta "Enviados pela equipe"). Sem o Drive conectado, o Hub avisa e não gera nem recebe vídeo. A Biblioteca e
   o Fluxo mostram só vídeos que estão no Drive. Cópia temporária fica no servidor no máximo 12 horas.

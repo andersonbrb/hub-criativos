@@ -364,7 +364,6 @@ const definitions: Anthropic.Beta.BetaTool[] = [
           properties: {
             estilo: { type: "string", enum: ["drop", "sb"], description: "Estilo da legenda do Sávio: drop (padrão, Poppins y=1060) ou sb (San Benito, Anton y=1480)." },
             legenda: { type: "string", enum: ["bloco", "palavra"], description: "bloco (padrão do kit): o bloco inteiro com 1 palavra-chave em amarelo. palavra: as palavras aparecem quando são ditas." },
-            maiusculas: { type: "boolean", description: "Legenda em caixa alta. Padrão false (o Sávio não define; use se o usuário pedir)." },
             zoom_cortes: { type: "boolean", description: "Troca de enquadramento 1,00/1,13 a cada 1,1–4 s (padrão true). false = enquadramento fixo." },
             transicao: { type: "string", enum: ["corte", "dissolve", "zoom", "slide"], description: "Entrada do b-roll. Padrão corte (seco)." },
             whoosh: { type: "boolean", description: "Som de whoosh na entrada de cada b-roll (macete do lote Yara)." },
@@ -423,7 +422,6 @@ const definitions: Anthropic.Beta.BetaTool[] = [
             color: { type: "string", description: "#RRGGBB" },
             highlight: { type: "string", description: "#RRGGBB das palavras entre *asteriscos*." },
             box: { type: "boolean" },
-            uppercase: { type: "boolean" },
             pop: { type: "boolean" },
           },
         },

@@ -1,6 +1,6 @@
 # Decisões: regras do Sávio x regras antigas do Hub (fechado em 20/10/2026)
 
-> Decisão do Vinícius em 20/10/2026: "como fazer os vídeos vai ser só de acordo com o contexto do Sávio, apenas isso". Nos 18 pontos vale a regra do Sávio, inclusive onde ela contraria uma regra antiga do próprio Vinícius. As regras antigas do Hub saíram dos playbooks, do prompt dos agentes e das ferramentas; as versões antigas ficam no histórico de cada documento. O que o contexto do Sávio não decide está no fim, para o Vinícius decidir.
+> Decisão do Vinícius em 20/10/2026: "como fazer os vídeos vai ser só de acordo com o contexto do Sávio, apenas isso". Nos 18 pontos vale a regra do Sávio, inclusive onde ela contraria uma regra antiga do próprio Vinícius. As regras antigas do Hub saíram dos playbooks, do prompt dos agentes e das ferramentas; as versões antigas ficam no histórico de cada documento. Os 4 pontos que o contexto do Sávio não decide foram decididos pelo Vinícius no mesmo dia (seção "Decididos pelo Vinícius", no fim): nada mais está pendente.
 
 ## Contexto de uso
 
@@ -21,7 +21,8 @@ Em qualquer conflito sobre como fazer vídeo (roteiro, voz, avatar, b-roll, edi�
 ### 3. Estilo da legenda
 - **Vale (Sávio):** grande, branca com contorno preto, 1 palavra-chave amarela por bloco, blocos de até 3 palavras/16 caracteres, "pop" de entrada. Estilo `drop`: Poppins Bold ~107 px, centro y=1060. Estilo `sb`: Anton ~116 px, centro y=1480 + faixa no topo. No 4:5, y=745; no 1:1, y=596. Nada cobre rosto ou boca; manchete fixa no meio = sem legenda ao mesmo tempo.
 - **No Hub:** a edição final usa o `drop` por padrão e oferece o `sb` (a faixa de topo do `sb` ainda não existe no Hub). O texto na tela do COD segue as posições do kit (manchete no topo só durante o gancho).
-- **Saiu:** Montserrat 96 embaixo com destaque verde; no playbook COD, texto branco com contorno vermelho + emoji (CapCut).
+- **Caixa da letra (decisão do Vinícius em 20/10/2026):** a legenda sai do jeito que foi falada, com maiúsculas e minúsculas normais, nunca toda em maiúsculas. A edição final e o editor do Hub não têm mais a opção de caixa alta.
+- **Saiu:** Montserrat 96 embaixo com destaque verde; no playbook COD, texto branco com contorno vermelho + emoji (CapCut); a opção "legenda em maiúsculas".
 
 ### 4. Música
 - **Vale (Sávio):** −32 LUFS sob a fala, ducking de 11 dB; voz a −15 LUFS; final entre −16 e −13 (alvo ~−14), true peak ≤ −1 dBTP. Música trend liberada pela pessoa (instrumental via demucs), sem repetir alerta de direitos; sempre uma versão sem música de reserva.
@@ -70,8 +71,8 @@ Em qualquer conflito sobre como fazer vídeo (roteiro, voz, avatar, b-roll, edi�
 
 ### 13. Crianças
 - **Sávio:** só a ideia de persona "avó com neta" num lote de infoproduto (Medalla). O contexto dele não tem regra sobre crianças em vídeo COD.
-- **No Hub:** a proibição antiga (COD: "sem crianças em nenhum frame ou vídeo", e o "Adults only, no children anywhere" no prompt do FLORA) saiu, porque não está no contexto do Sávio.
-- **Falta decidir:** o Vinícius diz se o COD volta a proibir crianças.
+- **Vale (decisão do Vinícius em 20/10/2026):** os vídeos de pagamento na entrega (COD) PODEM ter crianças. Não há proibição.
+- **No Hub:** a proibição antiga (COD: "sem crianças em nenhum frame ou vídeo", e o "Adults only, no children anywhere" no prompt do FLORA) saiu e não volta.
 
 ### 14. Nomes de arquivo
 - **Vale (Sávio):** `AD NN - <OFERTA>-<FORMATO>-<VOZ/IDIOMA>-<VARIAÇÃO>.mp4`; variações `VAR NN - <GANCHO> x <CORPO>`; nome do arquivo = nome do anúncio; no Meta, nome do conjunto = nome do anúncio = "AD NN"; cada oferta tem a sua sequência (listar os ADs da oferta e continuar do maior).
@@ -80,8 +81,8 @@ Em qualquer conflito sobre como fazer vídeo (roteiro, voz, avatar, b-roll, edi�
 
 ### 15. Quem aprova
 - **Sávio:** só pede aprovação para gasto real, ação destrutiva ou piloto de método novo/caro; não diz quem aprova.
-- **No Hub:** saíram "Savin" e a aprovação do "Darlan" dos playbooks; por enquanto o agente pede a aprovação a quem está usando o Hub, nas situações do Sávio.
-- **Falta decidir:** o Vinícius diz quem aprova o quê.
+- **Vale (decisão do Vinícius em 20/10/2026):** quem gerou o lote de vídeos aprova o lote (gasto, piloto, avatar, roteiro), nas situações em que o Sávio pede aprovação. Não há outra pessoa a consultar.
+- **No Hub:** saíram "Savin" e a aprovação do "Darlan" dos playbooks; o agente pede a aprovação a quem está gerando o lote (a pessoa que está usando o Hub ou o Claude Code).
 
 ### 16. Contexto antigo do Hub
 - **Vale (Sávio):** documentos 01–03 e os projetos, com a situação de 13–14/10/2026.
@@ -96,8 +97,8 @@ Em qualquer conflito sobre como fazer vídeo (roteiro, voz, avatar, b-roll, edi�
 - **Música −29 ou −32 LUFS:** vale −32. O próprio documento 08 diz que −32 é a regra da pessoa desde 09/10/2026 e que −29 é o padrão antigo do kit.
 - **`--residual` ou `--idioma-residual`:** vale `--idioma-residual` (é o argumento real do script; `--residual` é erro da skill). Não afeta o Hub.
 - **CTA em francês, "Touche" ou "Appuie":** vale "Appuie sur « En savoir plus »" (a v1 com "Touche" foi refeita; lição 11 do documento 22).
-- **Real-ESRGAN, ≈3× ou ≈1,5× da duração:** o contexto não resolve (o teste do AD 03 deu ~1× no 2x e ~2× no 3x). Não afeta o Hub, que não faz upscale.
-- **Falta decidir:** qual tempo de upscale usar nos orçamentos.
+- **Real-ESRGAN, ≈3× ou ≈1,5× da duração:** o contexto não resolve sozinho (o teste do AD 03 deu ~1× no 2x e ~2× no 3x).
+- **Vale (decisão do Vinícius em 20/10/2026):** nos orçamentos, o tempo de melhorar a qualidade (upscale) é **1,5× a duração do vídeo**, como o teste do próprio Sávio indicou. O Hub não faz upscale: a regra vale para o upscale feito no PC (kit do Sávio) e para os orçamentos dos agentes.
 
 ### Outros pontos em que o Hub contrariava o Sávio (achados na revisão de 20/10/2026)
 - **Frame antes do vídeo:** o Hub mandava b-roll só de prompt direto em vídeo, sem frame. Vale o Sávio (documento 04): imagem base → aprovação → só então o vídeo. Prompt, agente de B-rolls, Criativo automático e playbook de variações seguem isso.
@@ -113,19 +114,21 @@ Ficaram nos playbooks e nos agentes porque não contradizem o Sávio. Se alguma 
 - Re-gancho a cada 6 a 10 s e "loop aberto" acima de 40 s (agente de Copy).
 - Teto de ~US$ 1 a 2 de FLORA por criativo no Criativo automático.
 
-## Falta o Vinícius decidir
+## Decididos pelo Vinícius (20/10/2026)
 
-O contexto do Sávio não decide estes pontos; até a decisão, nada foi inventado e a regra antiga do Hub não vale:
-1. **Item 13:** o COD proíbe crianças nos vídeos?
-2. **Item 15:** quem aprova o quê (gasto, piloto, avatar, roteiro)?
-3. **Item 18:** tempo de upscale nos orçamentos (≈3× ou ≈1,5× da duração)?
-4. **Legenda em maiúsculas:** o kit do Sávio não diz se o estilo `drop` é em caixa alta (o estilo dos SB-JESU era). O Hub tirou a caixa alta obrigatória; a edição final tem a opção `maiusculas` para quando ele decidir.
+O contexto do Sávio não decidia estes 4 pontos. O Vinícius decidiu, e eles valem como regra fechada:
+1. **Crianças nos vídeos COD (item 13):** podem ter. Sem proibição.
+2. **Quem aprova um lote de vídeos (item 15):** quem gerou o lote.
+3. **Legenda (item 3):** do jeito que foi falada, com maiúsculas e minúsculas normais; nunca toda em maiúsculas.
+4. **Tempo de upscale nos orçamentos (item 18):** 1,5× a duração do vídeo.
+
+Não há mais ponto pendente.
 
 ## Lógica de uso
 
-1. Como fazer vídeo: siga o contexto do Sávio. Em conflito com um playbook do Hub, com o prompt ou com a descrição de uma ferramenta, vale o Sávio.
-2. Para os três pontos acima, pergunte ao usuário; não invente.
-3. Quando o Vinícius decidir um deles, escreva a decisão no item, com a data, e tire o ponto da lista "Falta o Vinícius decidir".
+1. Como fazer vídeo: siga o contexto do Sávio e as 4 decisões acima. Em conflito com um playbook do Hub, com o prompt ou com a descrição de uma ferramenta, vale o Sávio (e, nos 4 pontos, a decisão do Vinícius).
+2. Ponto novo que nem o Sávio nem esta lista decidem: pergunte ao usuário; não invente.
+3. Quando o Vinícius decidir um ponto novo, escreva a decisão no item, com a data.
 
 ## Relacionados
 - [Preferências de trabalho](/memoria/03-preferencias-de-trabalho)

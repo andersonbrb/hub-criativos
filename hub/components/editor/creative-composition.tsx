@@ -46,7 +46,8 @@ function Caption({ text, style, width, height }: { text: string; style: CaptionS
   const { fps } = useVideoConfig();
   const scale = Math.min(width, height) / 1080;
   const pop = style.pop ? 0.82 + 0.18 * Math.min(1, spring({ frame, fps, durationInFrames: Math.round(0.14 * fps), config: { damping: 200 } })) : 1;
-  const parts = (style.uppercase ? text.toUpperCase() : text).split(/(\*[^*]+\*)/g).filter(Boolean);
+  // Do jeito que foi falada, nunca toda em caixa alta (decisão do Vinícius, 20/10/2026).
+  const parts = text.split(/(\*[^*]+\*)/g).filter(Boolean);
   const outline = style.outline * scale;
 
   return (

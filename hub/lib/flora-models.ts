@@ -301,7 +301,7 @@ export const paramsFor = (family: FloraFamily, withImage: boolean) =>
 
 // Regras do COD aplicadas no prompt (contexto do Sávio, decisão de 20/10/2026): idioma da fala travado no do mercado e
 // nada de texto, legenda ou música dentro da IA (entram na edição). Mercado = país + idioma da fala. Sem COD, só fixa o
-// idioma da fala do vídeo. A antiga proibição de crianças saiu (não está no contexto do Sávio; o Vinícius decide).
+// idioma da fala do vídeo. Crianças podem aparecer no COD (decisão do Vinícius em 20/10/2026): a antiga proibição saiu.
 export const MARKETS = [
   { id: "cl", label: "Chile (espanhol)", speech: "Chilean Spanish" },
   { id: "co", label: "Colômbia (espanhol)", speech: "Colombian Spanish" },

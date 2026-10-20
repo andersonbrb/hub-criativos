@@ -68,7 +68,7 @@ function soltarCopias(copias: string[]) {
 export type MontageFx = {
   estilo?: "drop" | "sb";
   legenda?: "bloco" | "palavra" | "padrao" | "destaque";
-  // Caixa alta na legenda (o kit do Sávio não diz no estilo drop; o Vinícius decide o padrão).
+  // Antigo: ignorado. A legenda sai do jeito que foi falada, nunca toda em caixa alta (decisão do Vinícius, 20/10/2026).
   maiusculas?: boolean;
   // Antigo (antes do Sávio): a palavra-chave agora é sempre amarela.
   cor_destaque?: string;
@@ -111,7 +111,6 @@ async function cleanFx(fx: MontageFx | undefined, copias: string[]) {
   };
   if (fx.estilo === "sb") set("estilo", "sb", "legenda sb (Anton)");
   if (fx.legenda === "palavra") set("legenda", "palavra", "legenda palavra a palavra");
-  if (fx.maiusculas === true) set("maiusculas", true, "legenda em maiúsculas");
   if (fx.zoom_cortes === false) set("zoom_cortes", false, "sem troca de enquadramento");
   if (fx.transicao === "dissolve" || fx.transicao === "zoom" || fx.transicao === "slide") set("transicao", fx.transicao, `transição ${fx.transicao}`);
   if (fx.whoosh === true) set("whoosh", true, "whoosh nas entradas de b-roll");

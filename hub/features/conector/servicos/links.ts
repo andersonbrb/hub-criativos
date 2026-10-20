@@ -19,8 +19,8 @@ import { json, SEM_CACHE } from "@/features/conector/servicos/http";
 import { PREFIXO_LINK, hashDe, novo } from "@/features/conector/servicos/segredos";
 import { ArquivoForaDoDrive } from "@/features/drive/servicos/arquivos";
 import { driveConectado } from "@/features/drive/servicos/conta";
-import { guardarNoDriveEmSegundoPlano, lerDoDrive, MENSAGEM_SEM_DRIVE, prazoNoHub } from "@/features/drive/servicos/videos";
-import { downloadName, type MediaKind } from "@/lib/generations";
+import { guardarNoDrive, lerDoDrive, MENSAGEM_SEM_DRIVE, prazoNoHub } from "@/features/drive/servicos/videos";
+import { downloadName, type Generation, type MediaKind } from "@/lib/generations";
 import { CONTENT_TYPES } from "@/lib/server/media";
 import { pastaDeMidia } from "@/lib/server/pastas";
 import { createGeneration, getGeneration } from "@/lib/server/store";
@@ -164,9 +164,13 @@ async function receberNaOrganizacao(request: Request, link: Link): Promise<Respo
     });
     await db.update(conectorLinks).set({ generationId: geracao.id }).where(eq(conectorLinks.id, link.id));
     console.info(`[conector] envio por link: ${nome} (${total} bytes) virou a geração ${geracao.id}`);
-    // Vídeo entregue vai para a pasta "Entregas do Claude" no Google Drive, em segundo plano: o curl não espera.
-    guardarNoDriveEmSegundoPlano(geracao);
-    return json({ ok: true, generation_id: geracao.id, nome, tamanho_bytes: total, mensagem: "Arquivo recebido e salvo na Biblioteca do Hub." }, 201, SEM_CACHE);
+    const base = { ok: true, generation_id: geracao.id, nome, tamanho_bytes: total };
+    if (tipo.kind !== "video") return json({ ...base, mensagem: "Arquivo recebido e salvo na Biblioteca do Hub." }, 201, SEM_CACHE);
+    // Vídeo (regra do dono: só no Google Drive) vai para a pasta "Entregas do Claude" do Drive da organização. O curl
+    // espera um pouco: assim a resposta diz se o vídeo já está no Drive (e na Biblioteca) e o Claude não lista cedo
+    // demais. Se o Drive demorar, o envio continua sozinho e a resposta avisa.
+    const situacao = await esperarODrive(geracao);
+    return json({ ...base, no_drive: situacao === "no-drive", mensagem: MENSAGEM_DO_VIDEO[situacao] }, 201, SEM_CACHE);
   } catch (err) {
     await unlink(caminho).catch(() => undefined);
     await devolverLink();
@@ -178,6 +182,28 @@ async function receberNaOrganizacao(request: Request, link: Link): Promise<Respo
     console.error("[conector] envio por link falhou:", err instanceof Error ? err.message : err);
     return recusa("Não deu para gravar o arquivo. O link continua valendo: tente de novo.", 500);
   }
+}
+
+// Quanto o curl espera o vídeo chegar ao Drive antes de responder (o envio segue sozinho depois disso).
+export const ajustesDoEnvio = { esperaDoDriveMs: 120_000 };
+
+type SituacaoDoVideo = "no-drive" | "subindo" | "esperando";
+
+const MENSAGEM_DO_VIDEO: Record<SituacaoDoVideo, string> = {
+  "no-drive": "Vídeo recebido e guardado no Google Drive da organização (pasta Entregas do Claude). Já aparece na Biblioteca do Hub.",
+  subindo:
+    "Vídeo recebido; ainda está subindo para o Google Drive da organização. Ele aparece na Biblioteca do Hub assim que chegar lá (confira com biblioteca_listar em alguns minutos).",
+  esperando:
+    "Vídeo recebido, mas o Google Drive não aceitou agora. O Hub tenta de novo sozinho por até 12 horas; ele só aparece na Biblioteca quando chegar ao Drive. Se não aparecer, avise quem cuida das Integrações do Hub.",
+};
+
+async function esperarODrive(geracao: Generation): Promise<SituacaoDoVideo> {
+  let prazo: ReturnType<typeof setTimeout> | undefined;
+  const tempo = new Promise<null>((ok) => (prazo = setTimeout(() => ok(null), ajustesDoEnvio.esperaDoDriveMs)));
+  // guardarNoDrive nunca lança; depois do prazo ele continua em segundo plano.
+  const guardada = await Promise.race([guardarNoDrive(geracao), tempo]).finally(() => clearTimeout(prazo));
+  if (!guardada) return "subindo";
+  return guardada.drive ? "no-drive" : "esperando";
 }
 
 // GET do curl -o: o arquivo atual da geração, como anexo, em stream. Vídeo guardado no Google Drive vem de lá, também

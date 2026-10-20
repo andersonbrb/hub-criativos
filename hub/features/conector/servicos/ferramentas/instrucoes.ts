@@ -41,7 +41,7 @@ function comoUsar(usuario: Usuario): string {
   }
   if (pode("biblioteca")) {
     partes.push(
-      "- **Biblioteca:** entregas (vídeos, imagens e áudios finais) vão para a Biblioteca do Hub pelo `link_de_envio`, que devolve um comando curl para rodar no terminal (um link por arquivo, vale 15 minutos). Para baixar um arquivo do Hub: `biblioteca_listar` para achar o id e `link_de_download` para o curl.",
+      "- **Biblioteca:** entregas (vídeos, imagens e áudios finais) vão para a Biblioteca do Hub pelo `link_de_envio`, que devolve um comando curl para rodar no terminal (um link por arquivo, vale 15 minutos). Para baixar um arquivo do Hub: `biblioteca_listar` para achar o id e `link_de_download` para o curl.\n- **Vídeos ficam só no Google Drive da organização** (regra do Vinícius): o vídeo enviado vai para o Drive (pasta Entregas do Claude) e só aparece na Biblioteca quando chega lá; a resposta do curl diz se já chegou. Sem o Drive conectado no Hub, o envio de vídeo é recusado (imagem e áudio continuam): avise quem cuida das Integrações. Não guarde cópia de vídeo em outro lugar do Hub. Para pôr a entrega no quadro, vincule o `generation_id` ao card com `fluxo_salvar_card`.",
     );
   }
   if (pode("fluxo")) {

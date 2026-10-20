@@ -27,6 +27,7 @@ export type CaptionStyle = {
   highlight: string;
   outline: number; // contorno em px (ou margem da caixa)
   box: boolean; // caixa escura atrás do texto
+  // Antigo: ignorado. A legenda sai do jeito que foi falada, nunca toda em caixa alta (decisão do Vinícius, 20/10/2026).
   uppercase: boolean;
   pop: boolean; // animação de entrada
 };

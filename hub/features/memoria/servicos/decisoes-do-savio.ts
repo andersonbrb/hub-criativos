@@ -50,7 +50,7 @@ function alvos(): Alvo[] {
         titulo: "Decisões: regras do Sávio x regras antigas do Hub (fechado em 20/10/2026)",
         noPrompt: true,
         precisaRevisao: false,
-        nota: "decisão do Vinícius: vale o contexto do Sávio nos 18 itens",
+        nota: "decisão do Vinícius: vale o contexto do Sávio nos 18 itens, e os 4 pontos que ele não decide foram decididos em 20/10/2026",
       },
     },
     {

@@ -28,7 +28,7 @@ const STYLE_PRESETS: { label: string; style: Partial<CaptionStyle> }[] = [
   { label: "UGC amarelo", style: { ...DEFAULT_STYLE } },
   { label: "Caixa preta", style: { box: true, color: "#FFFFFF", highlight: "#FFD23F", outline: 14, font: "Arial Black" } },
   { label: "Limpo", style: { box: false, outline: 3, font: "Segoe UI Black", uppercase: false, pop: false, highlight: "#7CE38B" } },
-  { label: "Impacto", style: { box: false, outline: 7, font: "Impact", uppercase: true, highlight: "#FF5A5F" } },
+  { label: "Impacto", style: { box: false, outline: 7, font: "Impact", uppercase: false, highlight: "#FF5A5F" } },
 ];
 
 type Props = {
@@ -254,7 +254,7 @@ function TimeInput({ label, value, onCommit }: { label: string; value: number; o
 function StyleTab({ project, onChange }: Props) {
   const style = project.style;
   const set = (patch: Partial<CaptionStyle>) => onChange((p) => ({ ...p, style: { ...p.style, ...patch } }));
-  const toggle = (key: "box" | "uppercase" | "pop", label: string) => (
+  const toggle = (key: "box" | "pop", label: string) => (
     <Button variant={style[key] ? "secondary" : "outline"} size="sm" aria-pressed={style[key]} onClick={() => set({ [key]: !style[key] })}>
       {label}
     </Button>
@@ -296,7 +296,6 @@ function StyleTab({ project, onChange }: Props) {
       </div>
       <div className="flex flex-wrap gap-2">
         {toggle("box", "Caixa escura")}
-        {toggle("uppercase", "MAIÚSCULAS")}
         {toggle("pop", "Animação pop")}
       </div>
     </div>

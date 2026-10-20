@@ -277,7 +277,8 @@ export function buildAss(project: EditorProject): string {
   ];
   const pos = `{\\an5\\pos(${Math.round(W / 2)},${Math.round((H * style.position) / 100)})${style.pop ? "\\fscx82\\fscy82\\t(0,140,\\fscx100\\fscy100)" : ""}}`;
   const events = placeCaptions(project).map((c) => {
-    const raw = style.uppercase ? c.text.toUpperCase() : c.text;
+    // Do jeito que foi falada, nunca toda em caixa alta (decisão do Vinícius, 20/10/2026): `uppercase` de projeto antigo é ignorado.
+    const raw = c.text;
     const text = raw
       .replace(/[{}\\]/g, "")
       .replace(/\n/g, "\\N")
