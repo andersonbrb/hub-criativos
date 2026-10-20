@@ -299,8 +299,9 @@ export const MAX_REFERENCES = 8;
 export const paramsFor = (family: FloraFamily, withImage: boolean) =>
   family.params.filter((p) => !p.only || p.only === (withImage ? "image" : "text"));
 
-// Regras do playbook de dropshipping COD (hub/playbooks/dropshipping-cod-criativos.md) aplicadas no prompt.
-// Mercado = país + idioma da fala. Com COD aplica as regras do playbook; sem COD, só fixa o idioma da fala do vídeo.
+// Regras do COD aplicadas no prompt (contexto do Sávio, decisão de 20/10/2026): idioma da fala travado no do mercado e
+// nada de texto, legenda ou música dentro da IA (entram na edição). Mercado = país + idioma da fala. Sem COD, só fixa o
+// idioma da fala do vídeo. A antiga proibição de crianças saiu (não está no contexto do Sávio; o Vinícius decide).
 export const MARKETS = [
   { id: "cl", label: "Chile (espanhol)", speech: "Chilean Spanish" },
   { id: "co", label: "Colômbia (espanhol)", speech: "Colombian Spanish" },
@@ -326,10 +327,10 @@ export function applyRules(prompt: string, kind: FloraKind, operation: Operation
   const lines = [base];
   if (kind === "video") {
     const market = MARKETS.find((m) => m.id === marketId) ?? MARKETS[0];
-    lines.push(`Continuous energetic speech, no silence. All speech in ${market.speech} only, no other language.`);
-    lines.push("Adults only, no children anywhere. No on-screen text, no subtitles.");
+    lines.push(`All speech in ${market.speech} only, no other language.`);
+    lines.push("No on-screen text, no subtitles, no background music.");
   } else {
-    lines.push("Adults only, no children anywhere. No added text, no watermark.");
+    lines.push("No added text, no watermark.");
   }
   return lines.join("\n");
 }

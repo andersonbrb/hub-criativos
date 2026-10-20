@@ -54,16 +54,11 @@ function classeDoContexto(nome: string): Classe {
   return { ...c("fato"), motivoRevisao: "Arquivo novo do contexto, fora do mapa da importação: confira o tipo, a frente e se entra no prompt." };
 }
 
-// Playbooks do hub: frente pelo nome do arquivo. O de contexto é um retrato antigo e sai do prompt.
+// Playbooks do hub: frente pelo nome do arquivo. As versões antigas (playbooks/historico/, inclusive o retrato
+// "Contexto Grupo Chegou" de 06/10) não são importadas: a pasta de histórico não é lida.
 const PLAYBOOKS: Record<string, Partial<Classe> & { titulo?: string }> = {
   // O primeiro "#" deste arquivo é uma seção ("Como agir"), não o título.
   "dropshipping-cod-criativos": { titulo: "Produtor de criativos COD (dropshipping)" },
-  "contexto-grupo-chegou": {
-    tipo: "fato",
-    frente: "geral",
-    noPrompt: false,
-    motivoRevisao: "retrato de 06/10, substituído pelos arquivos 01–03 e projetos do Sávio",
-  },
 };
 
 function frenteDoPlaybook(nome: string): Frente {
@@ -214,13 +209,9 @@ export async function planoDeImportacao(opcoes: OpcoesImportacao): Promise<{ com
     await add(path.join(pastaPlaybooks, nome), `playbook-${base.toLowerCase()}`, { tipo: "playbook", frente: frenteDoPlaybook(base), noPrompt: true, ...fixo }, hub, titulo ? { titulo } : {});
   }
 
+  // Fechado em 20/10/2026 (vale o contexto do Sávio): entra no prompt dos agentes.
   if (existsSync(arquivoDecisoes)) {
-    await add(
-      arquivoDecisoes,
-      "decisoes-pendentes",
-      { tipo: "decisao", frente: "geral", noPrompt: false, motivoRevisao: "18 conflitos entre as regras do Sávio e as do Hub aguardam decisão." },
-      { id: null, nome: "Hub (importação)" },
-    );
+    await add(arquivoDecisoes, "decisoes-pendentes", { tipo: "decisao", frente: "geral", noPrompt: true }, { id: null, nome: "Hub (importação)" });
   }
 
   return { commit, itens };

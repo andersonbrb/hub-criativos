@@ -14,6 +14,7 @@ export type TranslateRequest = {
   // Vídeo do hub (gerado ou enviado no estúdio).
   videoGenerationId: string;
   outputLanguages: string[];
+  // Ignorado: sempre speed (contexto do Sávio). Fica no tipo para pedidos antigos.
   mode?: "speed" | "precision";
   translateAudioOnly?: boolean;
   inputLanguage?: string | null;
@@ -82,7 +83,11 @@ export async function runTranslation(req: TranslateRequest): Promise<Generation[
   }
   const srtFile = req.srtFile && extOf(req.srtFile) === "srt" ? req.srtFile : null;
 
-  const mode = req.mode === "precision" ? "precision" : "speed";
+  // Sempre speed (contexto do Sávio): no precision o HeyGen só refaz a boca onde a fala original existe e, nas pausas
+  // do áudio novo, a boca continua no idioma original. Pedido antigo com "precision" também vai em speed.
+  const mode = "speed";
+  // Com áudio próprio é lipsync: duração dinâmica desligada, mesmo formato e quadros constantes (parâmetros do Sávio).
+  const lipsync = Boolean(audioFile);
   const title = String(req.title ?? "").trim() || `Hub · ${source.prompt.slice(0, 50)}`;
   const args: Record<string, unknown> = {
     video: await asset(source.file),
@@ -90,12 +95,12 @@ export async function runTranslation(req: TranslateRequest): Promise<Generation[
     mode,
     title,
     translateAudioOnly: Boolean(req.translateAudioOnly),
-    enableDynamicDuration: req.enableDynamicDuration ?? true,
+    enableDynamicDuration: req.enableDynamicDuration ?? !lipsync,
     disableMusicTrack: Boolean(req.disableMusicTrack),
     enableSpeechEnhancement: Boolean(req.enableSpeechEnhancement),
     enableWatermark: Boolean(req.enableWatermark),
   };
-  if (req.keepTheSameFormat) args.keepTheSameFormat = true;
+  if (req.keepTheSameFormat ?? lipsync) args.keepTheSameFormat = true;
   if (req.inputLanguage) args.inputLanguage = String(req.inputLanguage);
   const speakers = optNum(req.speakerNum);
   if (speakers !== null) args.speakerNum = Math.min(10, Math.max(1, Math.round(speakers)));
@@ -108,7 +113,7 @@ export async function runTranslation(req: TranslateRequest): Promise<Generation[
   }
   if (audioFile) {
     args.audio = await asset(audioFile);
-    if (req.fpsMode && ["vfr", "cfr", "passthrough"].includes(req.fpsMode)) args.fpsMode = req.fpsMode;
+    args.fpsMode = req.fpsMode && ["vfr", "cfr", "passthrough"].includes(req.fpsMode) ? req.fpsMode : "cfr";
   }
   if (req.stockVoice) args.stockVoiceConfig = { use_stock_voice: true };
 
@@ -127,7 +132,7 @@ export async function runTranslation(req: TranslateRequest): Promise<Generation[
     disableMusicTrack: args.disableMusicTrack as boolean,
     enableSpeechEnhancement: args.enableSpeechEnhancement as boolean,
     enableWatermark: args.enableWatermark as boolean,
-    keepTheSameFormat: Boolean(req.keepTheSameFormat),
+    keepTheSameFormat: Boolean(args.keepTheSameFormat),
     startTime,
     endTime,
     brandGlossaryId: req.brandGlossaryId ? String(req.brandGlossaryId) : null,

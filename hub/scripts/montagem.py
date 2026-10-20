@@ -1,20 +1,42 @@
 """
-Montagem automática do infoproduto (hub/playbooks/infoproduto-edicao-video.md), rodando local.
+Edição final do criativo (hub_montage no chat e tela Edição), rodando local, sem custo.
 
-Uso: python montagem.py job.json
+Segue o contexto do Sávio (decisão do Vinícius em 20/10/2026: como fazer vídeo segue só o contexto do Sávio;
+documento "decisoes-pendentes" da Memória). Em resumo:
+- Silêncio acima de 0,35 s cortado deixando 0,12 s; os cortes caem na fronteira das palavras.
+- Legenda pelo roteiro quando há roteiro: o texto é o do roteiro e o tempo vem da fala dos vídeos ORIGINAIS do avatar,
+  antes dos cortes (nunca de uma transcrição do vídeo montado, que já deslizou até 0,7 s).
+- Estilo "drop" (padrão): Poppins Bold ~107 px com centro em y=1060; estilo "sb": Anton ~116 px em y=1480. Branca com
+  contorno preto, 1 palavra-chave amarela por bloco, até 3 palavras/16 caracteres, "pop" de entrada.
+- Troca de plano a cada 1,1 a 4 s (enquadramento alternando 1,00/1,13, o jump cut do Sávio); b-roll de 2 a 4 s na
+  tela; sem deixa, o b-roll entra a cada ~10–15 s de avatar.
+- Voz a -15 LUFS; música a -32 LUFS sob a fala, com ducking de 11 dB; final a -14 LUFS com pico de -1,5 dBTP.
+- Entrega: H.264 high, yuv420p, 30 fps, AAC 48 kHz estéreo 128k, +faststart, até 30 MB (piso de 900 kbps: se não
+  couber sem descer dele, sai maior e o registro avisa). 720 de largura quando a origem é baixa (lado menor abaixo de
+  720 px), 1080 nos outros casos ou quando pedirem. Formatos 9:16 (padrão), 4:5 e 1:1.
+- CTA sem cara de botão: 2 setas vermelhas que entram na palavra do CTA e ficam até o fim. Aviso opcional numa faixa
+  opaca no rodapé (ex.: "Solo con fines demostrativos. Algunas escenas están aceleradas.").
+- Whoosh opcional na entrada de cada b-roll (o lote Yara validado usa whoosh e punch-in).
+
+Uso: python montagem.py job.json              edição completa
+     python montagem.py --finalizar job.json  só a entrega (depois dos gráficos animados, que o hub aplica)
+
 job.json = {
-  "name": "AD01", "avatar": "C:/.../avatar.mp4", "brolls": ["C:/.../br1.mp4", ...],
-  "lang": "es", "out": "C:/.../saida.mp4", "workdir": "C:/.../tmp", "fontsdir": "C:/.../fonts"
+  "name": "AD 01 - OFERTA-9x16-ES-V1", "avatars": ["C:/.../a1.mp4", ...], "brolls": [...], "broll_cues": [...],
+  "lang": "es", "out": "C:/.../saida.mp4", "workdir": "C:/.../tmp", "fontsdir": "C:/.../fonts",
+  "avatar_words": [[["palavra", 0.1, 0.4], ...], ...]   (opcional: palavras com tempo de cada vídeo do avatar)
+  "roteiro": "texto falado" | null, "formato": "9:16" | "4:5" | "1:1", "resolucao": "auto" | "720" | "1080",
+  "limite_mb": 30, "cta": {"palavra": "pide"} | {"inicio": 22.5} | null, "aviso": "texto" | null,
+  "graficos_depois": false, "entrega_out": "C:/.../id.entrega.json", "timeline_out": "C:/.../id.timeline.json",
+  "fx": {...}  (FX_DEFAULTS)
 }
 
-Diferenças em relação ao código do playbook (correções):
-- Áudio lido pelo ffmpeg (a DLL do PyAV é bloqueada pelo Controle de Aplicativo do Windows).
-- Cortes reencodados em vez de "-c copy": com copy o ffmpeg corta no keyframe e o corte sai impreciso.
-- FADE_DUR aplicado (estava definido no playbook mas não era usado): dissolve de entrada e saída do B-roll.
-- Base normalizada para 1080x1920 30fps antes do overlay (avatar 720p não quebra o overlay).
-- Fonte Montserrat carregada da pasta do hub (fontsdir), para a legenda não cair em outra fonte.
+Correções em relação ao código original do playbook: áudio lido pelo ffmpeg (a DLL do PyAV é bloqueada pelo Controle
+de Aplicativo do Windows), cortes reencodados (com "-c copy" o corte cai no keyframe), "-fps_mode cfr" no lugar de
+"-vsync" e fontes carregadas da pasta do hub (fontsdir).
 """
 
+import difflib
 import json
 import os
 import re
@@ -32,23 +54,51 @@ os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 os.environ.setdefault("PYTHONWARNINGS", "ignore")
 
 import numpy as np  # noqa: E402
-from faster_whisper import WhisperModel  # noqa: E402
 
-# Parâmetros (padrão "profissional", 2026-10-06: cortes com respiro, b-roll até o fim da frase, legenda curta)
-MIN_SIL = 0.5    # silêncio mínimo para cortar (s); pausas menores ficam (fala natural, sem "picotar")
-PRE_BUF = 0.08   # respiro antes da fala
-POST_BUF = 0.15  # respiro depois da fala
-FIRST_BR = 6.0   # início do primeiro B-roll (sem deixa)
-SPACING = 7.0    # intervalo entre B-rolls (sem deixa)
-BR_MIN = 2.0     # b-roll fica na tela até o fim da frase, entre BR_MIN e BR_MAX segundos
-BR_MAX = 4.5
+# ---------- Parâmetros (contexto do Sávio) ----------
+MIN_SIL = 0.35   # silêncio acima disto é cortado (audio.py pausas --min 0.35)
+PRE_BUF = 0.05   # do silêncio cortado sobram 0,12 s: 0,05 antes da fala seguinte...
+POST_BUF = 0.07  # ...e 0,07 depois da fala anterior (--manter 0.12)
+PLANO_MIN = 1.1  # troca de plano a cada 1,1 a 4 s
+PLANO_MAX = 4.0
+ZOOM_FECHADO = 1.13  # jump cut: enquadramento alternando 1,00/1,13 (zoom de montagem até ~1,2x)
+BR_MIN = 2.0     # b-roll fica na tela até o fim da frase, entre BR_MIN e BR_MAX segundos (troca de plano até 4 s)
+BR_MAX = 4.0
+BR_AVATAR_MIN = 10.0  # sem deixa: b-roll a cada ~10–15 s de avatar
+BR_AVATAR_MAX = 15.0
 FADE_DUR = 0.25  # dissolve de entrada e saída (só nas transições dissolve/zoom)
-MAX_CHARS = 16   # caracteres por bloco de legenda (cabe numa linha dentro da área segura)
-MAX_WORDS = 3    # palavras por bloco de legenda
+MAX_CHARS = 16   # legenda: blocos de até 3 palavras/16 caracteres
+MAX_WORDS = 3
 WHISPER_MODEL = "small"  # NUNCA "tiny" (causa desync)
 
-# "-vsync cfr" do playbook foi removido no ffmpeg 7+; "-fps_mode cfr" é o equivalente.
-ENC = ["-c:v", "libx264", "-r", "30", "-fps_mode", "cfr", "-pix_fmt", "yuv420p", "-preset", "ultrafast", "-crf", "23"]
+VOZ_LUFS = -15.0     # voz
+MUSICA_LUFS = -32.0  # música sob a fala
+DUCK_DB = 11.0       # ducking: a música sobe 11 dB onde não há fala
+FINAL_LUFS = -14.0   # final entre -16 e -13, alvo ~-14
+FINAL_TP = -1.5      # pico verdadeiro (<= -1 dBTP)
+SR = 48000
+
+LIMITE_MB = 30.0
+PISO_KBPS = 900      # o montar_ad_rapido do kit usa piso de 900 kbps em 720
+AUDIO_KBPS = 128
+FORMATOS = {"9:16": 1920, "4:5": 1350, "1:1": 1080}  # altura do quadro base de 1080 de largura
+
+# Posições em px do quadro base de 1080 de largura de cada formato (tabela do kit do Sávio).
+LEGENDA_Y = {"9:16": {"drop": 1060, "sb": 1480}, "4:5": {"drop": 745, "sb": 745}, "1:1": {"drop": 596, "sb": 596}}
+SETAS = {"9:16": (1630, 1.0), "4:5": (1114, 0.85), "1:1": (876, 0.75)}  # (y do topo, escala)
+SETAS_COM_AVISO = {"9:16": 1490}  # com faixa no rodapé as setas sobem (selo ~1110, setas ~1490)
+SETA_PX = 170
+SETA_CENTROS = (385, 695)  # setas de ~170 px em x 300 e 610 (bordas esquerdas)
+AVISO_TOPO_REL = 0.898     # faixa de aviso no rodapé (1150 de 1280)
+ESTILOS = {
+    "drop": {"fonte": "Poppins", "px": 107, "negrito": -1},  # Poppins Bold
+    "sb": {"fonte": "Anton", "px": 116, "negrito": 0},       # o Anton já é pesado (sem negrito falso)
+}
+AMARELO = "#FFE000"
+VERMELHO = (225, 20, 20)
+
+# Intermediários com pouca perda; a qualidade final sai na entrega.
+ENC = ["-c:v", "libx264", "-r", "30", "-fps_mode", "cfr", "-pix_fmt", "yuv420p", "-preset", "ultrafast", "-crf", "17"]
 
 
 def log(msg):
@@ -59,11 +109,22 @@ def run(cmd, label, cwd=None):
     r = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         raise RuntimeError(f"{label}: {r.stderr[-400:]}")
+    return r
 
 
 def duration(path):
     r = subprocess.run(["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", path], capture_output=True, text=True)
     return float(json.loads(r.stdout)["format"]["duration"])
+
+
+def video_size(path):
+    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+                        "-of", "csv=p=0", path], capture_output=True, text=True)
+    try:
+        w, h = r.stdout.strip().splitlines()[0].split(",")[:2]
+        return int(w), int(h)
+    except (ValueError, IndexError):
+        return None
 
 
 def has_audio(path):
@@ -100,9 +161,9 @@ def audio_duration(path):
         return duration(path)
 
 
-def scribe_words(job, paths):
-    """Palavras com tempo vindas do ElevenLabs Scribe (o hub transcreve antes e manda no job), uma lista por vídeo
-    do avatar; somadas pela duração do áudio de cada vídeo, viram a linha do tempo do avatar juntado."""
+def given_words(job, paths):
+    """Palavras com tempo que o hub já tem (transcrição em cache de cada vídeo do avatar), uma lista por vídeo;
+    somadas pela duração do áudio de cada vídeo, viram a linha do tempo do avatar juntado."""
     lists = job.get("avatar_words")
     if not lists or len(lists) != len(paths):
         return None
@@ -114,17 +175,30 @@ def scribe_words(job, paths):
 
 
 def remap(ws, merged):
-    """Leva os tempos das palavras para a linha do tempo depois dos cortes de silêncio (sem transcrever de novo)."""
+    """Leva os tempos das palavras para a linha do tempo depois dos cortes de silêncio (sem transcrever de novo).
+    Palavra que caiu num silêncio cortado (ex.: palavra do roteiro que a transcrição não ouviu) fica colada no fim do
+    trecho anterior, para não sumir da legenda."""
     out, acc = [], 0.0
     spans = []
     for a, b in merged:
         spans.append((a, b, acc))
         acc += b - a
     for w, s, e in ws:
+        hit = None
         for a, b, off in spans:
             if a - 0.05 <= s < b:
-                out.append((w, off + max(0.0, s - a), off + max(0.0, min(e, b) - a)))
+                hit = (w, off + max(0.0, s - a), off + max(0.0, min(e, b) - a))
                 break
+        if hit is None:
+            prev = [sp for sp in spans if sp[1] <= s]
+            if prev:
+                a, b, off = prev[-1]
+                t = off + (b - a)
+                hit = (w, max(0.0, t - 0.06), t)
+            elif spans:
+                hit = (w, 0.0, 0.06)
+        if hit:
+            out.append(hit)
     return out
 
 
@@ -135,28 +209,19 @@ def ts(t):
     return f"{h}:{m:02d}:{s:02d}.{c:02d}"
 
 
-# Área segura do 9:16 (Reels/TikTok/Shorts cobrem com a interface deles ~260 px do topo, ~460 px de baixo e
-# ~150 px de cada lado): a legenda fica acima de 1450 px e dentro de 150 px das laterais, em uma linha.
-ASS_HEADER = (
-    "[Script Info]\nScriptType: v4.00+\nWrapStyle: 0\nPlayResX: 1080\nPlayResY: 1920\n\n"
-    "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
-    "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, "
-    "MarginL, MarginR, MarginV, Encoding\n"
-    "Style: Default,Montserrat,96,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
-    "-1,0,0,0,100,100,0,0,1,4,2,2,150,150,470,1\n\n"
-    "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
-)
+def normalize_vf(h):
+    return f"scale=1080:{h}:force_original_aspect_ratio=increase,crop=1080:{h},setsar=1,fps=30"
 
-NORMALIZE = "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30"
 
-# ---------- Efeitos (job["fx"]). Padrão: aproximação lenta nos cortes e b-roll em corte seco; o resto desligado ----------
+# ---------- Efeitos (job["fx"]) ----------
 FX_DEFAULTS = {
-    "legenda": "padrao",        # "padrao" (acompanha a fala, palavra atual em cor) | "destaque" (bloco inteiro, palavra-chave em cor)
-    "cor_destaque": "#22FF66",  # cor da palavra-chave
-    "zoom_cortes": True,        # zoom de ritmo: alterna aberto/fechado a cada frase (esconde o jump cut, dá ritmo de UGC editado)
+    "estilo": "drop",           # estilo da legenda do Sávio: "drop" (Poppins, y=1060) | "sb" (Anton, y=1480)
+    "legenda": "bloco",         # "bloco" (o bloco inteiro com a palavra-chave em amarelo) | "palavra" (palavra a palavra)
+    "maiusculas": False,        # legenda em caixa alta (o kit do Sávio não diz no drop; decisão pendente do Vinícius)
+    "zoom_cortes": True,        # troca de plano: alterna 1,00/1,13 a cada 1,1–4 s
     "transicao": "corte",       # entrada do b-roll: "corte" (seco, padrão) | "dissolve" | "zoom" | "slide"
-    "musica": None,             # caminho de um áudio do hub para fundo (abaixa sozinho quando há fala)
-    "musica_volume": 0.18,
+    "whoosh": False,            # som de whoosh na entrada de cada b-roll
+    "musica": None,             # caminho de um áudio do hub para fundo (-32 LUFS sob a fala, ducking de 11 dB)
     "cor": "nenhuma",           # correção de cor: "nenhuma" | "quente" | "fria" | "vivo"
     "barra_progresso": False,   # barra fina no rodapé mostrando o andamento do vídeo
 }
@@ -167,7 +232,17 @@ GRADES = {
 }
 
 
-def ass_color(hex_color, default="22FF66"):
+def fx_de(job):
+    fx = {**FX_DEFAULTS, **{k: v for k, v in (job.get("fx") or {}).items() if v is not None}}
+    if fx.get("estilo") not in ESTILOS:
+        fx["estilo"] = "drop"
+    # Nomes antigos ("padrao"/"destaque") viram o bloco com palavra-chave em amarelo do Sávio.
+    if fx.get("legenda") not in ("bloco", "palavra"):
+        fx["legenda"] = "bloco"
+    return fx
+
+
+def ass_color(hex_color, default="FFE000"):
     """#RRGGBB -> &H00BBGGRR (cor do ASS)."""
     h = (hex_color or "").lstrip("#")
     if len(h) != 6 or any(c not in "0123456789abcdefABCDEF" for c in h):
@@ -218,61 +293,88 @@ def keyword_index(ws):
     return best if len(clean_word(ws[best][0])) >= 5 else None
 
 
-def caption_events(groups, fx):
-    """Eventos ASS, um bloco curto por vez (layout fixo: as palavras não pulam de lugar).
-    padrao: acompanha a fala, cada palavra aparece quando é dita e a palavra atual fica em cor.
-    destaque: o bloco inteiro de uma vez, com só a palavra-chave em cor."""
-    hl = ass_color(fx.get("cor_destaque"))
+def caption_events(groups, fx, y):
+    """Eventos ASS, um bloco curto por vez, centrado em (540, y), com "pop" de entrada.
+    bloco: o bloco inteiro de uma vez, com 1 palavra-chave em amarelo (kit do Sávio).
+    palavra: cada palavra aparece quando é dita; a palavra-chave do bloco fica em amarelo."""
+    hl = ass_color(AMARELO)
     out = []
     for a, b, ws in groups:
-        words_txt = [clean_word(w).upper() for w, _s, _e in ws]
-        if fx["legenda"] == "destaque":
-            key = keyword_index(ws)
-            text = " ".join(f"{{\\c{hl}}}{x}{{\\c&H00FFFFFF&}}" if k == key else x for k, x in enumerate(words_txt))
-            out.append(f"Dialogue: 0,{ts(a)},{ts(b)},Default,,0,0,0,,{{\\fscx94\\fscy94\\t(0,90,\\fscx100\\fscy100)}}{text}\n")
+        words_txt = [clean_word(w).upper() if fx.get("maiusculas") else clean_word(w) for w, _s, _e in ws]
+        key = keyword_index(ws)
+        chars = len(" ".join(words_txt))
+        # Palavra única muito longa: aperta na horizontal para caber na área segura.
+        sx = 100 * MAX_CHARS / chars if chars > MAX_CHARS + 2 else 100
+        pop = (f"\\fscx{sx * 0.82:.0f}\\fscy82\\t(0,80,\\fscx{sx * 1.06:.0f}\\fscy106)"
+               f"\\t(80,150,\\fscx{sx:.0f}\\fscy100)")
+        squeeze = f"\\fscx{sx:.0f}" if sx != 100 else ""
+        pos = f"\\an5\\pos(540,{y})"
+
+        def paint(k, x):
+            return f"{{\\c{hl}}}{x}{{\\c&H00FFFFFF&}}" if k == key else x
+
+        if fx["legenda"] != "palavra":
+            text = " ".join(paint(k, x) for k, x in enumerate(words_txt))
+            out.append(f"Dialogue: 0,{ts(a)},{ts(b)},Default,,0,0,0,,{{{pos}{pop}}}{text}\n")
             continue
         for j in range(len(ws)):
             start = a if j == 0 else ws[j][1]
             end = ws[j + 1][1] if j + 1 < len(ws) else b
             if end <= start:
                 continue
-            parts = []
-            for k, x in enumerate(words_txt):
-                if k < j:
-                    parts.append(x)
-                elif k == j:
-                    parts.append(f"{{\\c{hl}}}{x}{{\\c&H00FFFFFF&}}")
-                else:
-                    parts.append(f"{{\\alpha&HFF&}}{x}{{\\alpha&H00&}}")
-            out.append(f"Dialogue: 0,{ts(start)},{ts(end)},Default,,0,0,0,,{' '.join(parts)}\n")
+            parts = [paint(k, x) if k <= j else f"{{\\alpha&HFF&}}{x}{{\\alpha&H00&}}" for k, x in enumerate(words_txt)]
+            anim = pop if j == 0 else squeeze
+            out.append(f"Dialogue: 0,{ts(start)},{ts(end)},Default,,0,0,0,,{{{pos}{anim}}}{' '.join(parts)}\n")
     return "".join(out)
+
+
+def ass_header(fx, h, aviso_px):
+    est = ESTILOS[fx["estilo"]]
+    return (
+        f"[Script Info]\nScriptType: v4.00+\nWrapStyle: 2\nPlayResX: 1080\nPlayResY: {h}\nScaledBorderAndShadow: yes\n\n"
+        "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
+        "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, "
+        "MarginL, MarginR, MarginV, Encoding\n"
+        f"Style: Default,{est['fonte']},{est['px']},&H00FFFFFF,&H000000FF,&H00000000,&H64000000,"
+        f"{est['negrito']},0,0,0,100,100,0,0,1,6,2,5,40,40,0,1\n"
+        f"Style: Aviso,Poppins,{aviso_px},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
+        "-1,0,0,0,100,100,0,0,1,0,0,5,40,40,0,1\n\n"
+        "[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    )
 
 
 def sentence_starts(ws, jd):
     """Pontos de troca de enquadramento (depois dos cortes): início de frase ou de trecho (depois de . , ! ? ; :
-    ou de uma pausa > 0,3s), com 2s no mínimo entre trocas e no máximo 4s sem troca (ritmo de UGC editado)."""
+    ou de uma pausa > 0,3s), com PLANO_MIN entre trocas e no máximo PLANO_MAX sem troca."""
     starts = [0.0]
     for k in range(1, len(ws)):
         s = max(0.0, ws[k][1] - 0.05)
-        if s >= jd - 0.8 or s - starts[-1] < 2.0:
+        if s >= jd - 0.8 or s - starts[-1] < PLANO_MIN:
             continue
         boundary = re.search(r"[.,!?;:…]$", ws[k - 1][0]) or ws[k][1] - ws[k - 1][2] > 0.3
-        if boundary or s - starts[-1] > 4.0:
+        if boundary or s - starts[-1] > PLANO_MAX:
             starts.append(round(s, 3))
-    return starts
+    # Trecho longo sem palavra (ex.: gancho visual antes da fala) também troca de plano dentro do limite.
+    filled = []
+    for k, s in enumerate(starts):
+        filled.append(s)
+        nxt = starts[k + 1] if k + 1 < len(starts) else jd
+        while nxt - filled[-1] > PLANO_MAX + 0.01:
+            filled.append(round(filled[-1] + PLANO_MAX, 3))
+    return filled
 
 
-def rhythm_zoom(starts, jd):
-    """Zoom de ritmo: a cada frase o enquadramento alterna entre aberto (100%) e fechado (118%), com uma aproximação
+def rhythm_zoom(starts, jd, h):
+    """Troca de plano: a cada frase o enquadramento alterna entre aberto (100%) e fechado (113%), com uma aproximação
     lenta dentro da frase. Enquadra um pouco acima do centro para não cortar a cabeça."""
     ends = starts[1:] + [jd]
     expr = "1"
     for k in range(len(starts) - 1, -1, -1):
-        z0 = 1.0 if k % 2 == 0 else 1.18
+        z0 = 1.0 if k % 2 == 0 else ZOOM_FECHADO
         dur = max(0.5, ends[k] - starts[k])
         expr = f"if(lt(t,{ends[k]:.3f}),{z0}+0.04*(t-{starts[k]:.3f})/{dur:.3f},{expr})"
     return (f"scale=w='trunc(1080*({expr})/2)*2':h=-2:eval=frame,"
-            "crop=1080:1920:(iw-1080)/2:(ih-1920)*0.3")
+            f"crop=1080:{h}:(iw-1080)/2:(ih-{h})*0.3")
 
 
 def norm(s):
@@ -320,20 +422,93 @@ def tok_hit(word, tok):
     return word == tok if tok.isdigit() else word.startswith(tok)
 
 
-def find_cue(cue, ws, after):
-    """Primeiro momento (s), a partir de `after`, em que a fala diz a deixa (uma ou mais palavras, começo de palavra)."""
+def cue_hits(cue, ws, after=0.0):
+    """Todos os momentos (s), a partir de `after`, em que a fala diz a deixa (uma ou mais palavras, começo de palavra)."""
     toks = [t for t, _ in num_tokens([(t, 0) for t in norm(cue).split()])]
     if not toks:
-        return None
-    words = num_tokens([(t, x[1]) for x in ws for t in norm(x[0]).split()])
-    for i in range(len(words)):
-        if words[i][1] < after:
+        return []
+    words_ = num_tokens([(t, x[1]) for x in ws for t in norm(x[0]).split()])
+    hits = []
+    for i in range(len(words_)):
+        if words_[i][1] < after:
             continue
-        if all(i + k < len(words) and tok_hit(words[i + k][0], toks[k]) for k in range(len(toks))):
-            return words[i][1]
-    return None
+        if all(i + k < len(words_) and tok_hit(words_[i + k][0], toks[k]) for k in range(len(toks))):
+            hits.append(words_[i][1])
+    return hits
 
 
+def find_cue(cue, ws, after):
+    hits = cue_hits(cue, ws, after)
+    return hits[0] if hits else None
+
+
+# ---------- Legenda pelo roteiro ----------
+AUDIO_TAG = re.compile(r"\[[^\]\n]{1,40}\]")
+
+
+def script_tokens(roteiro):
+    """Palavras do roteiro como serão escritas na legenda (sem as tags de emoção do ElevenLabs, como [excited])."""
+    texto = AUDIO_TAG.sub(" ", roteiro or "")
+    return [t for t in texto.split() if norm(t)]
+
+
+def align_script(roteiro, ws):
+    """Legenda pelo roteiro: cada palavra do roteiro recebe o tempo da palavra correspondente na fala original
+    (ws: palavras ouvidas nos vídeos do avatar, antes dos cortes). Trecho que a transcrição ouviu diferente recebe o
+    tempo daquele trecho, dividido pelo tamanho das palavras; palavra que ela não ouviu fica no vão entre as vizinhas.
+    Devolve (palavras, fração do roteiro que bateu) ou (None, fração) quando o roteiro não é desta fala."""
+    toks = script_tokens(roteiro)
+    if not toks or not ws:
+        return None, 0.0
+    a = [norm(t) for t in toks]
+    b = [norm(w) for w, _s, _e in ws]
+    out = [None] * len(toks)
+    matched = 0
+    sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
+
+    def spread(i1, i2, t0, t1):
+        n = i2 - i1
+        if n <= 0:
+            return
+        t1 = max(t1, t0 + 0.06 * n)
+        weights = [max(1, len(a[i])) for i in range(i1, i2)]
+        total = float(sum(weights))
+        t = t0
+        for k, i in enumerate(range(i1, i2)):
+            d = (t1 - t0) * weights[k] / total
+            out[i] = (toks[i], round(t, 3), round(t + d, 3))
+            t += d
+
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        if op == "equal":
+            for k in range(i2 - i1):
+                _w, s, e = ws[j1 + k]
+                out[i1 + k] = (toks[i1 + k], s, e)
+            matched += i2 - i1
+        elif op == "replace":
+            spread(i1, i2, ws[j1][1], ws[j2 - 1][2])
+        elif op == "delete":
+            t0 = ws[j1 - 1][2] if j1 > 0 else max(0.0, ws[0][1] - 0.3)
+            t1 = ws[j1][1] if j1 < len(ws) else t0 + 0.3 * (i2 - i1)
+            spread(i1, i2, t0, max(t0, t1))
+        # insert: palavra ouvida que não está no roteiro (improviso ou erro da transcrição) não entra na legenda.
+    ratio = matched / len(toks)
+    if ratio < 0.5:
+        return None, ratio
+    # Garante a ordem no tempo (tempos emprestados do vão nunca voltam para trás).
+    res, last = [], 0.0
+    for x in out:
+        if x is None:
+            continue
+        w, s, e = x
+        s = max(s, last)
+        e = max(e, s + 0.04)
+        res.append((w, s, e))
+        last = s
+    return res, ratio
+
+
+# ---------- B-roll ----------
 def phrase_end(t, ws):
     """Fim da frase falada em t: a primeira palavra (a partir de t + BR_MIN) que termina em pontuação ou é seguida
     de uma pausa. O b-roll fica até ali, entre BR_MIN e BR_MAX."""
@@ -350,9 +525,10 @@ def phrase_end(t, ws):
 
 def plan_brolls(n, cues, ws, jd, cuts=(), src=()):
     """[(índice do b-roll, início, duração)] na ordem dos b-rolls, sem sobreposição e dentro do vídeo.
-    Com deixa: entra quando a palavra é dita. Sem deixa: grade do padrão, puxada para o corte de silêncio mais próximo
-    (o b-roll cobre o pulo do jump cut). Duração: até o fim da frase."""
-    plan, free_at, slot = [], 0.0, 0
+    Com deixa: entra quando a palavra é dita. Sem deixa: depois de ~10–15 s de avatar (regra do Sávio para vídeo com
+    avatar), puxado para o corte de silêncio mais próximo dentro dessa janela (o b-roll cobre o pulo do jump cut).
+    Duração: até o fim da frase."""
+    plan, free_at = [], 0.0
     for i in range(n):
         cue = cues[i] if i < len(cues) else ""
         t = None
@@ -362,16 +538,12 @@ def plan_brolls(n, cues, ws, jd, cuts=(), src=()):
                 t = round(max(0.0, hit - 0.1), 2)
                 log(f"b-roll {i + 1}: deixa \"{cue}\" falada em {hit:.1f}s")
             else:
-                log(f"b-roll {i + 1}: deixa \"{cue}\" não encontrada na fala; usando a grade do padrão")
+                log(f"b-roll {i + 1}: deixa \"{cue}\" não encontrada na fala; entra depois de ~10–15 s de avatar")
         if t is None:
-            while FIRST_BR + slot * SPACING < free_at:
-                slot += 1
-            t = FIRST_BR + slot * SPACING
-            slot += 1
-            near = [c for c in cuts if abs(c - t) <= 1.5 and c - 0.4 >= free_at]
-            if near:
-                t = min(near, key=lambda c: abs(c - t)) - 0.4
-            t = round(max(0.0, t), 2)
+            lo, hi = free_at + BR_AVATAR_MIN, free_at + BR_AVATAR_MAX
+            near = [c - 0.4 for c in cuts if lo <= c - 0.4 <= hi]
+            mid = free_at + (BR_AVATAR_MIN + BR_AVATAR_MAX) / 2
+            t = round(min(near, key=lambda c: abs(c - mid)) if near else free_at + 12.0, 2)
         d = phrase_end(t, ws) - t
         if i < len(src) and src[i]:
             d = min(d, src[i] - 0.05)
@@ -379,11 +551,11 @@ def plan_brolls(n, cues, ws, jd, cuts=(), src=()):
         if t + d > jd:
             continue
         plan.append((i, t, d))
-        free_at = t + d + 0.3
+        free_at = t + d
     return plan
 
 
-def join_avatars(paths, w):
+def join_avatars(paths, w, h):
     """Vários vídeos do avatar (ex.: gancho + body, várias tomadas): junta na ordem, no mesmo tamanho e fps,
     antes dos cortes. Daí em diante a montagem trata como um vídeo só."""
     for i, p in enumerate(paths):
@@ -392,41 +564,278 @@ def join_avatars(paths, w):
     inputs, filters, pairs = [], [], ""
     for i, p in enumerate(paths):
         inputs += ["-i", p]
-        filters.append(f"[{i}:v]{NORMALIZE},format=yuv420p,setpts=PTS-STARTPTS[v{i}]")
+        filters.append(f"[{i}:v]{normalize_vf(h)},format=yuv420p,setpts=PTS-STARTPTS[v{i}]")
         filters.append(f"[{i}:a]aresample=48000,aformat=channel_layouts=stereo,asetpts=PTS-STARTPTS[a{i}]")
         pairs += f"[v{i}][a{i}]"
     filters.append(f"{pairs}concat=n={len(paths)}:v=1:a=1[v][a]")
-    out = os.path.join(w, "avatar_junto.mp4")
+    out = os.path.join(w, "avatar_junto.mov")
     run(["ffmpeg", "-y", "-v", "error", *inputs, "-filter_complex", ";".join(filters), "-map", "[v]", "-map", "[a]",
-         *ENC, "-c:a", "aac", "-b:a", "192k", out], "juntar avatares")
+         *ENC, "-c:a", "pcm_s16le", out], "juntar avatares")
     log(f"{len(paths)} vídeos do avatar juntados ({duration(out):.1f}s)")
     return out
+
+
+def pick_width(pedido, paths):
+    """Largura de entrega (regra do Sávio): origem baixa (lado menor abaixo de 720 px) sai em 720; 1080 só com origem de
+    720 ou mais (ou AD vencedor refeito, quando pedirem 1080)."""
+    if str(pedido) in ("720", "1080"):
+        log(f"resolução pedida: {pedido} de largura")
+        return int(pedido)
+    lados = []
+    for p in paths:
+        sz = video_size(p)
+        if sz:
+            lados.append(min(sz))
+    menor = min(lados) if lados else 1080
+    largura = 720 if menor < 720 else 1080
+    log(f"resolução: {largura} de largura (origem com lado menor de {menor} px)")
+    return largura
+
+
+# ---------- Áudio (voz -15, música -32 sob a fala com ducking de 11 dB, final -14) ----------
+def raw_in(path):
+    return ["-f", "f32le", "-ar", str(SR), "-ac", "2", "-i", path]
+
+
+def measure_lufs(args_in):
+    """Loudness integrado (LUFS) do que entra em args_in; None se não houver som."""
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", *args_in, "-af", "ebur128=framelog=quiet", "-f", "null", "-"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    m = re.findall(r"I:\s+(-?[\d.]+|-inf)\s+LUFS", r.stderr)
+    if not m or m[-1] == "-inf":
+        return None
+    v = float(m[-1])
+    return v if v > -70 else None
+
+
+def read_pcm(path, dur, loop=False):
+    args = ["ffmpeg", "-v", "error"] + (["-stream_loop", "-1"] if loop else []) + ["-i", path, "-t", f"{dur:.3f}",
+                                                                                  "-vn", "-f", "f32le", "-ac", "2", "-ar", str(SR), "-"]
+    r = subprocess.run(args, capture_output=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"áudio: {r.stderr.decode('utf-8', 'replace')[-300:]}")
+    return np.frombuffer(r.stdout, np.float32).reshape(-1, 2).copy()
+
+
+def fit(arr, n):
+    if len(arr) >= n:
+        return arr[:n]
+    return np.vstack([arr, np.zeros((n - len(arr), 2), np.float32)])
+
+
+def speech_envelope(ws, dur, fps=100, ataque=0.08, soltura=0.35):
+    """1 onde há fala, 0 onde não há, com subida (a música abaixa um pouco antes da fala) e descida suaves."""
+    n = int(np.ceil(dur * fps)) + 2
+    alvo = np.zeros(n)
+    spans = []
+    for _w, s, e in ws:
+        if spans and s - spans[-1][1] < 0.4:
+            spans[-1][1] = max(spans[-1][1], e)
+        else:
+            spans.append([s, e])
+    for s, e in spans:
+        alvo[max(0, int((s - ataque) * fps)):min(n, int(np.ceil((e + 0.05) * fps)))] = 1.0
+    env = np.zeros(n)
+    y = 0.0
+    up, down = 1.0 / max(1, ataque * fps), 1.0 / max(1, soltura * fps)
+    for i in range(n):
+        y = min(alvo[i], y + up) if alvo[i] > y else max(alvo[i], y - down)
+        env[i] = y
+    return env, fps
+
+
+def whoosh(w):
+    """Whoosh curto sintetizado aqui (ruído rosa filtrado, sobe e some), sem direito autoral."""
+    path = os.path.join(w, "whoosh.f32")
+    run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "anoisesrc=d=0.5:c=pink:r=48000:a=0.6",
+         "-af", "highpass=f=350,lowpass=f=5000,afade=t=in:st=0:d=0.32:curve=exp,afade=t=out:st=0.32:d=0.18",
+         "-f", "f32le", "-ac", "2", "-ar", str(SR), path], "whoosh")
+    arr = np.fromfile(path, np.float32).reshape(-1, 2)
+    peak = float(np.max(np.abs(arr))) or 1.0
+    return arr * (10 ** (-18 / 20) / peak)
+
+
+def build_audio(jc, ws2, jd, fx, w, broll_starts):
+    """Voz tratada a -15 LUFS + música a -32 LUFS sob a fala (11 dB acima onde não há fala) + whoosh opcional.
+    Devolve o arquivo cru do mix e o filtro da normalização final (-14 LUFS, pico -1,5 dBTP) em duas passadas."""
+    n = int(round(jd * SR))
+    voz_path = os.path.join(w, "voz.f32")
+    run(["ffmpeg", "-y", "-v", "error", "-i", jc, "-vn", "-af",
+         "aresample=48000,aformat=channel_layouts=stereo,highpass=f=80,acompressor=threshold=0.1:ratio=3:attack=5:release=150:makeup=1.6",
+         "-f", "f32le", "-ac", "2", "-ar", str(SR), voz_path], "voz")
+    voz = fit(np.fromfile(voz_path, np.float32).reshape(-1, 2), n)
+    lv = measure_lufs(raw_in(voz_path))
+    if lv is not None:
+        voz = voz * (10 ** ((VOZ_LUFS - lv) / 20))
+        log(f"voz: {lv:.1f} LUFS -> {VOZ_LUFS:.0f} LUFS")
+    mix = voz.astype(np.float32)
+
+    musica = fx.get("musica")
+    if musica and os.path.exists(musica):
+        mus = fit(read_pcm(musica, jd, loop=True), n)
+        mus_path = os.path.join(w, "musica.f32")
+        mus.astype(np.float32).tofile(mus_path)
+        lm = measure_lufs(raw_in(mus_path))
+        if lm is None:
+            log("música sem som; seguindo sem música")
+        else:
+            env, fps = speech_envelope(ws2, jd)
+            t = np.arange(n) / SR
+            fala = np.interp(t, np.arange(len(env)) / fps, env)
+            ganho = (10 ** ((MUSICA_LUFS - lm) / 20)) * (10 ** ((DUCK_DB * (1.0 - fala)) / 20))
+            mix = mix + mus * ganho[:, None].astype(np.float32)
+            log(f"música: {lm:.1f} LUFS -> {MUSICA_LUFS:.0f} LUFS sob a fala, ducking de {DUCK_DB:.0f} dB")
+
+    if fx.get("whoosh") and broll_starts:
+        sfx = whoosh(w)
+        pico = int(0.32 * SR)
+        for t0 in broll_starts:
+            a = int(round(t0 * SR)) - pico
+            s0 = max(0, -a)
+            a = max(0, a)
+            b = min(n, a + len(sfx) - s0)
+            if b > a:
+                mix[a:b] += sfx[s0:s0 + (b - a)]
+        log(f"whoosh em {len(broll_starts)} entrada(s) de b-roll")
+
+    mix_path = os.path.join(w, "mix.f32")
+    mix.astype(np.float32).tofile(mix_path)
+    # Normalização final em duas passadas (ganho linear, sem mexer na dinâmica do mix).
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", *raw_in(mix_path), "-af",
+                        f"loudnorm=I={FINAL_LUFS}:TP={FINAL_TP}:LRA=11:print_format=json", "-f", "null", "-"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    m = re.search(r"\{[^{}]*\"input_i\"[^{}]*\}", r.stderr)
+    if m:
+        st = json.loads(m.group(0))
+        flt = (f"loudnorm=I={FINAL_LUFS}:TP={FINAL_TP}:LRA=11:measured_I={st['input_i']}:measured_TP={st['input_tp']}"
+               f":measured_LRA={st['input_lra']}:measured_thresh={st['input_thresh']}:offset={st['target_offset']}"
+               ":linear=true,aresample=48000")
+    else:
+        flt = f"loudnorm=I={FINAL_LUFS}:TP={FINAL_TP}:LRA=11,aresample=48000"
+    return mix_path, flt
+
+
+# ---------- Setas do CTA e faixa de aviso ----------
+def arrow_png(w, escala):
+    """Seta vermelha apontando para baixo (~170 px), com contorno preto, desenhada aqui (sem depender de imagem)."""
+    s = max(40, int(round(SETA_PX * escala)))
+    yy, xx = np.mgrid[0:s, 0:s].astype(np.float32) + 0.5
+    c = s / 2.0
+
+    def inside(m):
+        # haste no terço de cima + ponta (triângulo) embaixo, com margem m (contorno)
+        haste = (np.abs(xx - c) <= s * 0.17 + m) & (yy >= s * 0.04 - m) & (yy <= s * 0.55 + m)
+        topo, base = s * 0.45 - m, s * 0.96 + m
+        meia = (base - yy) / max(1.0, base - topo) * (s * 0.46 + m)
+        ponta = (yy >= topo) & (yy <= base) & (np.abs(xx - c) <= meia)
+        return haste | ponta
+
+    borda = inside(s * 0.035)
+    miolo = inside(0.0)
+    img = np.zeros((s, s, 4), np.uint8)
+    img[borda] = (0, 0, 0, 255)
+    img[miolo] = (*VERMELHO, 255)
+    raw = os.path.join(w, "seta.rgba")
+    img.tofile(raw)
+    png = os.path.join(w, "seta.png")
+    run(["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{s}x{s}", "-i", raw, png], "seta")
+    return png, s
+
+
+def cta_start(cta, ws2, jd):
+    if not cta:
+        return None
+    if cta.get("inicio") not in (None, ""):
+        try:
+            return max(0.0, min(float(cta["inicio"]), jd - 0.5))
+        except (TypeError, ValueError):
+            pass
+    palavra = str(cta.get("palavra") or "").strip()
+    if palavra:
+        hits = cue_hits(palavra, ws2)
+        if hits:
+            log(f"CTA: setas entram em \"{palavra}\" ({hits[-1]:.1f}s) e ficam até o fim")
+            return max(0.0, hits[-1] - 0.05)
+        log(f"CTA: \"{palavra}\" não encontrada na fala; setas nos últimos 3,5 s")
+    return max(0.0, jd - 3.5)
+
+
+# ---------- Entrega ----------
+def deliver(src, dst, largura, limite_mb):
+    """Padrão de entrega do Sávio: H.264 high, yuv420p, 30 fps, AAC 48 kHz estéreo 128k (já vem pronto), +faststart,
+    até limite_mb (bitrate calculado; piso de 900 kbps). Redimensiona para 720 de largura quando for o caso."""
+    dur = duration(src)
+    limite = float(limite_mb or LIMITE_MB)
+    alvo = int(limite * 1e6 * 8 * 0.96 / dur / 1000) - AUDIO_KBPS
+    abaixo_do_piso = alvo < PISO_KBPS
+    if abaixo_do_piso:
+        alvo = PISO_KBPS
+    vf = ["-vf", f"scale={largura}:-2:flags=lanczos"] if largura != 1080 else []
+
+    def enc(extra):
+        tmp = dst + ".tmp.mp4"
+        run(["ffmpeg", "-y", "-v", "error", "-i", src, *vf, "-c:v", "libx264", "-profile:v", "high", "-preset", "veryfast",
+             *extra, "-pix_fmt", "yuv420p", "-r", "30", "-fps_mode", "cfr", "-c:a", "copy", "-movflags", "+faststart", tmp],
+            "entrega")
+        os.replace(tmp, dst)
+        return os.path.getsize(dst) / 1e6
+
+    mb = enc(["-crf", "20", "-maxrate", f"{alvo}k", "-bufsize", f"{2 * alvo}k"])
+    if mb > limite and not abaixo_do_piso:
+        alvo2 = max(PISO_KBPS, int(alvo * limite / mb * 0.95))
+        mb = enc(["-b:v", f"{alvo2}k", "-maxrate", f"{alvo2}k", "-bufsize", f"{alvo2}k"])
+    sz = video_size(dst) or (0, 0)
+    log(f"entrega: {sz[0]}x{sz[1]}, {mb:.1f} MB, {duration(dst):.1f}s, AAC {AUDIO_KBPS}k")
+    if mb > limite:
+        log(f"AVISO: passou de {limite:.0f} MB ({mb:.1f} MB): não dá para caber sem descer do piso de {PISO_KBPS} kbps")
+
+
+def finalize_only(job):
+    """--finalizar: entrega do vídeo que já recebeu os gráficos animados (no lugar, no mesmo arquivo)."""
+    with open(job["entrega_out"], encoding="utf-8") as f:
+        ent = json.load(f)
+    # Mesmo nome de sobra que o hub já apaga se algo der errado.
+    src = job["out"] + ".gfx.mp4"
+    os.replace(job["out"], src)
+    try:
+        deliver(src, job["out"], int(ent.get("largura") or 1080), ent.get("limite_mb") or LIMITE_MB)
+    except Exception:
+        os.replace(src, job["out"])
+        raise
+    os.remove(src)
+    log("DONE")
 
 
 def process(job):
     w = job["workdir"]
     os.makedirs(w, exist_ok=True)
     lang = job.get("lang") or "es"
-    fx = {**FX_DEFAULTS, **(job.get("fx") or {})}
+    fx = fx_de(job)
+    formato = job.get("formato") if job.get("formato") in FORMATOS else "9:16"
+    h = FORMATOS[formato]
     log(f"START {job['name']}")
-    on = [k for k in FX_DEFAULTS if fx[k] != FX_DEFAULTS[k] and k not in ("cor_destaque", "musica_volume")]
+    log(f"formato {formato}; legenda {fx['estilo']} ({fx['legenda']})")
+    on = [k for k in ("transicao", "whoosh", "musica", "cor", "barra_progresso", "maiusculas") if fx[k] != FX_DEFAULTS[k]]
+    if not fx["zoom_cortes"]:
+        on.append("sem troca de enquadramento")
     if on:
         log(f"efeitos: {', '.join(on)}")
 
     avatars = job.get("avatars") or [job["avatar"]]
-    av = join_avatars(avatars, w) if len(avatars) > 1 else avatars[0]
+    largura = pick_width(job.get("resolucao") or "auto", avatars)
+    av = join_avatars(avatars, w, h) if len(avatars) > 1 else avatars[0]
     if not has_audio(av):
         raise RuntimeError("o vídeo do avatar não tem áudio")
     du = duration(av)
     log(f"duração do avatar: {du:.1f}s")
 
-    # Palavras com tempo: do ElevenLabs Scribe (padrão, feito pelo hub antes); o Whisper local só como reserva.
-    ws = scribe_words(job, avatars)
-    model = None
+    # Palavras com tempo da fala ORIGINAL (antes dos cortes): as do hub (transcrição em cache) ou o Whisper local.
+    ws = given_words(job, avatars)
     if ws is not None:
-        log(f"transcrição: ElevenLabs Scribe ({len(ws)} palavras)")
+        log(f"transcrição: {job.get('motor_das_palavras') or 'do hub'} ({len(ws)} palavras)")
     else:
-        log(f"transcrição: Whisper local '{WHISPER_MODEL}' (o ElevenLabs não respondeu)")
+        from faster_whisper import WhisperModel
+        log(f"transcrição: Whisper local '{WHISPER_MODEL}'")
         model = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
         ws = words(model, av, lang)
         log(f"palavras: {len(ws)}")
@@ -447,28 +856,30 @@ def process(job):
             merged[-1][1] = max(merged[-1][1], b)
         else:
             merged.append([a, b])
+    # O começo e o fim não são cortados a seco: o gancho visual antes da fala e a última palavra ficam.
+    merged[0][0] = 0.0 if merged[0][0] < 0.6 else merged[0][0]
 
-    jc = os.path.join(w, "jc.mp4")
+    jc = os.path.join(w, "jc.mov")
     copied = len(merged) == 1 and merged[0][0] < 0.1 and merged[0][1] > du - 0.5
+    vf = normalize_vf(h)
     if copied:
-        shutil.copy(av, jc)
+        run(["ffmpeg", "-y", "-v", "error", "-i", av, "-vf", vf, *ENC, "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", jc], "base")
         log("sem silêncios para cortar")
     else:
         parts = []
         for i, (a, b) in enumerate(merged):
-            p = os.path.join(w, f"c{i}.mp4")
+            p = os.path.join(w, f"c{i}.mov")
             seg = b - a
-            vf = NORMALIZE
             # Micro fade no áudio de cada corte: sem estalo na emenda.
             af = f"afade=t=in:d=0.015,afade=t=out:st={max(0.0, seg - 0.025):.3f}:d=0.025"
-            run(["ffmpeg", "-y", "-ss", f"{a:.3f}", "-to", f"{b:.3f}", "-i", av, "-vf", vf, "-af", af, *ENC,
-                 "-c:a", "aac", "-ar", "48000", "-ac", "2", p], "corte")
+            run(["ffmpeg", "-y", "-v", "error", "-ss", f"{a:.3f}", "-to", f"{b:.3f}", "-i", av, "-vf", vf, "-af", af, *ENC,
+                 "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "2", p], "corte")
             parts.append(p)
         lst = os.path.join(w, "l.txt")
         with open(lst, "w", encoding="utf-8") as f:
             f.write("\n".join(f"file '{p.replace(os.sep, '/')}'" for p in parts))
-        run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-c", "copy", jc], "concat")
-        log(f"{len(merged)} trechos de fala, {len(merged) - 1} cortes")
+        run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", lst, "-c", "copy", jc], "concat")
+        log(f"{len(merged)} trechos de fala, {len(merged) - 1} cortes (silêncio acima de {MIN_SIL}s fica com 0,12s)")
     jd = duration(jc)
     log(f"duração após cortes: {jd:.1f}s (era {du:.1f}s)")
     # Onde ficaram os cortes de silêncio na linha do tempo nova (o b-roll sem deixa cai em cima deles).
@@ -477,15 +888,27 @@ def process(job):
         acc += b - a
         cuts.append(round(acc, 2))
 
-    # Tempos depois dos cortes, para a legenda bater: com o Scribe, remapeia as palavras; com o Whisper, transcreve de novo.
-    ws2 = (ws if copied else remap(ws, merged)) if model is None else words(model, jc, lang)
+    # Legenda pelo roteiro: texto do roteiro, tempo da fala original (antes dos cortes).
+    cap = ws
+    roteiro = (job.get("roteiro") or "").strip()
+    if roteiro:
+        alinhado, ratio = align_script(roteiro, ws)
+        if alinhado:
+            cap = alinhado
+            log(f"legenda pelo roteiro ({len(alinhado)} palavras; {round(ratio * 100)}% bateu com a fala)")
+        else:
+            log(f"o roteiro não bate com a fala ({round(ratio * 100)}%): legenda pela transcrição da fala original")
+    else:
+        log("sem roteiro: legenda pela transcrição da fala original (antes dos cortes)")
+    # Tempos depois dos cortes: remapeados (nunca transcrevendo o vídeo já cortado).
+    ws2 = cap if copied else remap(cap, merged)
 
     # Linha do tempo das palavras depois dos cortes (o hub usa para os gráficos animados entrarem na palavra certa).
     if job.get("timeline_out"):
         with open(job["timeline_out"], "w", encoding="utf-8") as f:
             json.dump({"duration": jd, "words": [{"w": x[0], "s": x[1], "e": x[2]} for x in ws2]}, f, ensure_ascii=False)
 
-    # Blocos de legenda (cada um guarda as palavras com tempo, para o estilo "destaque")
+    # Blocos de legenda: até 3 palavras/16 caracteres; fim de frase fecha o bloco.
     groups = []; cur = []; cs = ce = None
     for wd in caption_words(ws2):
         txt = " ".join(x[0] for x in cur) + (" " if cur else "") + wd[0]
@@ -494,7 +917,6 @@ def process(job):
         else:
             if not cur: cs = wd[1]
             cur.append(wd); ce = wd[2]
-        # Fim de frase fecha o bloco (a legenda acompanha o ritmo da fala).
         if re.search(r"[.!?…]$", wd[0]):
             groups.append((cs, ce, cur)); cur = []
     if cur:
@@ -505,92 +927,123 @@ def process(job):
               for k, (a, b, g) in enumerate(groups)]
     groups = [(a, min(b, groups[k + 1][0]) if k + 1 < len(groups) else b, g) for k, (a, b, g) in enumerate(groups)]
 
+    aviso = (job.get("aviso") or "").strip()
+    aviso_topo = int(round(h * AVISO_TOPO_REL))
+    aviso_px = 34 if h >= 1350 else 30
+    events = caption_events(groups, fx, LEGENDA_Y[formato][fx["estilo"]])
+    if aviso:
+        y = (aviso_topo + h) // 2
+        events += f"Dialogue: 1,{ts(0)},{ts(jd + 1)},Aviso,,0,0,0,,{{\\an5\\pos(540,{y})}}{aviso}\n"
     with open(os.path.join(w, "s.ass"), "w", encoding="utf-8") as f:
-        f.write(ASS_HEADER + caption_events(groups, fx))
-    log(f"legendas: {len(groups)} blocos{' (palavra em destaque)' if fx['legenda'] == 'destaque' else ''}")
+        f.write(ass_header(fx, h, aviso_px) + events)
+    log(f"legendas: {len(groups)} blocos (palavra-chave em amarelo){'; aviso no rodapé' if aviso else ''}")
 
-    # B-rolls com dissolve, nos momentos certos: com "deixa" (palavra falada), entra quando ela é dita;
-    # sem deixa (ou deixa não encontrada), segue a grade do padrão (6s, depois a cada 7s). Nunca se sobrepõem.
+    # B-rolls nos momentos certos: com "deixa" (palavra falada), entra quando ela é dita; sem deixa (ou deixa não
+    # encontrada), depois de ~10–15 s de avatar. Nunca se sobrepõem.
     brolls = job.get("brolls") or []
     cues = job.get("broll_cues") or []
     plan = plan_brolls(len(brolls), cues, ws2, jd, cuts, [duration(b) for b in brolls])
-    vs = os.path.join(w, "vs.mp4")
+    vs = os.path.join(w, "vs.mov")
     inputs = ["-i", jc]
-    # Zoom de ritmo na pessoa (padrão): alterna aberto/fechado a cada frase.
     if fx["zoom_cortes"]:
         starts = sentence_starts(ws2, jd)
-        flt = f"[0:v]{NORMALIZE},{rhythm_zoom(starts, jd)}[base];"
-        log(f"zoom de ritmo: {len(starts)} frases")
+        flt = f"[0:v]{vf},{rhythm_zoom(starts, jd, h)}[base];"
+        log(f"troca de plano: {len(starts)} enquadramentos (1,00/{ZOOM_FECHADO:.2f}, a cada {PLANO_MIN}–{PLANO_MAX:.0f}s)")
     else:
-        flt = f"[0:v]{NORMALIZE}[base];"
+        flt = f"[0:v]{vf}[base];"
     prev = "[base]"
     trans = fx["transicao"] if fx["transicao"] in ("corte", "dissolve", "zoom", "slide") else "corte"
     for k, (i, t, d) in enumerate(plan):
         inputs += ["-i", brolls[i]]
-        # Entrada: corte seco (padrão, o mais profissional), dissolve, zoom (entra 15% mais perto e assenta) ou slide.
-        zoom = ",scale=w='trunc(1080*(1+0.15*max(0,1-t/0.4))/2)*2':h=-2:eval=frame,crop=1080:1920" if trans == "zoom" else ""
+        zoom = f",scale=w='trunc(1080*(1+0.15*max(0,1-t/0.4))/2)*2':h=-2:eval=frame,crop=1080:{h}" if trans == "zoom" else ""
         fade_in = f"fade=t=in:st=0:d={FADE_DUR}:alpha=1," if trans in ("dissolve", "zoom") else ""
         fade_out = f"fade=t=out:st={d - FADE_DUR:.3f}:d={FADE_DUR}:alpha=1," if trans in ("dissolve", "zoom") else ""
-        flt += (f"[{k + 1}:v]trim=0:{d:.3f},setpts=PTS-STARTPTS,{NORMALIZE}{zoom},format=yuva420p,"
+        flt += (f"[{k + 1}:v]trim=0:{d:.3f},setpts=PTS-STARTPTS,{vf}{zoom},format=yuva420p,"
                 f"{fade_in}{fade_out}"
                 f"setpts=PTS+{t}/TB[br{k}];")
         x = f"'if(lt(t-{t},0.22),W*(1-(t-{t})/0.22),0)'" if trans == "slide" else "0"
         flt += f"{prev}[br{k}]overlay=x={x}:y=0:eof_action=pass[v{k}];"
         prev = f"[v{k}]"
-    # Correção de cor (opcional), aplicada no conjunto para avatar e b-roll ficarem com a mesma cara.
     grade = GRADES.get(fx["cor"])
     flt += f"{prev}{grade}[vout]" if grade else f"{prev}null[vout]"
-    run(["ffmpeg", "-y", *inputs, "-filter_complex", flt, "-map", "[vout]", "-map", "0:a", *ENC, "-c:a", "copy", vs], "b-roll")
+    run(["ffmpeg", "-y", "-v", "error", *inputs, "-filter_complex", flt, "-map", "[vout]", "-an", *ENC, vs], "b-roll")
     if len(brolls) > len(plan):
         log(f"{len(brolls) - len(plan)} b-roll(s) não couberam no tempo do vídeo")
     log(f"b-rolls aplicados: {len(plan)} em {', '.join(f'{t}s ({d}s)' for _, t, d in sorted(plan, key=lambda p: p[1])) or '-'}")
 
-    # Queima a legenda (roda dentro da pasta de trabalho para o caminho do .ass não precisar de escape)
+    # Áudio final (voz, música, whoosh) e normalização em duas passadas.
+    mix_path, loud = build_audio(jc, ws2, jd, fx, w, [t for _, t, _ in plan])
+
+    # Mestre: legenda + aviso + barra + setas do CTA + áudio final, no quadro base de 1080.
     fonts = os.path.join(w, "fonts")
     shutil.copytree(job["fontsdir"], fonts, dirs_exist_ok=True)
-    # Finalização: legenda + áudio tratado + (opcionais) barra de progresso e música que abaixa quando há fala.
-    # Sem efeito sonoro nas transições, nunca (pedido do usuário em 2026-10-06).
-    inputs = ["-i", "vs.mp4"]
-    vf = "[0:v]ass=s.ass:fontsdir=fonts[vsub]"
-    vlast = "[vsub]"
+    ins = ["-i", "vs.mov", *raw_in("mix.f32")]
+    n_in = 2
+    chain = "[0:v]"
+    vfs = []
+    if aviso:
+        # Faixa quase opaca (alpha >= 250, para nada por baixo aparecer).
+        vfs.append(f"{chain}drawbox=x=0:y={aviso_topo}:w=iw:h=ih-{aviso_topo}:color=black@0.985:t=fill[vav]")
+        chain = "[vav]"
+    vfs.append(f"{chain}ass=s.ass:fontsdir=fonts[vsub]")
+    chain = "[vsub]"
     if fx["barra_progresso"]:
-        inputs += ["-f", "lavfi", "-i", f"color=c={(fx.get('cor_destaque') or '#22FF66').replace('#', '0x')}:s=1080x14:d={jd:.3f}:r=30"]
-        vf += f";{vlast}[1:v]overlay=x='-W+W*t/{jd:.3f}':y=H-14:eof_action=pass[vbar]"
-        vlast = "[vbar]"
-    # Áudio sempre tratado: tira grave sujo, comprime a voz (volume constante, mais presença) e no fim normaliza
-    # para -14 LUFS (o nível que Meta/TikTok/Reels esperam), sem estourar o pico.
-    af = ["[0:a]aresample=48000,aformat=channel_layouts=stereo,highpass=f=80,"
-          "acompressor=threshold=0.1:ratio=3:attack=5:release=150:makeup=1.6[vox]"]
-    if fx["musica"] and os.path.exists(fx["musica"]):
-        inputs += ["-stream_loop", "-1", "-i", fx["musica"]]
-        n = sum(1 for x in inputs if x == "-i") - 1
-        vol = min(1.0, max(0.02, float(fx.get("musica_volume") or 0.18)))
-        af.append("[vox]asplit=2[vox1][vox2]")
-        af.append(f"[{n}:a]aresample=48000,aformat=channel_layouts=stereo,volume={vol}[mus]")
-        af.append("[mus][vox2]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=350[duck]")
-        af.append("[vox1][duck]amix=inputs=2:duration=first:normalize=0[mix]")
-        last = "[mix]"
-    else:
-        last = "[vox]"
-    af.append(f"{last}loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]")
-    graph = ";".join([vf, *af])
-    amap, acodec = "[aout]", ["-c:a", "aac", "-b:a", "192k"]
-    run(["ffmpeg", "-y", *inputs, "-filter_complex", graph, "-map", vlast, "-map", amap, *ENC, *acodec, "-t", f"{jd:.3f}", "out.mp4"],
+        bar_y = (aviso_topo if aviso else h) - 14
+        ins += ["-f", "lavfi", "-i", f"color=c=0xFFE000:s=1080x14:d={jd:.3f}:r=30"]
+        vfs.append(f"{chain}[{n_in}:v]overlay=x='-W+W*t/{jd:.3f}':y={bar_y}:eof_action=pass[vbar]")
+        n_in += 1
+        chain = "[vbar]"
+    t_cta = cta_start(job.get("cta"), ws2, jd)
+    if t_cta is not None:
+        y0, escala = SETAS[formato]
+        if aviso:
+            y0 = SETAS_COM_AVISO.get(formato, int(y0 - (h - aviso_topo) * 0.7))
+        png, s = arrow_png(w, escala)
+        ins += ["-loop", "1", "-framerate", "30", "-i", png]
+        k = n_in
+        n_in += 1
+        vfs.append(f"[{k}:v]split=2[sa][sb]")
+        osc = f"{y0}+20*sin(2*PI*1.5*(t-{t_cta:.3f}))"
+        en = f"gte(t,{t_cta:.3f})"
+        x1, x2 = SETA_CENTROS[0] - s // 2, SETA_CENTROS[1] - s // 2
+        vfs.append(f"{chain}[sa]overlay=x={x1}:y='{osc}':enable='{en}':shortest=1[vc1]")
+        vfs.append(f"[vc1][sb]overlay=x={x2}:y='{osc}':enable='{en}':shortest=1[vcta]")
+        chain = "[vcta]"
+        log(f"CTA: 2 setas vermelhas a partir de {t_cta:.1f}s")
+    vfs.append(f"{chain}format=yuv420p[vfin]")
+    vfs.append(f"[1:a]{loud}[aout]")
+    mestre = os.path.join(w, "mestre.mp4")
+    run(["ffmpeg", "-y", "-v", "error", *ins, "-filter_complex", ";".join(vfs), "-map", "[vfin]", "-map", "[aout]",
+         "-c:v", "libx264", "-r", "30", "-fps_mode", "cfr", "-pix_fmt", "yuv420p", "-preset", "ultrafast", "-crf", "16",
+         "-c:a", "aac", "-b:a", f"{AUDIO_KBPS}k", "-ar", "48000", "-ac", "2", "-t", f"{jd:.3f}", "mestre.mp4"],
         "finalização", cwd=w)
 
-    shutil.move(os.path.join(w, "out.mp4"), job["out"])
-    log(f"arquivo final: {os.path.getsize(job['out']) / 1e6:.1f} MB, {duration(job['out']):.1f}s")
+    limite = float(job.get("limite_mb") or LIMITE_MB)
+    if job.get("entrega_out"):
+        with open(job["entrega_out"], "w", encoding="utf-8") as f:
+            json.dump({"largura": largura, "limite_mb": limite, "formato": formato}, f)
+    if job.get("graficos_depois"):
+        # Os gráficos animados (Remotion, no hub) entram em cima deste mestre de 1080; a entrega vem depois (--finalizar).
+        shutil.move(mestre, job["out"])
+        log(f"mestre pronto para os gráficos animados ({os.path.getsize(job['out']) / 1e6:.1f} MB)")
+    else:
+        deliver(mestre, job["out"], largura, limite)
     log("DONE")
 
 
 if __name__ == "__main__":
-    with open(sys.argv[1], encoding="utf-8") as fh:
+    finalizar = "--finalizar" in sys.argv
+    job_path = [a for a in sys.argv[1:] if a != "--finalizar"][0]
+    with open(job_path, encoding="utf-8") as fh:
         job = json.load(fh)
     try:
-        process(job)
+        if finalizar:
+            finalize_only(job)
+        else:
+            process(job)
     except Exception as err:  # noqa: BLE001
         log(f"ERROR {err}")
         sys.exit(1)
     finally:
-        if not job.get("keep_workdir"):
+        if not finalizar and not job.get("keep_workdir"):
             shutil.rmtree(job["workdir"], ignore_errors=True)

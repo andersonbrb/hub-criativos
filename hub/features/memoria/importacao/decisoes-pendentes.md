@@ -1,114 +1,136 @@
-# Decisões pendentes: regras do Sávio x regras atuais do Hub
+# Decisões: regras do Sávio x regras antigas do Hub (fechado em 20/10/2026)
 
-> Até decidir, as ferramentas do Hub seguem como estão; o Sávio decide cada item e a regra vencedora vai para o documento certo.
+> Decisão do Vinícius em 20/10/2026: "como fazer os vídeos vai ser só de acordo com o contexto do Sávio, apenas isso". Nos 18 pontos vale a regra do Sávio, inclusive onde ela contraria uma regra antiga do próprio Vinícius. As regras antigas do Hub saíram dos playbooks, do prompt dos agentes e das ferramentas; as versões antigas ficam no histórico de cada documento. O que o contexto do Sávio não decide está no fim, para o Vinícius decidir.
 
 ## Contexto de uso
 
-Quando o contexto do Sávio entrou na Memória do Hub, apareceram 18 pontos em que as regras dele e as regras que as ferramentas do Hub seguem hoje não batem. Cada item abaixo mostra os dois lados. Nenhum foi decidido ainda.
+Quando o contexto do Sávio entrou na Memória do Hub, apareceram 18 pontos em que as regras dele e as regras que o Hub seguia não batiam. Em 20/10/2026 o Vinícius decidiu todos a favor do Sávio. Cada item abaixo diz a regra que vale, o que mudou no Hub para segui-la e a regra antiga que saiu.
+
+Em qualquer conflito sobre como fazer vídeo (roteiro, voz, avatar, b-roll, edição, legenda, áudio, entrega, revisão), vale o contexto do Sávio: documentos 02, 03, 04, 05, 07, 08, 09, 10, 11, 12 e 22 da Memória. Os playbooks do Hub ficaram só com o que não bate de frente com ele (como usar o FLORA, prompts que funcionaram, organização do canvas).
 
 ### 1. Modelo de voz
-- **Sávio:** `eleven_multilingual_v2`, velocidade até 1.1x, clonar o narrador, e clone + STS para ter voz única.
-- **Hub hoje:** `eleven_v4` com audio tags, sem clone e sem STS.
-- **Decisão:** (pendente)
+- **Vale (Sávio):** `eleven_multilingual_v2`, velocidade até 1,1x (se não couber, enxugar o texto ou congelar um take). Marca própria: clonar a voz do narrador original. Criador de terceiros: voz de catálogo no sotaque do mercado, 1 voz por criador. Voz única por avatar: clone + speech-to-speech (STS). Uma voz por personagem.
+- **No Hub:** a narração (chat, agente de Voz e estúdio de Voz) sai em `eleven_multilingual_v2` por padrão; as tags de emoção deixaram de ser regra. O Hub ainda não clona voz nem faz STS: quando o lote precisar, o agente avisa em vez de trocar por outra voz.
+- **Saiu:** `eleven_v4` com audio tags obrigatórias.
 
 ### 2. Fonte do tempo da legenda
-- **Sávio:** o tempo vem do roteiro, por alinhamento forçado. Nunca Whisper no vídeo montado (já deslizou até 0,7 s).
-- **Hub hoje:** transcreve o vídeo montado (Scribe).
-- **Decisão:** (pendente)
+- **Vale (Sávio):** legenda pelo roteiro, com alinhamento forçado, desde a 1ª versão. Nunca Whisper no vídeo montado (já deslizou até 0,7 s e obrigou a remontar 21 vídeos).
+- **No Hub:** a edição final (`hub_montage` e estúdio Edição) escreve a legenda com o texto do roteiro: o roteiro passado no pedido ou, sozinho, o texto da narração do Hub que gerou o avatar. O tempo de cada palavra vem da fala dos vídeos originais do avatar, antes dos cortes, nunca do vídeo montado. O alinhamento do Hub encaixa o texto do roteiro nos tempos das palavras ouvidas na fala original (não é o alinhamento CTC do kit). Sem roteiro, a legenda sai da transcrição da fala original, também antes dos cortes. No editor, a legenda automática vem da fala do vídeo de origem e o agente troca o texto pelo do roteiro.
+- **Saiu:** transcrever o vídeo para legendar.
 
 ### 3. Estilo da legenda
-- **Sávio:** `drop` em Poppins Bold ~107 px em y=1060, com 1 palavra amarela por bloco; `sb` em Anton ~116 px em y=1480 + faixa no topo.
-- **Hub hoje:** Montserrat 96 embaixo, destaque verde #22FF66. O playbook COD fala em texto branco com contorno vermelho + emoji (CapCut).
-- **Decisão:** (pendente)
+- **Vale (Sávio):** grande, branca com contorno preto, 1 palavra-chave amarela por bloco, blocos de até 3 palavras/16 caracteres, "pop" de entrada. Estilo `drop`: Poppins Bold ~107 px, centro y=1060. Estilo `sb`: Anton ~116 px, centro y=1480 + faixa no topo. No 4:5, y=745; no 1:1, y=596. Nada cobre rosto ou boca; manchete fixa no meio = sem legenda ao mesmo tempo.
+- **No Hub:** a edição final usa o `drop` por padrão e oferece o `sb` (a faixa de topo do `sb` ainda não existe no Hub). O texto na tela do COD segue as posições do kit (manchete no topo só durante o gancho).
+- **Saiu:** Montserrat 96 embaixo com destaque verde; no playbook COD, texto branco com contorno vermelho + emoji (CapCut).
 
 ### 4. Música
-- **Sávio:** −32 LUFS sob a fala, ducking de 11 dB.
-- **Hub hoje:** volume fixo de 0,18.
-- O final em −14 LUFS é igual nos dois.
-- **Decisão:** (pendente)
+- **Vale (Sávio):** −32 LUFS sob a fala, ducking de 11 dB; voz a −15 LUFS; final entre −16 e −13 (alvo ~−14), true peak ≤ −1 dBTP. Música trend liberada pela pessoa (instrumental via demucs), sem repetir alerta de direitos; sempre uma versão sem música de reserva.
+- **No Hub:** a edição final mede a música e a deixa a −32 LUFS sob a fala, 11 dB acima onde não há fala; voz a −15 LUFS; final a −14 LUFS com pico em −1,5 dBTP. O controle de volume da música saiu da tela.
+- **Saiu:** volume fixo de 0,18.
 
 ### 5. Saída
-- **Sávio:** 720×1280 para fonte baixa e 1080 só com fonte ≥720p ou vencedor; até 30 MB; AAC 128k com faststart; formatos 4:5 e 1:1.
-- **Hub hoje:** sempre 1080×1920 9:16, sem limite de tamanho, AAC 192k.
-- **Decisão:** (pendente)
+- **Vale (Sávio):** H.264 high, yuv420p, 30 fps, AAC 48 kHz estéreo 128k, +faststart, até 30 MB (vídeo longo que não cabe com qualidade sai acima do limite e isso é anotado; piso de 900 kbps). Origem 360p/480p → 720×1280; 1080×1920 só com origem ≥720p ou AD vencedor refeito. Formatos 9:16 (padrão), 4:5 e 1:1.
+- **No Hub:** a edição final sai nesse padrão: resolução automática pela origem do vídeo do avatar (lado menor abaixo de 720 px → 720 de largura; senão 1080), com opção de pedir 720 ou 1080; formatos 9:16, 4:5 e 1:1; cabe em 30 MB (se não couber sem descer de 900 kbps, sai maior e o registro avisa). Exportação do editor e edição na batida: AAC 128k com faststart (a batida também até 30 MB e 30 fps). O Hub não faz upscale com IA: origem baixa é só redimensionada.
+- **Saiu:** sempre 1080×1920 9:16, sem limite de tamanho, AAC 192k.
 
 ### 6. Confirmações e custo
-- **Sávio:** só pergunta em gasto real ou ação destrutiva; orçamento sempre com custo + tempo + opção paga mais rápida; piloto só para método novo ou caro.
-- **Hub hoje:** confirma mais de 4 vídeos, Seedance 2.5 e o que ele mesmo propõe. O playbook infoproduto exige aprovação do Darlan antes do vídeo.
-- **Decisão:** (pendente)
+- **Vale (Sávio):** só pedir confirmação para gasto real (API paga, mídia) ou ação destrutiva; o resto segue sem perguntar e nunca "quer que eu continue?". Sempre perguntam: compliance (manter × suavizar), criador terceiro (B1 × B2), oferta/preço fora de fonte. Todo orçamento: custo em US$ + tempo médio + opção paga mais rápida, pelo preço cobrado. Piloto só para método novo ou caro (lipsync, avatar, tradução com rosto); método validado e barato, tudo em paralelo; depois do aprovado, nada de aprovação vídeo a vídeo. Checklist de abertura numa mensagem só.
+- **No Hub:** o prompt dos agentes segue essa regra.
+- **Saiu:** confirmar mais de 4 vídeos, Seedance 2.5 e o que o agente propõe; a aprovação do Darlan antes do vídeo (playbook de infoproduto).
 
 ### 7. Fala em takes de IA
-- **Sávio:** até 20 palavras por 8 s e gancho visual antes da fala.
-- **Hub hoje (COD):** 12–15 palavras em 5 s e 20–25 em 8 s, fala desde o primeiro quadro.
-- **Decisão:** (pendente)
+- **Vale (Sávio):** até ~20 palavras a cada 8 s; gancho visual antes da fala (título grande, elementos e som no quadro 1; movimento na primeira cena); transcrever cada take e cortar após a última palavra.
+- **No Hub:** playbook COD, playbook de variações e agente de Copy com essa regra; o FLORA no modo COD deixou de pedir "fala contínua, sem silêncio".
+- **Saiu:** 12–15 palavras em 5 s e 20–25 em 8 s, fala desde o primeiro quadro.
 
 ### 8. Texto de aviso
-- **Sávio:** "Solo con fines demostrativos. Algunas escenas están aceleradas."
-- **Hub hoje (COD):** outro texto.
-- **Decisão:** (pendente)
+- **Vale (Sávio):** "Solo con fines demostrativos. Algunas escenas están aceleradas." numa faixa opaca no rodapé (alpha ≥250).
+- **No Hub:** playbook COD com esse texto; a edição final ganhou o campo `aviso` (faixa opaca no rodapé).
+- **Saiu:** "Solo demostración. Algunas imágenes están aceleradas. El rendimiento puede variar…".
 
 ### 9. Preço e botão falso no vídeo
-- **Sávio:** na maioria dos lotes, sem preço no vídeo e sem botão falso.
-- **Hub hoje:** tem gráficos opcionais de preço e de CTA.
-- **Decisão:** (pendente)
+- **Vale (Sávio):** falar preço ou não é decisão da pessoa por oferta (pergunta do checklist de abertura); na maioria dos lotes, sem preço no vídeo. CTA sem cara de botão: 2 setas vermelhas (~170 px) que entram na palavra do CTA e ficam até o fim; nenhum "botão falso"; o botão do Meta bate com o que o vídeo manda tocar.
+- **No Hub:** o CTA da edição final virou as 2 setas vermelhas (campo `cta`, também quando o pedido usa o gráfico "cta"). O destaque de preço só entra se o usuário decidiu falar preço; contagem regressiva é compliance (perguntar).
+- **Saiu:** o gráfico de CTA com botão + seta.
 
 ### 10. Efeitos sonoros
-- **Sávio:** o lote Yara validado usa whoosh, punch-in e sticker.
-- **Hub hoje:** nunca nas transições.
-- **Decisão:** (pendente)
+- **Vale (Sávio):** o lote Yara validado usa whoosh, punch-in e sticker (montador com macetes). Contraria a regra antiga do Vinícius ("nunca efeito sonoro nas transições"); agora vale a do Sávio.
+- **No Hub:** a proibição saiu do prompt e das ferramentas; a edição final ganhou o whoosh opcional na entrada de cada b-roll; o punch-in é a troca de enquadramento nos cortes. Sticker o Hub ainda não tem.
+- **Saiu:** "nunca efeito sonoro nas transições".
 
 ### 11. Ritmo
-- **Sávio:** troca de plano a cada 1,1–4 s, corte do avatar na fronteira da palavra, silêncio cortado em 0,35 s deixando 0,12 s.
-- **Hub hoje:** b-roll a cada 6–7 s ou na deixa, silêncio mínimo de 0,5 s.
-- **Decisão:** (pendente)
+- **Vale (Sávio):** troca de plano a cada 1,1–4 s; cortar o avatar nas fronteiras das palavras (pausas viram b-roll ou jump cut com zoom 1,0/1,13; nunca segurar nem fundir quadros no rosto); silêncio acima de 0,35 s cortado deixando 0,12 s; zoom de montagem até ~1,2x; com avatar, b-roll de produto a cada ~10–15 s de avatar.
+- **No Hub:** a edição final corta silêncio acima de 0,35 s deixando 0,12 s, alterna o enquadramento 1,00/1,13 a cada 1,1–4 s, deixa o b-roll de 2 a 4 s na tela e, sem deixa, põe o b-roll depois de ~10–15 s de avatar.
+- **Saiu:** b-roll aos 6 s e a cada 7 s, silêncio mínimo de 0,5 s.
 
 ### 12. Lipsync
-- **Sávio:** nunca o modo `precision`; lipsync por trecho em vez de tradução literal inteira.
-- **Hub hoje:** expõe o modo `precision`.
-- **Decisão:** (pendente)
+- **Vale (Sávio):** nunca o modo `precision` (a boca segue o idioma original nas pausas); `speed`, `enableDynamicDuration: false`, `keepTheSameFormat: true`, `fpsMode: cfr`; trechos de até ~12 s; lipsync por trecho em vez de tradução literal inteira (a tradução automática mantém preço e marca do original); preferir roteiro reescrito + narração nova; boca coberta → trocar só o áudio.
+- **No Hub:** o modo "Precisão" sumiu do estúdio de Tradução e do chat (sempre `speed`, também em pedido antigo); com áudio próprio (lipsync), o HeyGen recebe duração dinâmica desligada, mesmo formato e quadros constantes. O Hub ainda não tem o lipsync por trecho com colagem só de boca e queixo.
+- **Saiu:** a opção `precision`.
 
 ### 13. Crianças
-- **Sávio:** ideia de persona "avó com neta" no lote Medalla (infoproduto).
-- **Hub hoje (COD):** proíbe crianças.
-- **Decisão:** (pendente)
+- **Sávio:** só a ideia de persona "avó com neta" num lote de infoproduto (Medalla). O contexto dele não tem regra sobre crianças em vídeo COD.
+- **No Hub:** a proibição antiga (COD: "sem crianças em nenhum frame ou vídeo", e o "Adults only, no children anywhere" no prompt do FLORA) saiu, porque não está no contexto do Sávio.
+- **Falta decidir:** o Vinícius diz se o COD volta a proibir crianças.
 
 ### 14. Nomes de arquivo
-- **Sávio:** `AD NN - <OFERTA>-<FORMATO>-<VOZ/IDIOMA>-<VARIAÇÃO>` e `VAR NN - G x AD`.
-- **Hub hoje (COD):** `[PRODUTO]-H##-…`.
-- **Decisão:** (pendente)
+- **Vale (Sávio):** `AD NN - <OFERTA>-<FORMATO>-<VOZ/IDIOMA>-<VARIAÇÃO>.mp4`; variações `VAR NN - <GANCHO> x <CORPO>`; nome do arquivo = nome do anúncio; no Meta, nome do conjunto = nome do anúncio = "AD NN"; cada oferta tem a sua sequência (listar os ADs da oferta e continuar do maior).
+- **No Hub:** playbooks e edição final nesse padrão (o nome da edição aceita espaços e vira o nome do arquivo).
+- **Saiu:** `[PRODUTO]-H##-…` e "confirme com o Savin o próximo número".
 
 ### 15. Quem aprova
-- **Sávio:** só pede aprovação para gasto real, ação destrutiva ou piloto de método novo ou caro; não nomeia quem aprova.
-- **Hub hoje:** os playbooks citam "Savin" e exigem aprovação do "Darlan".
-- Falta definir quem aprova o quê.
-- **Decisão:** (pendente)
+- **Sávio:** só pede aprovação para gasto real, ação destrutiva ou piloto de método novo/caro; não diz quem aprova.
+- **No Hub:** saíram "Savin" e a aprovação do "Darlan" dos playbooks; por enquanto o agente pede a aprovação a quem está usando o Hub, nas situações do Sávio.
+- **Falta decidir:** o Vinícius diz quem aprova o quê.
 
 ### 16. Contexto antigo do Hub
-- **Sávio:** os arquivos 01–03 e os projetos, com a situação de 13/10/2026.
-- **Hub hoje:** o retrato de 06/10 (Lymphoria, Podadora, Wyze) no playbook de contexto, já substituído. O playbook COD aponta para pastas locais "Produtividade com ia".
-- **Decisão:** (pendente)
+- **Vale (Sávio):** documentos 01–03 e os projetos, com a situação de 13–14/10/2026.
+- **No Hub:** o retrato de 06/10 (playbook "Contexto Grupo Chegou") saiu do prompt e ficou só como histórico; o playbook COD não aponta mais para as pastas locais "Produtividade com ia".
 
 ### 17. Transcrição
-- **Sávio:** faster-whisper local e grátis, em fila única com o OCR.
-- **Hub hoje:** Scribe pago por padrão.
-- **Decisão:** (pendente)
+- **Vale (Sávio):** faster-whisper local e grátis (modelo small, CPU int8), em fila única com o OCR (nunca juntos); transcrever cada take antes de usar.
+- **No Hub:** a transcrição (chat, agente de Transcrição, assistir vídeo, edição final e legenda do editor) é o Whisper local por padrão, um por vez; o ElevenLabs Scribe (pago) só entra se o Whisper falhar ou se pedirem.
+- **Saiu:** Scribe por padrão.
 
 ### 18. Inconsistências internas do Sávio
-- **Sávio:** o próprio contexto se contradiz em quatro pontos:
-  - Real-ESRGAN: ≈3× ou ≈1,5× da duração?
-  - Música a −29 ou −32 LUFS no `audio.py`?
-  - `--residual` ou `--idioma-residual`?
-  - CTA em francês: "Touche" ou "Appuie"?
-- **Hub hoje:** não se aplica.
-- **Decisão:** (pendente)
+- **Música −29 ou −32 LUFS:** vale −32. O próprio documento 08 diz que −32 é a regra da pessoa desde 09/10/2026 e que −29 é o padrão antigo do kit.
+- **`--residual` ou `--idioma-residual`:** vale `--idioma-residual` (é o argumento real do script; `--residual` é erro da skill). Não afeta o Hub.
+- **CTA em francês, "Touche" ou "Appuie":** vale "Appuie sur « En savoir plus »" (a v1 com "Touche" foi refeita; lição 11 do documento 22).
+- **Real-ESRGAN, ≈3× ou ≈1,5× da duração:** o contexto não resolve (o teste do AD 03 deu ~1× no 2x e ~2× no 3x). Não afeta o Hub, que não faz upscale.
+- **Falta decidir:** qual tempo de upscale usar nos orçamentos.
+
+### Outros pontos em que o Hub contrariava o Sávio (achados na revisão de 20/10/2026)
+- **Frame antes do vídeo:** o Hub mandava b-roll só de prompt direto em vídeo, sem frame. Vale o Sávio (documento 04): imagem base → aprovação → só então o vídeo. Prompt, agente de B-rolls, Criativo automático e playbook de variações seguem isso.
+- **Alerta de direitos da música:** a edição na batida mandava avisar sobre direitos autorais. Vale o Sávio (documento 03): música trend liberada pela pessoa, sem repetir o alerta; só citar no fim quais músicas foram usadas.
+- **Compliance no Criativo automático:** o modo "fazer tudo sozinho" não perguntava nada. Vale o Sávio: compliance (promessa de dinheiro ou cura, ameaça, contagem regressiva, famoso, depoimento com resultado) sempre pergunta manter × suavizar, mesmo nesse modo.
+- **Custo:** o Hub mandava "o mínimo possível em toda tarefa". Vale o Sávio: orçamento com custo + tempo + a opção paga mais rápida, lado a lado (o reaproveitamento e as ferramentas grátis continuam vindo primeiro).
+
+### Regras do Hub que o Sávio não tem e que ficaram (não batem de frente com ele)
+Ficaram nos playbooks e nos agentes porque não contradizem o Sávio. Se alguma não deve valer, o Vinícius diz e ela sai:
+- Variação de gancho na proporção 70/30 (contenção × exploração).
+- Produto rígido no prompt de vídeo (só se move em linha reta).
+- Seedance 2.0 Fast para explorar e 2.5 só para o que vai escalar; fal.ai em volume.
+- Re-gancho a cada 6 a 10 s e "loop aberto" acima de 40 s (agente de Copy).
+- Teto de ~US$ 1 a 2 de FLORA por criativo no Criativo automático.
+
+## Falta o Vinícius decidir
+
+O contexto do Sávio não decide estes pontos; até a decisão, nada foi inventado e a regra antiga do Hub não vale:
+1. **Item 13:** o COD proíbe crianças nos vídeos?
+2. **Item 15:** quem aprova o quê (gasto, piloto, avatar, roteiro)?
+3. **Item 18:** tempo de upscale nos orçamentos (≈3× ou ≈1,5× da duração)?
+4. **Legenda em maiúsculas:** o kit do Sávio não diz se o estilo `drop` é em caixa alta (o estilo dos SB-JESU era). O Hub tirou a caixa alta obrigatória; a edição final tem a opção `maiusculas` para quando ele decidir.
 
 ## Lógica de uso
 
-1. O Sávio decide um item por vez e escreve a decisão no lugar de "(pendente)", com a data.
-2. A regra vencedora vai para o documento certo da Memória (regras, fluxo ou playbook) e, se for regra do Hub, para a ferramenta.
-3. Quando todos os itens estiverem decididos, marque este documento como revisado.
+1. Como fazer vídeo: siga o contexto do Sávio. Em conflito com um playbook do Hub, com o prompt ou com a descrição de uma ferramenta, vale o Sávio.
+2. Para os três pontos acima, pergunte ao usuário; não invente.
+3. Quando o Vinícius decidir um deles, escreva a decisão no item, com a data, e tire o ponto da lista "Falta o Vinícius decidir".
 
 ## Relacionados
 - [Preferências de trabalho](/memoria/03-preferencias-de-trabalho)
+- [Fluxo de produção de criativos](/memoria/04-fluxo-producao-criativos)
 - [Voz e dublagem](/memoria/08-voz-e-dublagem)
+- [Lipsync e avatar](/memoria/09-lipsync-e-avatar-heygen)
+- [Revisão e qualidade](/memoria/11-revisao-e-qualidade)
 - [Lições de produção](/memoria/22-licoes-producao-video)

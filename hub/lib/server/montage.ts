@@ -13,9 +13,9 @@ import { applyGraphics, sanitizeGraphics, type GraphicRequest } from "@/lib/serv
 import { comOrganizacao, organizacaoDoContexto } from "@/features/acesso/servicos/organizacao-atual";
 import { DATA_DIR, pastaDeMidia } from "@/lib/server/pastas";
 import { createGeneration, getGeneration, updateGeneration } from "@/lib/server/store";
-import { scribeWords } from "@/lib/server/video";
+import { palavrasDaFala } from "@/lib/server/video";
 
-// Montagem automática do infoproduto (hub/playbooks/infoproduto-edicao-video.md), rodando nesta máquina:
+// Edição final (playbook infoproduto-edicao-video e contexto do Sávio), rodando nesta máquina:
 // Python + faster-whisper + ffmpeg (scripts/montagem.py). Não gasta créditos de nenhuma ferramenta.
 
 const SCRIPT = path.join(process.cwd(), "scripts", "montagem.py");
@@ -55,20 +55,34 @@ function soltarCopias(copias: string[]) {
 
 // avatarIds: vários vídeos do avatar, juntados na ordem antes dos cortes (gancho + body, várias tomadas).
 // avatarId continua valendo (um só), para o chat e chamadas antigas.
-// brollCues: "deixa" de cada b-roll (mesma ordem de brollIds): palavra/frase falada em que ele entra. Vazia = grade do padrão.
-// fx: efeitos (scripts/montagem.py, FX_DEFAULTS). Padrão: aproximação lenta nos cortes e b-roll em corte seco, áudio
-// sempre tratado; o resto desligado. musicId = áudio do hub para fundo.
-// graphics: gráficos animados com Remotion (lib/server/motion.ts), aplicados depois da edição.
+// brollCues: "deixa" de cada b-roll (mesma ordem de brollIds): palavra/frase falada em que ele entra. Vazia = depois
+// de ~10–15 s de avatar (regra do Sávio).
+// fx: efeitos (scripts/montagem.py, FX_DEFAULTS). O padrão segue o contexto do Sávio (decisão de 20/10/2026):
+// legenda "drop" com palavra-chave em amarelo, troca de plano a cada 1,1–4 s, b-roll em corte seco, voz -15 LUFS e
+// final -14 LUFS. musicId = áudio do hub para fundo (sempre -32 LUFS sob a fala, com ducking de 11 dB: sem volume livre).
+// roteiro: texto falado; a legenda usa o texto dele (sem ele, o hub tenta o texto da narração que gerou o avatar).
+// formato/resolucao/limiteMb: entrega do Sávio (9:16, 4:5 ou 1:1; 720 para origem baixa, 1080 caso contrário; até 30 MB).
+// cta: as 2 setas vermelhas do Sávio entram na palavra do CTA (ou no segundo `inicio`) e ficam até o fim.
+// aviso: texto pequeno numa faixa opaca no rodapé (ex.: "Solo con fines demostrativos. Algunas escenas están aceleradas.").
+// graphics: gráficos animados com Remotion (lib/server/motion.ts), aplicados depois da edição (só no 9:16).
 export type MontageFx = {
-  legenda?: "padrao" | "destaque";
+  estilo?: "drop" | "sb";
+  legenda?: "bloco" | "palavra" | "padrao" | "destaque";
+  // Caixa alta na legenda (o kit do Sávio não diz no estilo drop; o Vinícius decide o padrão).
+  maiusculas?: boolean;
+  // Antigo (antes do Sávio): a palavra-chave agora é sempre amarela.
   cor_destaque?: string;
   zoom_cortes?: boolean;
   transicao?: "corte" | "dissolve" | "zoom" | "slide";
+  whoosh?: boolean;
   musicId?: string;
+  // Antigo: ignorado (o nível da música é sempre o do Sávio).
   musica_volume?: number;
   cor?: "nenhuma" | "quente" | "fria" | "vivo";
   barra_progresso?: boolean;
 };
+export const FORMATOS = ["9:16", "4:5", "1:1"] as const;
+export const RESOLUCOES = ["auto", "720", "1080"] as const;
 export type MontageRequest = {
   avatarId?: string;
   avatarIds?: string[];
@@ -78,6 +92,12 @@ export type MontageRequest = {
   name?: string;
   fx?: MontageFx;
   graphics?: GraphicRequest[];
+  roteiro?: string;
+  formato?: (typeof FORMATOS)[number];
+  resolucao?: (typeof RESOLUCOES)[number];
+  limiteMb?: number;
+  cta?: { palavra?: string; inicio?: number };
+  aviso?: string;
 };
 
 // Só o que é válido e diferente do padrão do script. A música entra em `copias` (soltas no fim do trabalho).
@@ -89,20 +109,31 @@ async function cleanFx(fx: MontageFx | undefined, copias: string[]) {
     out[key] = value;
     labels.push(label);
   };
-  if (fx.legenda === "destaque") set("legenda", "destaque", "legenda destaque");
-  if (typeof fx.cor_destaque === "string" && /^#[0-9a-f]{6}$/i.test(fx.cor_destaque)) out.cor_destaque = fx.cor_destaque;
-  if (fx.zoom_cortes === false) set("zoom_cortes", false, "sem aproximação nos cortes");
+  if (fx.estilo === "sb") set("estilo", "sb", "legenda sb (Anton)");
+  if (fx.legenda === "palavra") set("legenda", "palavra", "legenda palavra a palavra");
+  if (fx.maiusculas === true) set("maiusculas", true, "legenda em maiúsculas");
+  if (fx.zoom_cortes === false) set("zoom_cortes", false, "sem troca de enquadramento");
   if (fx.transicao === "dissolve" || fx.transicao === "zoom" || fx.transicao === "slide") set("transicao", fx.transicao, `transição ${fx.transicao}`);
+  if (fx.whoosh === true) set("whoosh", true, "whoosh nas entradas de b-roll");
   if (fx.cor === "quente" || fx.cor === "fria" || fx.cor === "vivo") set("cor", fx.cor, `cor ${fx.cor}`);
   if (fx.barra_progresso === true) set("barra_progresso", true, "barra de progresso");
   if (fx.musicId) {
     const m = await getGeneration(String(fx.musicId));
     if (!m?.file || m.kind !== "audio") throw new InputError("A música precisa ser um áudio pronto do hub.");
     out.musica = await copiaSegura(m.file, copias);
-    out.musica_volume = Math.min(1, Math.max(0.02, Number(fx.musica_volume) || 0.18));
-    labels.push("música de fundo");
+    labels.push("música de fundo (-32 LUFS sob a fala)");
   }
   return { fx: out, labels };
+}
+
+// Tags de emoção do ElevenLabs ([excited]…) não são faladas: saem do roteiro da legenda.
+const semTags = (t: string) => t.replace(/\[[^\]\n]{1,40}\]/g, " ").replace(/\s+/g, " ").trim();
+
+// Roteiro da legenda: o pedido manda; sem ele, o texto da narração ou do roteiro que gerou cada vídeo do avatar no
+// HeyGen (todos precisam ter, senão a legenda sai da fala).
+function roteiroDosAvatares(avatars: { g: Generation }[]): string | null {
+  const partes = avatars.map(({ g }) => (g.tool === "heygen" && (g.params.mode === "audio" || g.params.mode === "script") ? semTags(g.prompt) : ""));
+  return partes.every(Boolean) ? partes.join(" ") : null;
 }
 
 const MAX_AVATARS = 20;
@@ -132,15 +163,32 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
   const brollCues = pairs.map((p) => p.cue);
   const brolls = await Promise.all(brollIds.map((id, i) => videoFile(id, `O b-roll ${i + 1}`)));
   const lang = LANGS.includes(req.lang as (typeof LANGS)[number]) ? (req.lang as string) : "es";
-  const name = (String(req.name ?? "").trim() || "AD").replace(/[^\w-]+/g, "_").slice(0, 40);
+  // Nome no padrão do Sávio ("AD 01 - OFERTA-FORMATO-VOZ/IDIOMA-VARIAÇÃO"): vira o nome do arquivo e do anúncio.
+  const nomeDado = String(req.name ?? "").trim().replace(/[^\w\- ]+/g, "_").replace(/\s+/g, " ").slice(0, 80);
+  const name = nomeDado || "AD";
   const copias: string[] = [];
   const { fx, labels } = await cleanFx(req.fx, copias);
-  const graphics = sanitizeGraphics(req.graphics);
+  const formato = FORMATOS.includes(req.formato as (typeof FORMATOS)[number]) ? (req.formato as string) : "9:16";
+  const resolucao = RESOLUCOES.includes(String(req.resolucao) as (typeof RESOLUCOES)[number]) ? String(req.resolucao) : "auto";
+  const limiteMb = Math.min(500, Math.max(5, Number(req.limiteMb) || 30));
+  const roteiroPedido = semTags(String(req.roteiro ?? "")).slice(0, 20_000);
+  const roteiro = roteiroPedido || roteiroDosAvatares(avatars);
+  const aviso = String(req.aviso ?? "").replace(/[{}\\\n]/g, " ").trim().slice(0, 160) || null;
+  // O CTA do Sávio são as 2 setas vermelhas (sem botão): o gráfico "cta" vira as setas da própria edição.
+  const todos = sanitizeGraphics(req.graphics);
+  const ctaGrafico = todos.find((g) => g.tipo === "cta");
+  const palavraCta = String(req.cta?.palavra ?? ctaGrafico?.deixa ?? "").trim().slice(0, 60);
+  const inicioCta = Number.isFinite(Number(req.cta?.inicio)) && req.cta?.inicio !== undefined ? Number(req.cta.inicio) : ctaGrafico?.inicio;
+  const cta = req.cta || ctaGrafico ? { ...(palavraCta ? { palavra: palavraCta } : {}), ...(Number.isFinite(inicioCta) ? { inicio: inicioCta } : {}) } : null;
+  // Os gráficos animados são desenhados para o 9:16; nos outros formatos ficam de fora (o registro avisa).
+  const pedidos = todos.filter((g) => g.tipo !== "cta");
+  const graphics = formato === "9:16" ? pedidos : [];
 
   const gen = await createGeneration({
     tool: "montagem",
     kind: "video",
     status: "running",
+    ...(nomeDado ? { name } : {}),
     prompt: `Edição ${name}: ${avatar.g.prompt}${avatars.length > 1 ? ` (+${avatars.length - 1})` : ""}`,
     params: {
       name,
@@ -151,8 +199,13 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
       brolls: brolls.length,
       brollIds: brollIds.join(","),
       brollCues: brollCues.join(" | "),
+      formato,
+      resolucao,
+      legendaPeloRoteiro: Boolean(roteiro),
       efeitos: labels.join(", ") || null,
       graficos: graphics.length ? graphics.map((g) => g.tipo).join(", ") : null,
+      cta: cta ? (cta.palavra ?? `${cta.inicio}s`) : null,
+      aviso,
     },
   });
 
@@ -162,17 +215,18 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
   const outName = `${randomUUID()}.mp4`;
   const jobFile = path.join(LOG_DIR, `${gen.id}.json`);
   const timelineFile = path.join(LOG_DIR, `${gen.id}.timeline.json`);
-  // Em segundo plano: primeiro as palavras com tempo de cada vídeo do avatar pelo ElevenLabs Scribe (padrão do
-  // usuário; fica em cache por vídeo), depois o Python. Se o Scribe falhar, o script cai para o Whisper local.
+  const entregaFile = path.join(LOG_DIR, `${gen.id}.entrega.json`);
+  // Em segundo plano: primeiro as palavras com tempo da fala ORIGINAL de cada vídeo do avatar (transcrição em cache ou
+  // Whisper local, um por vez, como no contexto do Sávio), depois o Python. Sem elas, o script transcreve sozinho.
   running.add(gen.id);
   void (async () => {
     const avatarWords = await Promise.all(
       avatarIds.map(async (id) => {
-        const words = await scribeWords(id);
+        const words = await palavrasDaFala(id);
         return words.map((w) => [w.text, w.start, w.end] as const);
       }),
     ).catch((err) => {
-      console.warn(`[hub] montagem ${gen.id}: Scribe indisponível (${err instanceof Error ? err.message : err}), usando o Whisper local`);
+      console.warn(`[hub] montagem ${gen.id}: palavras indisponíveis (${err instanceof Error ? err.message : err}), o script transcreve`);
       return null;
     });
     // Caminhos no disco para o Python (vídeo que está só no Drive vira uma cópia temporária, segura até o fim).
@@ -190,14 +244,24 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
         broll_cues: brollCues,
         lang,
         fx,
+        roteiro,
+        formato,
+        resolucao,
+        limite_mb: limiteMb,
+        cta,
+        aviso,
+        // Com gráficos, o Python entrega um mestre de 1080 e a entrega do Sávio (720/1080, até 30 MB) vem depois deles.
+        graficos_depois: graphics.length > 0,
         out: path.join(midia, outName),
         workdir: path.join(DATA_DIR, "tmp", gen.id),
         fontsdir: FONTS,
         timeline_out: timelineFile,
+        entrega_out: entregaFile,
       }),
     );
 
     launch(gen.id, SCRIPT, jobFile, outName, "Montagem", copias, async (line) => {
+      if (pedidos.length && !graphics.length) line(`gráficos animados ficaram de fora: eles são desenhados só para o 9:16 (este é ${formato})`);
       // Gráficos animados (opcionais) depois da edição; se falharem, o vídeo sai sem eles e o log explica.
       if (!graphics.length) return;
       try {
@@ -205,6 +269,8 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
       } catch (err) {
         line(`gráficos animados falharam (${err instanceof Error ? err.message.slice(0, 200) : "erro"}); vídeo entregue sem eles`);
       }
+      // Entrega no padrão do Sávio depois dos gráficos (resolução e limite de 30 MB).
+      await entregarDepoisDosGraficos(jobFile, line);
     });
   })().catch(async (err) => {
     running.delete(gen.id);
@@ -213,6 +279,21 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
   });
 
   return gen;
+}
+
+// Entrega do Sávio (720/1080 de largura, até 30 MB) do vídeo que já recebeu os gráficos animados: roda
+// `montagem.py --finalizar` no mesmo arquivo. Se falhar, o mestre de 1080 fica como está e o registro explica.
+function entregarDepoisDosGraficos(jobFile: string, line: (m: string) => void): Promise<void> {
+  const python = process.env.PYTHON_BIN || "python";
+  const env = { ...process.env, PYTHONIOENCODING: "utf-8" };
+  return new Promise((resolve) => {
+    execFile(python, ["-W", "ignore", SCRIPT, "--finalizar", jobFile], { windowsHide: true, timeout: 30 * 60_000, maxBuffer: 10 * 1024 * 1024, env }, (err, stdout) => {
+      const saida = String(stdout ?? "");
+      for (const l of saida.split("\n").filter((x) => x.trim() && !x.includes("DONE"))) line(l.replace(/^\[[\d:]+\]\s*/, ""));
+      if (err) line(`a entrega final falhou (${(saida.match(/ERROR (.+)/)?.[1] ?? err.message).slice(0, 200)}); o vídeo fica em 1080`);
+      resolve();
+    });
+  });
 }
 
 // Roda um script Python da edição em segundo plano: o log fica em .data/montagem/<id>.log (na raiz) e o status da geração é
@@ -243,7 +324,9 @@ function launch(
   };
   child.stdout.on("data", collect);
   child.stderr.on("data", collect);
-  const tirarSobras = () => Promise.all([apagarDaMidia(outName), apagarDaMidia(`${outName}.gfx.mp4`)]);
+  // Intermediários que o script e os gráficos gravam ao lado do vídeo (".gfx.mp4", ".tmp.mp4" da entrega).
+  const tirarIntermediarios = () => Promise.all([apagarDaMidia(`${outName}.gfx.mp4`), apagarDaMidia(`${outName}.tmp.mp4`)]);
+  const tirarSobras = () => Promise.all([apagarDaMidia(outName), tirarIntermediarios()]);
   child.on("error", (err) => {
     running.delete(id);
     soltarCopias(copias);
@@ -258,6 +341,7 @@ function launch(
     const text = log.join("");
     if (code === 0 && text.includes("DONE")) {
       if (after) await after((m: string) => collect(Buffer.from(`[${new Date().toLocaleTimeString("pt-BR")}] ${m}\n`))).catch(() => undefined);
+      await tirarIntermediarios();
       running.delete(id);
       // Apagada durante a edição: o vídeo novo não tem dono e sai na hora.
       await concluirComArquivo(id, { file: outName });

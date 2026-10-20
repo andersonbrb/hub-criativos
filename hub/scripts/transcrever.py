@@ -1,9 +1,9 @@
 """
-Transcrição local com Whisper (faster-whisper) + identificação do idioma. Reserva do agente de Transcrição
-quando o ElevenLabs (Scribe) não está disponível. Sem custo.
+Transcrição local com Whisper (faster-whisper "small", CPU int8) + identificação do idioma. É o motor padrão do hub
+(contexto do Sávio: transcrição local e grátis, uma por vez); o ElevenLabs Scribe fica de reserva.
 
 Uso: python transcrever.py <arquivo de vídeo ou áudio> [modelo]
-Saída (stdout): JSON { language, probability, duration, segments: [{ start, end, text }] }
+Saída (stdout): JSON { language, probability, duration, segments: [{ start, end, text }], words: [{ text, start, end }] }
 """
 
 import json
@@ -33,16 +33,19 @@ def main():
     audio = load_audio(path)
     model = WhisperModel(model_name, device="cpu", compute_type="int8")
     try:
-        segments, info = model.transcribe(audio, vad_filter=True)
+        segments, info = model.transcribe(audio, vad_filter=True, word_timestamps=True)
         segments = list(segments)
     except Exception:  # o VAD (onnxruntime) também pode ser bloqueado
-        segments, info = model.transcribe(audio, vad_filter=False)
+        segments, info = model.transcribe(audio, vad_filter=False, word_timestamps=True)
         segments = list(segments)
     print(json.dumps({
         "language": info.language,
         "probability": round(float(info.language_probability), 3),
         "duration": round(len(audio) / 16000, 2),
         "segments": [{"start": round(s.start, 2), "end": round(s.end, 2), "text": s.text.strip()} for s in segments if s.text.strip()],
+        # Palavra a palavra: a edição corta os silêncios e cola a legenda com elas.
+        "words": [{"text": w.word.strip(), "start": round(w.start, 3), "end": round(w.end, 3)}
+                  for s in segments for w in (s.words or []) if w.word.strip()],
     }, ensure_ascii=False))
 
 

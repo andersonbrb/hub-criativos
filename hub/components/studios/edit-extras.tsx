@@ -9,32 +9,36 @@ import type { Generation } from "@/lib/generations";
 import { cn } from "@/lib/utils";
 
 // Blocos opcionais da aba Edição: efeitos (ffmpeg, scripts/montagem.py) e gráficos animados (Remotion, lib/server/motion.ts).
-// Padrão: aproximação lenta nos cortes, b-roll em corte seco e áudio tratado; o resto desligado. Use só quando o vídeo pedir.
+// O padrão segue o contexto do Sávio (legenda drop com palavra-chave amarela, troca de plano, corte seco, áudio tratado);
+// o resto desligado. Use só quando o vídeo pedir.
 
 export type Fx = {
-  legenda: "padrao" | "destaque";
-  cor_destaque: string;
+  estilo: "drop" | "sb";
+  legenda: "bloco" | "palavra";
+  maiusculas: boolean;
   zoom_cortes: boolean;
   transicao: "corte" | "dissolve" | "zoom" | "slide";
+  whoosh: boolean;
   musicId: string;
-  musica_volume: number;
   cor: "nenhuma" | "quente" | "fria" | "vivo";
   barra_progresso: boolean;
 };
 
 export const FX_OFF: Fx = {
-  legenda: "padrao",
-  cor_destaque: "#22FF66",
+  estilo: "drop",
+  legenda: "bloco",
+  maiusculas: false,
   zoom_cortes: true,
   transicao: "corte",
+  whoosh: false,
   musicId: "",
-  musica_volume: 0.18,
   cor: "nenhuma",
   barra_progresso: false,
 };
 
 export const fxCount = (f: Fx) =>
-  [f.legenda !== "padrao", !f.zoom_cortes, f.transicao !== "corte", Boolean(f.musicId), f.cor !== "nenhuma", f.barra_progresso].filter(Boolean).length;
+  [f.estilo !== "drop", f.legenda !== "bloco", f.maiusculas, !f.zoom_cortes, f.transicao !== "corte", f.whoosh, Boolean(f.musicId), f.cor !== "nenhuma", f.barra_progresso].filter(Boolean)
+    .length;
 
 // posicao "" = automática (título/contador no topo, lista no meio, destaque e CTA embaixo, longe do rosto).
 export type Grafico = { tipo: "titulo" | "destaque" | "lista" | "contador" | "cta"; texto: string; sub: string; deixa: string; posicao: "" | "topo" | "meio" | "baixo" };
@@ -43,8 +47,7 @@ const TIPOS: { value: Grafico["tipo"]; label: string; hint: string }[] = [
   { value: "titulo", label: "Título", hint: "Frase de impacto no topo" },
   { value: "destaque", label: "Destaque", hint: "Preço, oferta ou número grande" },
   { value: "lista", label: "Lista", hint: "Benefícios; separe com ;" },
-  { value: "contador", label: "Contador", hint: "Oferta acaba em… (sub = 09:59)" },
-  { value: "cta", label: "CTA", hint: "Botão + seta no final" },
+  { value: "contador", label: "Contador", hint: "Contagem regressiva: só com escassez real (pergunte)" },
 ];
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
@@ -87,30 +90,20 @@ export function EffectsPanel({ fx, onChange, audios }: { fx: Fx; onChange: (f: F
         <Wand2 className="size-3.5" /> Efeitos{n ? <span className="text-rec">· {n} alterado{n > 1 ? "s" : ""}</span> : <span className="font-normal text-muted-foreground normal-case">· padrão</span>}
       </summary>
       <div className="mt-2 flex flex-col gap-1.5">
-        <p className="text-[0.6875rem] text-muted-foreground">O padrão já sai profissional: áudio tratado, aproximação lenta nos cortes e cenas em corte seco até o fim da frase. Mude só o que o vídeo pedir.</p>
-        <Mini label="Legenda" value={fx.legenda} onChange={(v) => set("legenda", v as Fx["legenda"])} options={[{ value: "padrao", label: "Padrão" }, { value: "destaque", label: "Palavra-chave em cor" }]} />
-        {fx.legenda === "destaque" && (
-          <label className="flex items-center justify-between gap-2 text-xs">
-            <span>Cor do destaque</span>
-            <input type="color" value={fx.cor_destaque} onChange={(e) => set("cor_destaque", e.target.value)} className="h-7 w-14 cursor-pointer border bg-transparent" aria-label="Cor do destaque" />
-          </label>
-        )}
-        <Toggle label="Aproximação lenta nos cortes" checked={fx.zoom_cortes} onChange={(v) => set("zoom_cortes", v)} />
+        <p className="text-[0.6875rem] text-muted-foreground">O padrão já segue o Sávio: legenda com palavra-chave amarela, troca de plano a cada 1,1 a 4s, cenas em corte seco e áudio tratado. Mude só o que o vídeo pedir.</p>
+        <Mini label="Estilo da legenda" value={fx.estilo} onChange={(v) => set("estilo", v as Fx["estilo"])} options={[{ value: "drop", label: "Drop (Poppins)" }, { value: "sb", label: "San Benito (Anton)" }]} />
+        <Mini label="Legenda" value={fx.legenda} onChange={(v) => set("legenda", v as Fx["legenda"])} options={[{ value: "bloco", label: "Bloco (padrão)" }, { value: "palavra", label: "Palavra a palavra" }]} />
+        <Toggle label="Legenda em maiúsculas" checked={fx.maiusculas} onChange={(v) => set("maiusculas", v)} />
+        <Toggle label="Troca de enquadramento nos cortes" checked={fx.zoom_cortes} onChange={(v) => set("zoom_cortes", v)} />
         <Mini label="Transição do b-roll" value={fx.transicao} onChange={(v) => set("transicao", v as Fx["transicao"])} options={[{ value: "corte", label: "Corte seco (padrão)" }, { value: "dissolve", label: "Dissolve" }, { value: "zoom", label: "Zoom" }, { value: "slide", label: "Slide" }]} />
+        <Toggle label="Whoosh na entrada do b-roll" checked={fx.whoosh} onChange={(v) => set("whoosh", v)} />
         <Mini
           label="Música de fundo"
           value={fx.musicId || "none"}
           onChange={(v) => set("musicId", v === "none" ? "" : v)}
           options={[{ value: "none", label: "Nenhuma" }, ...audios.map((a) => ({ value: a.id, label: (a.name || a.prompt).slice(0, 28) || "Áudio" }))]}
         />
-        {fx.musicId && (
-          <Mini
-            label="Volume da música"
-            value={String(fx.musica_volume)}
-            onChange={(v) => set("musica_volume", Number(v))}
-            options={[{ value: "0.1", label: "Baixo" }, { value: "0.18", label: "Médio" }, { value: "0.28", label: "Alto" }]}
-          />
-        )}
+        {fx.musicId && <p className="text-[0.6875rem] text-muted-foreground">A música fica a -32 LUFS sob a fala e sobe 11 dB onde não há fala (regra do Sávio).</p>}
         <Mini label="Cor" value={fx.cor} onChange={(v) => set("cor", v as Fx["cor"])} options={[{ value: "nenhuma", label: "Original" }, { value: "quente", label: "Quente" }, { value: "fria", label: "Fria" }, { value: "vivo", label: "Viva" }]} />
         <Toggle label="Barra de progresso" checked={fx.barra_progresso} onChange={(v) => set("barra_progresso", v)} />
         {n > 0 && (

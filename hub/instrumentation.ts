@@ -18,4 +18,10 @@ export async function register() {
   } catch (err) {
     console.error("[hub] não deu para ligar a faxina dos vídeos:", err instanceof Error ? err.message : err);
   }
+  // Decisão de 20/10/2026 (como fazer vídeo segue só o contexto do Sávio): leva para a Memória o documento das decisões
+  // fechado e os playbooks novos, em segundo plano (features/memoria/servicos/decisoes-do-savio.ts). Rodar de novo não
+  // grava nada; documento editado na tela não é trocado (vai para a revisão).
+  void import("@/features/memoria/servicos/decisoes-do-savio")
+    .then(({ aplicarDecisoesEmTodasAsOrganizacoes }) => aplicarDecisoesEmTodasAsOrganizacoes())
+    .catch((err) => console.error("[hub] não deu para aplicar as decisões do Sávio na Memória:", err instanceof Error ? err.message : err));
 }

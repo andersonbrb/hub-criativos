@@ -101,18 +101,23 @@ Regras que evitam quebrar conversas existentes:
 - `chat.messages` está no formato da API da Anthropic e só cresce. Não reescreva mensagens antigas. Imagens ficam como `@file:<nome>` e são convertidas na hora em JPEG determinístico (`chat/images.ts`).
 - Mantenha a ordem e o texto das definições de ferramenta estáveis. Uma ferramenta aposentada vai para `DEPRECATED` em vez de sumir.
 
+### Como fazer vídeo: só o contexto do Sávio (regra do dono, 20/10/2026)
+"Como fazer os vídeos vai ser só de acordo com o contexto do Sávio." Em roteiro, voz, avatar, b-roll, edição, legenda, áudio, entrega e revisão, a referência é o contexto do Sávio na Memória (documentos 02 a 12 e 22); o documento `decisoes-pendentes` (`hub/features/memoria/importacao/decisoes-pendentes.md`) diz a regra em cada ponto em que o hub era diferente e lista o que o Vinícius ainda decide. Regra nova de vídeo no prompt, num playbook, numa ferramenta ou numa tela segue o Sávio; onde ele não diz nada, pergunte ao dono (não invente nem mantenha a regra antiga do hub).
+- As ferramentas seguem isso: edição final (`scripts/montagem.py`: legenda pelo roteiro, estilo drop/sb, música -32 LUFS sob a fala, entrega 720/1080 até 30 MB, formatos 9:16/4:5/1:1, CTA com setas, aviso), transcrição local primeiro, voz `eleven_multilingual_v2`, HeyGen sempre `speed`.
+- A Memória da produção recebe o documento fechado e os playbooks novos sozinha ao subir o servidor (`features/memoria/servicos/decisoes-do-savio.ts`, chamado no `instrumentation.ts`): só troca documento que ainda é texto do hub; o editado na tela vai para a revisão. As versões antigas ficam no histórico do documento e em `hub/playbooks/historico/`.
+
 ### O comportamento dos agentes é texto, não código
 - `lib/server/chat/system.ts` monta o prompt base (regras de custo, b-roll, FLORA e Fluxo) e acrescenta todos os `hub/playbooks/*.md`.
 - `lib/agent-profiles.ts` é a definição única de cada agente (Estrategista, Copy, VSL…). A lista da página Agentes (`/agentes`) e da busca rápida ainda vem de `lib/data.ts` (dados de exemplo do protótipo), então os ids dos dois arquivos precisam bater.
 - A personalização feita pelo usuário ("Editar agente") fica em `agents/<id>.json`, na pasta da organização, e entra no fim do prompt.
-- `hub/playbooks/contexto-grupo-chegou.md` é dado do negócio da Grupo Chegou: só entra no prompt das conversas dela (`SO_DA_ORGANIZACAO_PADRAO` em `system.ts`).
+- Sem banco (PC), o documento das decisões entra no prompt junto dos playbooks, só nas conversas da Grupo Chegou (cita lotes dela). O retrato antigo `contexto-grupo-chegou.md` (06/10) foi para `hub/playbooks/historico/` e não entra mais no prompt.
 - `lib/server/ad-writer.ts` usa a base `hub/knowledge/ad-writer-light`. Ela é só local (sem licença) e fica fora do git.
 
 ### Vídeo local, sem custo
-- Scripts em `hub/scripts/`: edição final (`montage.ts` → `montagem.py`), edição na batida (`batida.py`), remover legenda com LaMa (`remover_legenda.py`) e Whisper de reserva (`transcrever.py`). Cada script recebe um `job.json`, roda em segundo plano e grava o log em `.data/montagem/<id>.log`.
+- Scripts em `hub/scripts/`: edição final (`montage.ts` → `montagem.py`), edição na batida (`batida.py`), remover legenda com LaMa (`remover_legenda.py`) e Whisper (`transcrever.py`). Cada script recebe um `job.json`, roda em segundo plano e grava o log em `.data/montagem/<id>.log`.
 - Gráficos animados: o Remotion (`hub/remotion/`) desenha PNGs transparentes e o ffmpeg do sistema os sobrepõe ao vídeo (`lib/server/motion.ts`).
 - Editor (`lib/editor.ts` + `lib/server/editor.ts`): clipes e legendas guardam o tempo da mídia de origem. A prévia usa o Remotion Player e a exportação usa o ffmpeg.
-- Transcrição: ElevenLabs Scribe por padrão, Whisper local de reserva (`lib/server/transcription.ts`).
+- Transcrição: Whisper local por padrão, um por vez na fila única (`naFilaDeCpu`), ElevenLabs Scribe de reserva (`lib/server/transcription.ts`).
 - "Assistir" vídeo para os agentes (`lib/server/video.ts`): quadros, cortes e fala, em cache em `.data/analysis/`.
 
 Nesta máquina Windows, o Controle de Aplicativo bloqueia a DLL do PyAV e o ffmpeg embutido do Remotion. Por isso os scripts leem o áudio pelo ffmpeg do sistema e usam um módulo `av` vazio no lugar do PyAV. Não troque por PyAV nem pelo ffmpeg do Remotion.

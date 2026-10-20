@@ -19,7 +19,7 @@ import { createCard, getBoard, moveCard, updateCard } from "@/lib/server/board";
 import { autoCaptions, joinProject, openProject, renderProject, saveProject } from "@/lib/server/editor";
 import { InputError } from "@/lib/server/http";
 import { pastaDeMidia } from "@/lib/server/pastas";
-import { runBeatEdit, runMontage, runRemoveCaptions, type MontageFx } from "@/lib/server/montage";
+import { runBeatEdit, runMontage, runRemoveCaptions, type MontageFx, type MontageRequest } from "@/lib/server/montage";
 import type { GraphicRequest } from "@/lib/server/motion";
 import { timeline, type Engine, type Transcript } from "@/lib/server/transcription";
 import { runTranslation } from "@/lib/server/video-translation";
@@ -188,24 +188,23 @@ const definitions: Anthropic.Beta.BetaTool[] = [
     name: "elevenlabs_tts",
     description:
       "Gera uma narração (texto para fala) no ElevenLabs. Síncrono: devolve a geração pronta, que pode ir para o lipsync do HeyGen. Até 5.000 caracteres. Cobra 1 crédito por caractere (Flash: meio).\n" +
-      "VOZ REAL E COM EMOÇÃO (obrigatório em narração de anúncio): use eleven_v4 (padrão, mesmo custo do multilingual_v2) e ANOTE o texto com audio tags em inglês entre colchetes, antes do trecho que cada uma colore, de acordo com o sentido da fala. Ex.: dor → [frustrated] ou [sighs]; curiosidade/gancho → [curious] ou [mischievously]; revelação → [surprised] ou [gasps]; benefício/oferta → [excited] ou [happy]; prova/garantia → [confident] ou [sincere]; segredo → [whispers]; humor → [laughs] ou [chuckles]; CTA → [excited] ou [warmly]. Também vale descrever: [said warmly, smiling].\n" +
-      "Dose: tags só nos 3 a 5 momentos de virada do roteiro (gancho, dor, revelação, oferta, CTA), nunca em toda frase; tags NÃO são faladas nem entram na legenda. O roteiro INTEIRO vai numa geração só (uma tomada contínua: gerações separadas mudam energia e tom a cada emenda). O texto deve soar falado: frases curtas depois de uma longa, perguntas, contrações do idioma ('tá', 'pra'), números e preços por extenso. Pausa só ENTRE frases: nada de '...' nem vírgula no meio da frase (quebra a fala no meio); ênfase com MAIÚSCULA em uma palavra. Depois de gerar, transcreva (hub_transcribe) e compare com o roteiro: se uma frase saiu lida errado, refaça só ela.\n" +
-      "Não use eleven_flash_v2_5 em narração final (soa robótico); só se o usuário pedir rascunho. Não acelere: speed não existe no v4; nos modelos que aceitam, fique entre 0.95 e 1.05.",
+      "VOZ NO PADRÃO DO SÁVIO (contexto do Sávio na Memória, documento 08): modelo eleven_multilingual_v2 (o padrão). Roteiro no idioma do mercado, sem hora do dia ('hoy', 'esta noche') e sem promessa de resultado. Nome de marca que o TTS erra vai com grafia fonética no texto do áudio (o roteiro e a legenda ficam com a grafia certa); siglas e números por extenso, com a mesma grafia em todos os vídeos do lote. Velocidade até 1,1x: se não couber no tempo, enxugue o texto. Uma voz por personagem/criador, a mesma em todos os vídeos dele. O roteiro inteiro vai numa geração só. Marca própria: o padrão é clonar a voz do narrador original (e voz única por clone + speech-to-speech); o hub ainda não clona voz nem faz speech-to-speech: quando o lote precisar disso, diga ao usuário em vez de trocar por outra voz sem perguntar.\n" +
+      "Depois de gerar, transcreva (hub_transcribe) e compare com o roteiro: se uma frase saiu lida errado, refaça só ela. Guarde o roteiro exato: a edição final (hub_montage) faz a legenda com ele.",
     input_schema: objectSchema(
       {
-        text: { type: "string", description: "Roteiro já anotado com audio tags ([excited], [curious]…) quando o modelo é v4/v3." },
+        text: { type: "string", description: "Roteiro exato da narração, no idioma do mercado." },
         voice_id: { type: "string", description: "Id vindo de elevenlabs_list_voices." },
         voice_name: { type: "string" },
         model_id: {
           type: "string",
-          enum: ["eleven_v4", "eleven_v4_turbo", "eleven_v3", "eleven_multilingual_v2", "eleven_flash_v2_5"],
+          enum: ["eleven_multilingual_v2", "eleven_v4", "eleven_v4_turbo", "eleven_v3", "eleven_flash_v2_5"],
           description:
-            "eleven_v4 (padrão): o mais natural e emotivo, aceita audio tags. eleven_v4_turbo: quase igual e mais rápido, aceita tags. eleven_v3: expressivo, aceita tags. eleven_multilingual_v2: estável, pouca emoção, ignora tags. eleven_flash_v2_5: mais barato e robótico, só rascunho.",
+            "eleven_multilingual_v2 (padrão do Sávio). Os outros só se o usuário pedir: eleven_v4/v3 (aceitam tags de emoção), eleven_flash_v2_5 (mais barato, robótico, só rascunho).",
         },
         stability: { type: "number", minimum: 0, maximum: 1, description: "Padrão 0.3 (mais baixo = mais emoção e variação)." },
         similarity: { type: "number", minimum: 0, maximum: 1, description: "Padrão 0.8." },
         style: { type: "number", minimum: 0, maximum: 1, description: "Só multilingual_v2. Padrão 0.3." },
-        speed: { type: "number", minimum: 0.7, maximum: 1.1, description: "Não existe no v4/v3. Padrão 1." },
+        speed: { type: "number", minimum: 0.7, maximum: 1.1, description: "Até 1.1 (regra do Sávio). Padrão 1." },
       },
       ["text", "voice_id"],
     ),
@@ -266,7 +265,7 @@ const definitions: Anthropic.Beta.BetaTool[] = [
   {
     name: "flora_generate",
     description:
-      "Gera imagem (frame) ou vídeo no FLORA. Com reference_generation_id (imagem do hub, ex.: foto do produto anexada ou frame aprovado) usa o modelo a partir de imagem. operation=cod aplica as regras do playbook de dropshipping COD (idioma do mercado travado, sem crianças, sem texto na tela). Assíncrono: devolve gerações 'running'; acompanhe com hub_check_generations. Cobra em dólar no FLORA.",
+      "Gera imagem (frame) ou vídeo no FLORA. Com reference_generation_id (imagem do hub, ex.: foto do produto anexada ou frame aprovado) usa o modelo a partir de imagem. operation=cod trava o idioma da fala no do mercado e pede sem texto na tela, sem legenda e sem música (a fala, o texto e a música entram na edição). Assíncrono: devolve gerações 'running'; acompanhe com hub_check_generations. Cobra em dólar no FLORA.",
     input_schema: objectSchema(
       {
         family: { type: "string", description: "Id da família vindo de flora_list_models." },
@@ -322,7 +321,7 @@ const definitions: Anthropic.Beta.BetaTool[] = [
   {
     name: "hub_montage",
     description:
-      "EDIÇÃO FINAL do criativo no padrão de qualidade (playbook infoproduto-edicao-video): junta os vídeos do avatar na ordem, corta os silêncios (jump cuts), transcreve com o ElevenLabs Scribe, coloca os b-rolls já criados com dissolve (2,8s na tela) e queima a legenda Montserrat MAIÚSCULA. B-roll nos momentos certos: em broll_cues, a palavra falada em que cada b-roll entra (sem deixa, segue a grade: 1º aos 6s, depois a cada 7s). Use hub_transcribe/hub_view_video antes para escolher as deixas. Roda local, sem custo. Assíncrono (1 a 3 min): acompanhe com hub_check_generations.",
+      "EDIÇÃO FINAL do criativo no padrão do Sávio (contexto do Sávio na Memória; decisão de 20/10/2026), local e sem custo: junta os vídeos do avatar na ordem, corta o silêncio acima de 0,35 s deixando 0,12 s (na fronteira das palavras), troca o plano a cada 1,1 a 4 s (enquadramento 1,00/1,13), coloca os b-rolls já criados (2 a 4 s na tela, corte seco) e queima a legenda do Sávio: estilo drop (Poppins Bold ~107 px, centro y=1060; sb = Anton ~116 px em y=1480), branca com contorno preto, 1 palavra-chave amarela por bloco, até 3 palavras/16 caracteres. LEGENDA PELO ROTEIRO: passe em roteiro o texto exato que foi falado (sem ele, o hub usa o texto da narração do hub que gerou o avatar no HeyGen); o tempo vem da fala original, antes dos cortes, nunca do vídeo montado. Áudio: voz -15 LUFS, música (opcional) -32 LUFS sob a fala com ducking de 11 dB, final -14 LUFS. Entrega: H.264, 30 fps, AAC 128k, até 30 MB; 720 de largura quando a origem é baixa (lado menor abaixo de 720 px), 1080 caso contrário (resolucao=1080 para AD vencedor refeito); formatos 9:16, 4:5 e 1:1. B-roll nos momentos certos: em broll_cues, a palavra falada em que cada b-roll entra (sem deixa, entra depois de ~10–15 s de avatar). Use hub_transcribe/hub_view_video antes para escolher as deixas. Assíncrono (1 a 3 min): acompanhe com hub_check_generations.",
     input_schema: objectSchema(
       {
         avatar_generation_id: { type: "string", description: "Vídeo pronto do avatar falando (HeyGen). Para vários, use avatar_generation_ids." },
@@ -334,25 +333,42 @@ const definitions: Anthropic.Beta.BetaTool[] = [
         },
         broll_generation_ids: { type: "array", items: { type: "string" }, maxItems: 40, description: "Vídeos prontos de b-roll, na ordem em que entram." },
         lang: { type: "string", enum: ["es", "pt", "fr", "en"], description: "Idioma da fala. Padrão es." },
-        name: { type: "string", description: "Nome do projeto, ex.: AD01." },
+        name: {
+          type: "string",
+          description: "Nome no padrão do Sávio, que vira o nome do arquivo e do anúncio: \"AD NN - <OFERTA>-<FORMATO>-<VOZ/IDIOMA>-<VARIAÇÃO>\" (variação de gancho: \"VAR NN - <GANCHO> x <CORPO>\"). Continue a numeração da oferta (o maior AD que já existe + 1).",
+        },
+        roteiro: { type: "string", description: "Texto exato que foi falado (roteiro aprovado ou o texto da narração). A legenda usa este texto, alinhado à fala." },
+        formato: { type: "string", enum: ["9:16", "4:5", "1:1"], description: "Padrão 9:16. Os gráficos animados só entram no 9:16." },
+        resolucao: { type: "string", enum: ["auto", "720", "1080"], description: "auto (padrão): 720 para origem baixa, 1080 para origem de 720 px ou mais. 1080 = AD vencedor refeito." },
+        cta: {
+          type: "object",
+          additionalProperties: false,
+          description: "CTA sem cara de botão (Sávio): 2 setas vermelhas que entram na palavra do CTA e ficam até o fim. O botão do Meta precisa bater com o que a fala manda tocar.",
+          properties: {
+            palavra: { type: "string", description: "Palavra do CTA na fala, ex.: \"toca\", \"pide\", \"appuie\"." },
+            inicio: { type: "number", minimum: 0, description: "Ou o segundo exato (no vídeo já editado)." },
+          },
+        },
+        aviso: { type: "string", description: "Texto pequeno numa faixa opaca no rodapé, ex.: \"Solo con fines demostrativos. Algunas escenas están aceleradas.\" (demonstração ou cena acelerada)." },
         broll_cues: {
           type: "array",
           items: { type: "string" },
           maxItems: 40,
-          description: "Deixa de cada b-roll, na mesma ordem de broll_generation_ids: palavra ou frase curta da fala (no idioma falado) em que ele entra, ex.: \"café\", \"sin pagar\". \"\" = grade do padrão.",
+          description: "Deixa de cada b-roll, na mesma ordem de broll_generation_ids: palavra ou frase curta da fala (no idioma falado) em que ele entra, ex.: \"café\", \"sin pagar\". \"\" = depois de ~10–15 s de avatar.",
         },
         fx: {
           type: "object",
           additionalProperties: false,
           description:
-            "Efeitos. O PADRÃO já é profissional e não precisa de fx: áudio tratado (-14 LUFS), cortes com respiro e aproximação lenta, b-roll em corte seco até o fim da frase, legenda de 2-3 palavras. Mude só quando o usuário pedir ou o criativo claramente ganhar: palavra-chave em cor → legenda destaque; nunca há efeito sonoro nas transições; vídeo longo → barra_progresso. Não empilhe tudo num vídeo só.",
+            "Efeitos. O padrão já segue o Sávio e não precisa de fx. Macetes do lote Yara (validado): whoosh nas entradas de b-roll e punch-in (a troca de enquadramento, já ligada). Vídeo longo → barra_progresso. Não empilhe tudo num vídeo só.",
           properties: {
-            legenda: { type: "string", enum: ["padrao", "destaque"], description: "destaque = a palavra-chave de cada bloco (preço, número ou a mais forte) em cor." },
-            cor_destaque: { type: "string", description: "#RRGGBB da palavra destacada e da barra. Padrão #22FF66." },
-            zoom_cortes: { type: "boolean", description: "Aproximação lenta e contínua em cada trecho (padrão true). false = enquadramento fixo." },
-            transicao: { type: "string", enum: ["corte", "dissolve", "zoom", "slide"], description: "Entrada do b-roll. Padrão corte (seco), o mais profissional." },
-            music_generation_id: { type: "string", description: "Áudio do hub para música de fundo (abaixa sozinho quando há fala)." },
-            musica_volume: { type: "number", minimum: 0.02, maximum: 1, description: "Padrão 0.18." },
+            estilo: { type: "string", enum: ["drop", "sb"], description: "Estilo da legenda do Sávio: drop (padrão, Poppins y=1060) ou sb (San Benito, Anton y=1480)." },
+            legenda: { type: "string", enum: ["bloco", "palavra"], description: "bloco (padrão do kit): o bloco inteiro com 1 palavra-chave em amarelo. palavra: as palavras aparecem quando são ditas." },
+            maiusculas: { type: "boolean", description: "Legenda em caixa alta. Padrão false (o Sávio não define; use se o usuário pedir)." },
+            zoom_cortes: { type: "boolean", description: "Troca de enquadramento 1,00/1,13 a cada 1,1–4 s (padrão true). false = enquadramento fixo." },
+            transicao: { type: "string", enum: ["corte", "dissolve", "zoom", "slide"], description: "Entrada do b-roll. Padrão corte (seco)." },
+            whoosh: { type: "boolean", description: "Som de whoosh na entrada de cada b-roll (macete do lote Yara)." },
+            music_generation_id: { type: "string", description: "Áudio do hub para música de fundo: fica a -32 LUFS sob a fala, com ducking de 11 dB. Com música, entregue também uma versão sem música (reserva)." },
             cor: { type: "string", enum: ["nenhuma", "quente", "fria", "vivo"] },
             barra_progresso: { type: "boolean" },
           },
@@ -361,7 +377,7 @@ const definitions: Anthropic.Beta.BetaTool[] = [
           type: "array",
           maxItems: 12,
           description:
-            "Gráficos animados OPCIONAIS (motion graphics com Remotion, sobrepostos ao vídeo). Use poucos e só quando servem à mensagem ou o usuário pedir: titulo (frase de impacto no topo), destaque (preço/oferta/número: texto grande + sub), lista (benefícios em itens), contador (oferta acaba em; sub = \"09:59\"), cta (botão + seta no final; padrão nos últimos 3,5s). Textos no idioma do anúncio.",
+            "Gráficos animados OPCIONAIS (Remotion, só no 9:16). Use poucos e só quando servem à mensagem ou o usuário pedir: titulo (frase de impacto no topo; como manchete, só durante o gancho), destaque (oferta ou número: texto grande + sub; preço SÓ se o usuário decidiu que o vídeo fala preço), lista (benefícios em itens), contador (contagem regressiva: é risco de compliance, pergunte antes; nunca escassez inventada), cta (vira as 2 setas vermelhas do Sávio na palavra da deixa; prefira o campo cta). Textos no idioma do anúncio.",
           items: {
             type: "object",
             additionalProperties: false,
@@ -378,7 +394,7 @@ const definitions: Anthropic.Beta.BetaTool[] = [
                 type: "string",
                 enum: ["topo", "meio", "baixo"],
                 description:
-                  "Onde fica na tela. Padrão: titulo/contador topo, lista meio, destaque e cta baixo (logo acima da legenda). Nunca cubra o rosto do avatar: confira os quadros (hub_view_video) e, se o rosto estiver no topo ou no meio, mantenha o gráfico em baixo.",
+                  "Onde fica na tela. Padrão: titulo/contador topo, lista meio, destaque baixo. Nada cobre o rosto ou a boca de quem fala: confira os quadros (hub_view_video). Manchete fixa no meio = sem legenda ao mesmo tempo.",
               },
             },
             required: ["tipo"],
@@ -391,7 +407,7 @@ const definitions: Anthropic.Beta.BetaTool[] = [
   {
     name: "editor_open",
     description:
-      "Abre um vídeo do hub no editor de vídeo (ou retoma o projeto que já existe para ele) e, se pedido, gera as legendas automaticamente (transcrição ElevenLabs) e aplica um estilo. Use quando o usuário quiser legendar, cortar ou ajustar um vídeo; depois ele pode corrigir tudo à mão no editor. Devolve o projeto com as legendas no tempo da timeline.",
+      "Abre um vídeo do hub no editor de vídeo (ou retoma o projeto que já existe para ele) e, se pedido, gera as legendas automaticamente (pela fala do vídeo de origem, Whisper local) e aplica um estilo. Use quando o usuário quiser legendar, cortar ou ajustar um vídeo; depois ele pode corrigir tudo à mão no editor. Devolve o projeto com as legendas no tempo da timeline. Legenda pelo roteiro (regra do Sávio): quando houver roteiro, troque o texto das legendas pelo do roteiro em captions (na mesma ordem), até 3 palavras por bloco; para o criativo final, prefira hub_montage com roteiro.",
     input_schema: objectSchema(
       {
         generation_id: { type: "string", description: "Vídeo pronto do hub." },
@@ -448,11 +464,11 @@ const definitions: Anthropic.Beta.BetaTool[] = [
   {
     name: "hub_transcribe",
     description:
-      "Transcreve um vídeo ou áudio do hub (inclusive o anexado no chat) e identifica o idioma falado. Devolve o idioma (código ISO e nome), a confiança da detecção, a duração, o texto completo e a transcrição com tempo [mm:ss] por frase. Motor: ElevenLabs Scribe (padrão fixo do usuário, rápido); o Whisper local só entra se o ElevenLabs falhar. O resultado fica em cache e qualquer agente reaproveita sem custo. Pode levar de segundos a alguns minutos.",
+      "Transcreve um vídeo ou áudio do hub (inclusive o anexado no chat) e identifica o idioma falado. Devolve o idioma (código ISO e nome), a confiança da detecção, a duração, o texto completo e a transcrição com tempo [mm:ss] por frase. Motor (contexto do Sávio): Whisper local, grátis, um por vez; o ElevenLabs Scribe (pago) só entra se o Whisper falhar. O resultado fica em cache e qualquer agente reaproveita sem custo. Pode levar de segundos a alguns minutos. Transcreva cada take de IA antes de usar (a IA de vídeo erra palavras raras e repete frase no fim).",
     input_schema: objectSchema(
       {
         generation_id: { type: "string", description: "Vídeo ou áudio pronto do hub (ex.: o id do anexo na nota de anexos)." },
-        engine: { type: "string", enum: ["auto", "elevenlabs", "local"], description: "Deixe em auto (ElevenLabs Scribe). local (Whisper) só se o usuário pedir explicitamente." },
+        engine: { type: "string", enum: ["auto", "elevenlabs", "local"], description: "Deixe em auto (Whisper local). elevenlabs (Scribe, pago) só se o usuário pedir." },
       },
       ["generation_id"],
     ),
@@ -460,7 +476,7 @@ const definitions: Anthropic.Beta.BetaTool[] = [
   {
     name: "hub_view_video",
     description:
-      "Assiste a um vídeo do hub (anexado no chat, gerado ou importado do FLORA). Devolve a ficha técnica (duração, tamanho, fps), os cortes de cena, a fala transcrita com tempo [mm:ss] (ElevenLabs Scribe, em cache) e quadros-chave como imagens: abertura e primeiros 3s (gancho), um por corte e o resto espalhado. Se o vídeo já tiver decupagem salva (hub_save_analysis), ela vem junto: use-a e peça quadros só se faltar algo. Custo: só os tokens das imagens. Comece com poucos quadros e use start/end para olhar um trecho de perto.",
+      "Assiste a um vídeo do hub (anexado no chat, gerado ou importado do FLORA). Devolve a ficha técnica (duração, tamanho, fps), os cortes de cena, a fala transcrita com tempo [mm:ss] (Whisper local, em cache) e quadros-chave como imagens: abertura e primeiros 3s (gancho), um por corte e o resto espalhado. Se o vídeo já tiver decupagem salva (hub_save_analysis), ela vem junto: use-a e peça quadros só se faltar algo. Custo: só os tokens das imagens. Comece com poucos quadros e use start/end para olhar um trecho de perto.",
     input_schema: objectSchema(
       {
         generation_id: { type: "string" },
@@ -533,7 +549,8 @@ const definitions: Anthropic.Beta.BetaTool[] = [
   {
     name: "heygen_translate_video",
     description:
-      "Traduz um vídeo do hub para outros idiomas no HeyGen (Video Translate: voz da pessoa clonada + lipsync), pelo MCP do HeyGen com os créditos do plano. Um idioma = uma geração 'running' (tool heygen-traducao); acompanhe com hub_check_generations. Cobra créditos premium do HeyGen por minuto e por idioma: confirme idiomas e trecho com o usuário antes. Se o HeyGen não estiver conectado, peça para o usuário clicar em \"Conectar HeyGen\" no estúdio de Tradução.",
+      "Traduz um vídeo do hub para outros idiomas no HeyGen (Video Translate: voz da pessoa clonada + lipsync), pelo MCP do HeyGen com os créditos do plano. Um idioma = uma geração 'running' (tool heygen-traducao); acompanhe com hub_check_generations. Cobra créditos premium do HeyGen por minuto e por idioma: confirme idiomas e trecho com o usuário antes (é gasto real). Se o HeyGen não estiver conectado, peça para o usuário clicar em \"Conectar HeyGen\" no estúdio de Tradução.\n" +
+      "Regras do Sávio (documentos 05 e 09 da Memória): sempre o modo speed, nunca precision (no precision a boca segue o idioma original nas pausas). A tradução automática é literal (preço, marca e termos do país de origem continuam): prefira roteiro reescrito no idioma do mercado + narração nova (elevenlabs_tts) + lipsync com audio_generation_id, por trecho de até ~12 s (start_time/end_time). Com áudio próprio, o hub manda duração dinâmica desligada, mesmo formato e quadros constantes. Boca coberta (produto na frente, mão) gasta crédito e devolve a boca igual: troque só o áudio. Método novo ou caro: 1 piloto completo, aprovação, depois o lote.",
     input_schema: objectSchema(
       {
         video_generation_id: { type: "string", description: "Vídeo pronto do hub (gerado, editado ou anexado)." },
@@ -544,14 +561,14 @@ const definitions: Anthropic.Beta.BetaTool[] = [
           maxItems: 10,
           description: "Nomes do HeyGen, ex.: Spanish (Latin America), Spanish (Mexico), Portuguese (Brazil), English (United States), Romanian (Romania).",
         },
-        mode: { type: "string", enum: ["speed", "precision"], description: "speed (padrão): mais rápido. precision: lipsync melhor." },
+        mode: { type: "string", enum: ["speed"], description: "Sempre speed (o hub ignora outro valor)." },
         translate_audio_only: { type: "boolean", description: "Só dubla o áudio, sem lipsync. Padrão false." },
         input_language: { type: "string", description: "Idioma original (nome do HeyGen). Vazio = detectar." },
         speaker_num: { type: "integer", minimum: 1, maximum: 10, description: "Quantas pessoas falam. Vazio = automático." },
-        enable_dynamic_duration: { type: "boolean", description: "Padrão true." },
+        enable_dynamic_duration: { type: "boolean", description: "Padrão true na tradução e false com áudio próprio (lipsync)." },
         disable_music_track: { type: "boolean", description: "Remove a música de fundo." },
         enable_speech_enhancement: { type: "boolean", description: "Melhora a voz." },
-        keep_the_same_format: { type: "boolean", description: "Mantém resolução e bitrate do original." },
+        keep_the_same_format: { type: "boolean", description: "Mantém resolução e bitrate do original. Padrão true com áudio próprio (lipsync)." },
         start_time: { type: "number", minimum: 0, description: "Traduzir só a partir deste segundo." },
         end_time: { type: "number", minimum: 0, description: "Traduzir só até este segundo." },
         brand_glossary_id: { type: "string" },
@@ -613,8 +630,8 @@ const definitions: Anthropic.Beta.BetaTool[] = [
     name: "hub_beat_edit",
     description:
       "EDIÇÃO NA BATIDA (motion na batida): criativo curto guiado pela música, sem narração, local e sem custo. Uma cena por batida do grave depois da \"virada\" da música, tensão em câmera lenta antes dela, palavras gigantes batendo na tela (1 a 3 por vez, a de baixo na cor de destaque), zoom e tremida na batida, chicote, glitch de cor, flash, vinheta, granulado, respiro em câmera lenta e a chamada final pulsando na batida. Tudo em VÍDEO de tela cheia: passe vídeos (b-rolls) do hub como cenas; quanto mais cenas diferentes (6 a 10), melhor. Sem efeito sonoro de transição: o único som é a música.\n" +
-      "Música: music_generation_id = áudio do hub (o usuário manda a faixa; avise que música de terceiros pode ter direitos autorais em anúncio pago); sem música, o hub sintetiza uma batida própria (phonk/trap) no BPM pedido.\n" +
-      "Palavras: escreva uma frase só, quebrada em pedaços curtos e reais sobre o produto (ex.: PASTEL DE FEIRA / SÓ QUE EM CASA / FRITO NA HORA / 4 POR R$ 49,90), no idioma do anúncio; para cada pedaço, clip = índice (0..) da cena que mostra aquilo. Termine com cta (ex.: CHAMA NO / WHATSAPP) e o clip do produto. Assíncrono: acompanhe com hub_check_generations.",
+      "Música: music_generation_id = áudio do hub (o usuário manda a faixa; música trend do mercado é liberada pela pessoa: não repita alerta de direitos, só cite no fim quais músicas usou); sem música, o hub sintetiza uma batida própria (phonk/trap) no BPM pedido.\n" +
+      "Palavras: escreva uma frase só, quebrada em pedaços curtos e reais sobre o produto (ex.: PASTEL DE FEIRA / SÓ QUE EM CASA / FRITO NA HORA / PAGAS AL RECIBIR), no idioma do anúncio; para cada pedaço, clip = índice (0..) da cena que mostra aquilo. Termine com cta (ex.: CHAMA NO / WHATSAPP) e o clip do produto. Assíncrono: acompanhe com hub_check_generations.",
     input_schema: objectSchema(
       {
         clip_generation_ids: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 16, description: "Vídeos do hub usados como cenas, na ordem dos índices (clip 0, 1, 2…)." },
@@ -939,6 +956,16 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
       graphics: Array.isArray(input.graphics) ? (input.graphics as GraphicRequest[]) : [],
       lang: str(input.lang),
       name: str(input.name),
+      roteiro: str(input.roteiro) || undefined,
+      formato: (str(input.formato) || undefined) as MontageRequest["formato"],
+      resolucao: (str(input.resolucao) || undefined) as MontageRequest["resolucao"],
+      cta: (() => {
+        const o = (input.cta && typeof input.cta === "object" ? input.cta : null) as Input | null;
+        if (!o) return undefined;
+        const inicio = Number(o.inicio);
+        return { palavra: str(o.palavra) || undefined, inicio: o.inicio !== undefined && Number.isFinite(inicio) ? inicio : undefined };
+      })(),
+      aviso: str(input.aviso) || undefined,
     });
     return { content: json(brief(g)), summary: "montagem iniciada", generations: [g] };
   },
@@ -1250,7 +1277,7 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
     const gens = await runTranslation({
       videoGenerationId: str(input.video_generation_id),
       outputLanguages: (Array.isArray(input.output_languages) ? input.output_languages : []).map(str),
-      mode: input.mode === "precision" ? "precision" : "speed",
+      mode: "speed", // nunca precision (contexto do Sávio)
       translateAudioOnly: optBool(input.translate_audio_only),
       inputLanguage: str(input.input_language) || null,
       speakerNum: optNum(input.speaker_num),
@@ -1427,17 +1454,17 @@ const CHAVE_DA_FERRAMENTA: Record<string, RegraDeAcesso> = {
   // Memória: dados do negócio.
   memoria_buscar: { chave: "memoria" },
   memoria_ler: { chave: "memoria" },
-  // Estúdios: gera ou gasta crédito (FLORA, HeyGen, ElevenLabs, inclusive a transcrição pelo ElevenLabs Scribe).
+  // Estúdios: gera ou gasta crédito (FLORA, HeyGen, ElevenLabs; a transcrição usa o Scribe só de reserva do Whisper).
   elevenlabs_tts: { chave: "estudios" },
   heygen_create_video: { chave: "estudios" },
   heygen_translate_video: { chave: "estudios" },
   flora_generate: { chave: "estudios" },
   higgsfield_edit: { chave: "estudios" },
-  // As duas edições seguem a tela (app/api/montagem pede "estudios"); a edição final ainda transcreve pelo Scribe.
+  // As duas edições seguem a tela (app/api/montagem pede "estudios"); a edição final pode cair no Scribe de reserva.
   hub_montage: { chave: "estudios" },
   hub_beat_edit: { chave: "estudios" },
   hub_transcribe: { chave: "estudios" },
-  // Promete só ler, mas sem transcrição pronta transcriptOf começa uma no Scribe.
+  // Promete só ler, mas sem transcrição pronta transcriptOf começa uma (Whisper, ou o Scribe de reserva).
   hub_transcript_read: { chave: "estudios" },
   flora_projects: { chave: "estudios", quando: (input) => str(input.action) === "create" },
   hub_view_video: {
@@ -1448,7 +1475,7 @@ const CHAVE_DA_FERRAMENTA: Record<string, RegraDeAcesso> = {
   // Fluxo (quadro Kanban).
   pipeline_get: { chave: "fluxo" },
   pipeline_save_card: { chave: "fluxo" },
-  // Editor. Como na tela do editor (app/api/editor), a legenda automática pelo Scribe vem junto com a chave "editor".
+  // Editor. Como na tela do editor (app/api/editor), a legenda automática vem junto com a chave "editor".
   editor_open: { chave: "editor" },
   editor_render: { chave: "editor" },
   editor_join: { chave: "editor" },

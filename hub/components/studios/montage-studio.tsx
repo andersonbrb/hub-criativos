@@ -9,6 +9,7 @@ import { Field, GenerationCard, HistoryActions, HistoryPanel, useGenerations } f
 import { AvisoSemDrive } from "@/features/drive/tela/aviso-sem-drive";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Workspace, WorkspacePanel } from "@/components/workspace";
@@ -17,16 +18,27 @@ import { CREATIVE_LANGUAGES } from "@/lib/languages";
 import { cn } from "@/lib/utils";
 
 const DESCRIPTION =
-  "Edição final do criativo no padrão: junta os vídeos do avatar, corta os silêncios, coloca os b-rolls nos momentos certos e queima a legenda. Roda nesta máquina (Whisper + ffmpeg), sem gastar créditos.";
+  "Edição final do criativo no padrão do Sávio: junta os vídeos do avatar, corta os silêncios, coloca os b-rolls nos momentos certos e queima a legenda pelo roteiro. Roda nesta máquina (Whisper + ffmpeg), sem gastar créditos.";
 
-// Parâmetros do playbook (hub/playbooks/infoproduto-edicao-video.md), aplicados por scripts/montagem.py.
+// Regras do contexto do Sávio (decisão de 20/10/2026), aplicadas por scripts/montagem.py.
 const RULES = [
-  ["Corte de silêncio", "acima de 0,35s"],
-  ["B-roll", "na palavra escolhida; sem palavra, aos 6s e a cada 7s"],
-  ["B-roll na tela", "2,8s com dissolve de 0,25s"],
-  ["Legenda", "Montserrat 110, MAIÚSCULA, até 14 caracteres"],
-  ["Transcrição", "Whisper small (nunca tiny)"],
-  ["Saída", "1080×1920, 30 fps"],
+  ["Corte de silêncio", "acima de 0,35s, sobram 0,12s"],
+  ["Troca de plano", "a cada 1,1 a 4s (1,00/1,13)"],
+  ["B-roll", "na palavra; sem ela, a cada ~10–15s"],
+  ["Legenda", "pelo roteiro, palavra-chave amarela"],
+  ["Áudio", "música -32 LUFS sob a fala"],
+  ["Saída", "720 ou 1080, até 30 MB"],
+];
+
+const FORMATOS = [
+  { value: "9:16", label: "9:16 (padrão)" },
+  { value: "4:5", label: "4:5" },
+  { value: "1:1", label: "1:1" },
+];
+const RESOLUCOES = [
+  { value: "auto", label: "Automática" },
+  { value: "720", label: "720" },
+  { value: "1080", label: "1080 (vencedor)" },
 ];
 
 const LANGS = CREATIVE_LANGUAGES.map((l) => ({ value: l.id, label: l.label }));
@@ -50,7 +62,13 @@ export function MontageStudio() {
   const [graficos, setGraficos] = useState<Grafico[]>([]);
   const [audios, setAudios] = useState<Generation[]>([]);
   const [lang, setLang] = useState("es");
-  const [name, setName] = useState("AD01");
+  const [name, setName] = useState("AD 01");
+  // Regras do Sávio: legenda pelo roteiro, formato e resolução de entrega, CTA com setas e aviso no rodapé.
+  const [roteiro, setRoteiro] = useState("");
+  const [formato, setFormato] = useState("9:16");
+  const [resolucao, setResolucao] = useState("auto");
+  const [ctaPalavra, setCtaPalavra] = useState("");
+  const [aviso, setAviso] = useState("");
   const [busy, setBusy] = useState(false);
   const [logId, setLogId] = useState<string | null>(null);
   const [log, setLog] = useState("");
@@ -115,6 +133,11 @@ export function MontageStudio() {
           brollCues: brollIds.map((id) => cues[id] ?? ""),
           lang,
           name,
+          roteiro: roteiro.trim() || undefined,
+          formato,
+          resolucao,
+          cta: ctaPalavra.trim() ? { palavra: ctaPalavra.trim() } : undefined,
+          aviso: aviso.trim() || undefined,
           fx: fxCount(fx) ? { ...fx, musicId: fx.musicId || undefined } : undefined,
           graphics: graficos
             .filter((g) => g.texto.trim() || g.tipo === "cta" || g.tipo === "contador")
@@ -197,7 +220,7 @@ export function MontageStudio() {
       <WorkspacePanel id="ajustes" title="Edição final" defaultSize={36} minSize={16} bodyClassName="flex flex-col gap-4 p-4">
         <div className="grid grid-cols-2 gap-2">
           <Field label="Nome" id="mt-name">
-            <Input id="mt-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="AD01" />
+            <Input id="mt-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="AD 01 - OFERTA-9x16-ES-V1" title="Padrão do Sávio: AD NN - OFERTA-FORMATO-VOZ-VARIAÇÃO" />
           </Field>
           <Field label="Idioma da fala" id="mt-lang">
             <Select value={lang} onValueChange={setLang}>
@@ -212,6 +235,46 @@ export function MontageStudio() {
                 ))}
               </SelectContent>
             </Select>
+          </Field>
+          <Field label="Formato" id="mt-formato">
+            <Select value={formato} onValueChange={setFormato}>
+              <SelectTrigger id="mt-formato" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FORMATOS.map((f) => (
+                  <SelectItem key={f.value} value={f.value}>
+                    {f.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Resolução" id="mt-resolucao">
+            <Select value={resolucao} onValueChange={setResolucao}>
+              <SelectTrigger id="mt-resolucao" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RESOLUCOES.map((r) => (
+                  <SelectItem key={r.value} value={r.value}>
+                    {r.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        </div>
+
+        <Field label="Roteiro (texto exato falado)" id="mt-roteiro" hint="vazio = texto da narração">
+          <Textarea id="mt-roteiro" rows={3} value={roteiro} onChange={(e) => setRoteiro(e.target.value)} placeholder="Cole o roteiro aprovado…" />
+        </Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="CTA (setas)" id="mt-cta">
+            <Input id="mt-cta" value={ctaPalavra} onChange={(e) => setCtaPalavra(e.target.value)} placeholder="toca, pide…" />
+          </Field>
+          <Field label="Aviso no rodapé" id="mt-aviso">
+            <Input id="mt-aviso" value={aviso} onChange={(e) => setAviso(e.target.value)} placeholder="Solo con fines demostrativos…" />
           </Field>
         </div>
 
@@ -234,7 +297,7 @@ export function MontageStudio() {
 
         <div className="flex flex-col gap-1.5 text-xs">
           <span className="text-muted-foreground">
-            B-rolls{brollIds.length ? " · entra quando o avatar falar a palavra (vazio = 6s e depois a cada 7s)" : ""}:
+            B-rolls{brollIds.length ? " · entra quando o avatar falar a palavra (vazio = depois de ~10–15s de avatar)" : ""}:
           </span>
           {brollIds.length === 0 ? (
             <span className="text-muted-foreground">nenhum (só cortes e legenda)</span>

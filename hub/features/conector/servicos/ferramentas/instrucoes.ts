@@ -7,12 +7,15 @@ import { SO_LEITURA, esquema, inteiro, pagina, type Ferramenta } from "@/feature
 // A ferramenta "instrucoes": o mapa para trabalhar no Hub, no papel do mapa_dos_dados do Chegou Operações.
 //
 // O QUE ENTRA: como usar as ferramentas (só as que esta pessoa tem), as regras e os fatos centrais da memória (os
-// documentos que entram no prompt dos agentes do hub e são do tipo regra ou fato: leia-primeiro, 01, 02, 03…) e a
+// documentos que entram no prompt dos agentes do hub e são do tipo regra, fato ou decisão: leia-primeiro, 01, 02, 03 e o
+// documento das decisões) e a
 // lista dos outros documentos, para o Claude saber o que existe e ler sob demanda.
 //
 // Sem a chave "memoria", nada da memória entra: o texto é só o como usar.
 
-const CENTRAIS = new Set(["regra", "fato"]);
+// "decisao" entra também: o documento das decisões (como fazer vídeo segue só o contexto do Sávio, decisão de
+// 20/10/2026) precisa chegar ao Claude Code de cada PC, não só aos agentes do hub.
+const CENTRAIS = new Set(["regra", "fato", "decisao"]);
 
 // "leia-primeiro" antes de tudo; o resto pela ordem do slug (01-, 02-, 03-…).
 const ordem = (a: string, b: string) =>
@@ -71,7 +74,9 @@ async function mapa(usuario: Usuario): Promise<string> {
   partes.push(
     [
       "## Regras e fatos centrais (valem sempre)",
-      centrais.length ? "Siga estas regras em toda tarefa." : "(a memória ainda não tem regras centrais)",
+      centrais.length
+        ? "Siga estas regras em toda tarefa. Como fazer vídeo segue só o contexto do Sávio (documento decisoes-pendentes, decisão de 20/10/2026): antes de produzir, editar, traduzir ou revisar um vídeo, leia os documentos de produção (04, 05, 07, 08, 09, 10, 11, 12 e 22)."
+        : "(a memória ainda não tem regras centrais)",
       ...centrais.map(
         (d) =>
           `### ${d.titulo}\n_\`${d.slug}\` · ${d.tipo} · ${d.frente} · versão ${d.versao} · atualizado em ${d.atualizadoEm}${d.precisaRevisao ? " · PRECISA DE REVISÃO MANUAL" : ""}_\n\n${d.conteudo.trim()}`,

@@ -6,6 +6,10 @@ aqui o que já foi validado em produção.
 ## [Não publicado]
 
 ### 🚀 Novidades
+- **[🎬 Edição]** Como fazer vídeo segue só o contexto do Sávio: a legenda sai do roteiro, no estilo dele (palavra-chave
+  em amarelo), a música fica bem baixa sob a fala, o vídeo sai em 720 quando a origem é fraca e até 30 MB, em 9:16,
+  4:5 ou 1:1, com as setas vermelhas na palavra do CTA e o aviso no rodapé quando precisa. A transcrição passa a
+  ser local e grátis, a voz padrão é a Multilingual v2 e a Tradução do HeyGen não tem mais o modo "Precisão".
 - **[🧠 Memória]** O contexto de trabalho do Sávio (regras, passo a passo, dados do negócio, lotes e lições)
   passa a morar dentro do Hub, com histórico de versões.
 - **[🔌 Conector do Claude Code]** O Claude Code de cada pessoa se liga ao Hub com login, para ler e gravar a

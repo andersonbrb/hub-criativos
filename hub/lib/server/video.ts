@@ -142,49 +142,36 @@ export async function transcriptOf(id: string, engine: Engine = "auto", waitMs?:
   }
 }
 
-// Palavras com tempo pelo ElevenLabs Scribe (a montagem corta e legenda com elas). Reaproveita a transcrição salva
-// quando ela já tem as palavras; transcrições antigas (Whisper, ou Scribe de antes de guardar palavras) são refeitas.
-export async function scribeWords(id: string): Promise<NonNullable<Transcript["words"]>> {
+// Palavras com tempo da fala (a edição corta os silêncios e cola a legenda com elas). Reaproveita a transcrição salva
+// quando ela já tem as palavras (de qualquer motor); senão transcreve no padrão (Whisper local, um por vez).
+export async function palavrasDaFala(id: string): Promise<NonNullable<Transcript["words"]>> {
   const key = `${id}:words`;
   let job = inflight.get(key);
   if (!job) {
     job = (async (): Promise<TranscriptResult> => {
       const a = await getAnalysis(id);
-      if (a.transcript?.engine === "elevenlabs" && a.transcript.words?.length) return { transcript: a.transcript, cached: true };
-      const transcript = await transcribeGeneration(id, "elevenlabs");
+      if (a.transcript?.words?.length) return { transcript: a.transcript, cached: true };
+      const transcript = await transcribeGeneration(id, "auto");
       await patchAnalysis(id, { transcript });
       return { transcript, cached: false };
     })().finally(() => inflight.delete(key));
     inflight.set(key, job);
   }
   const words = (await job).transcript?.words;
-  if (!words?.length) throw new Error("o ElevenLabs não devolveu as palavras");
+  if (!words?.length) throw new Error("a transcrição não devolveu as palavras");
   return words;
 }
 
 async function runTranscript(id: string, engine: Engine): Promise<TranscriptResult> {
   const a = await getAnalysis(id);
-  // Transcrição antiga do Whisper não vale como cache no modo padrão: refaz no ElevenLabs Scribe (padrão do usuário).
-  const usable = a.transcript && (engine === "auto" ? a.transcript.engine === "elevenlabs" : a.transcript.engine === engine);
+  // No modo padrão vale a transcrição salva de qualquer motor; pedindo um motor, só a dele.
+  const usable = a.transcript && (engine === "auto" || a.transcript.engine === engine);
   if (usable) return { transcript: a.transcript!, cached: true };
   if (a.noSpeech && engine === "auto") return { transcript: null, noSpeech: a.noSpeech, cached: true };
   let transcript: Transcript;
   try {
-    if (engine !== "auto") transcript = await transcribeGeneration(id, engine);
-    else {
-      // Padrão (pedido do usuário): ElevenLabs Scribe primeiro, pela rapidez; o Whisper local fica de reserva.
-      try {
-        transcript = await transcribeGeneration(id, "elevenlabs");
-      } catch (remote) {
-        if (remote instanceof InputError && !/conectado/i.test(remote.message)) throw remote;
-        try {
-          transcript = await transcribeGeneration(id, "local");
-        } catch (local) {
-          if (local instanceof InputError) throw local;
-          throw new Error(`ElevenLabs: ${(remote as Error).message} · Whisper local: ${(local as Error).message}`);
-        }
-      }
-    }
+    // Padrão (contexto do Sávio): Whisper local, grátis; o ElevenLabs Scribe só de reserva (transcribeGeneration).
+    transcript = await transcribeGeneration(id, engine);
   } catch (err) {
     // Sem trilha de áudio: guarda o motivo para não tentar de novo.
     if (err instanceof InputError && /áudio/i.test(err.message)) {

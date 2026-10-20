@@ -22,7 +22,7 @@ import {
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
 import { pastaDeDados, pastaDeMidia } from "@/lib/server/pastas";
-import { transcribe } from "@/lib/server/providers/elevenlabs";
+import { palavrasDaFala } from "@/lib/server/video";
 import { createGeneration, getGeneration, listGenerations, updateGeneration } from "@/lib/server/store";
 
 // Projetos do editor em editor/<id>.json, na pasta da organização (lib/server/pastas.ts); exportação com ffmpeg
@@ -223,19 +223,13 @@ export async function autoCaptions(projectId: string, opts: { sourceId?: string;
   if (!project) throw new InputError("Projeto não encontrado.");
   const perCaption = clampNum(opts.perCaption, 1, 8, 3);
   const ids = opts.sourceId ? [opts.sourceId] : [...new Set(project.clips.map((c) => c.sourceId))];
-  const tmp = await mkdtemp(path.join(os.tmpdir(), "hub-stt-"));
-  try {
-    for (const sourceId of ids) {
-      const source = project.sources[sourceId];
-      if (!source?.hasAudio) continue;
-      const input = await arquivoLocal(path.basename(source.url));
-      const audio = path.join(tmp, `${sourceId}.mp3`);
-      await run(FFMPEG, ["-y", "-loglevel", "error", "-i", input, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k", audio], { timeout: 300_000 });
-      const { words } = await transcribe(await readFile(audio), `${sourceId}.mp3`);
-      project.captions = [...project.captions.filter((c) => c.sourceId !== sourceId), ...wordsToCaptions(words, sourceId, perCaption)];
-    }
-  } finally {
-    await rm(tmp, { recursive: true, force: true });
+  for (const sourceId of ids) {
+    const source = project.sources[sourceId];
+    if (!source?.hasAudio) continue;
+    // Fala do vídeo de origem (a legenda guarda o tempo da origem): transcrição salva ou Whisper local, um por vez
+    // (contexto do Sávio). Para o texto do roteiro, quem chama troca o texto das legendas depois (editor_open captions).
+    const words = await palavrasDaFala(sourceId);
+    project.captions = [...project.captions.filter((c) => c.sourceId !== sourceId), ...wordsToCaptions(words, sourceId, perCaption)];
   }
   if (!project.captions.length) throw new InputError("Não encontrei fala nesse vídeo para legendar.");
   return write(project);
@@ -371,7 +365,8 @@ async function encode(project: EditorProject, generationId: string) {
       "-filter_complex", filters.join(";"),
       "-map", videoOut, "-map", "[ac]",
       "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-      "-c:a", "aac", "-b:a", "160k",
+      // Áudio no padrão de entrega do Sávio: AAC 48 kHz estéreo 128k.
+      "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
       "-movflags", "+faststart",
       path.join(midia, outName),
     );

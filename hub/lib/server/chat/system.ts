@@ -14,18 +14,23 @@ import { agentPromptSection } from "@/lib/server/agent-settings";
 // então editar um playbook ou um documento da Memória vale para as próximas conversas.
 
 const PLAYBOOKS_DIR = path.join(process.cwd(), "playbooks");
-// O contexto do Grupo Chegou (frentes, contas, lotes) é dado do negócio dele: só entra nas conversas da organização
-// padrão. Os métodos de produção (os outros playbooks) valem para todas as organizações.
-const SO_DA_ORGANIZACAO_PADRAO = new Set(["contexto-grupo-chegou.md"]);
+// As versões antigas dos playbooks ficam em playbooks/historico/ (subpasta: não entra no prompt).
+// Documento das decisões (regra do Sávio em cada conflito com as regras antigas do hub, decisão de 20/10/2026): sem
+// banco ele também entra no prompt, mas só nas conversas da organização padrão (cita lotes e dados da Grupo Chegou).
+// Os métodos de produção (os playbooks) valem para todas as organizações.
+const DECISOES = path.join(process.cwd(), "features", "memoria", "importacao", "decisoes-pendentes.md");
 
 async function playbooks(): Promise<string> {
   const padrao = (await organizacaoAtual()) === ORGANIZACAO_PADRAO.id;
-  const names = (await readdir(PLAYBOOKS_DIR).catch(() => [] as string[]))
-    .filter((n) => n.endsWith(".md") && (padrao || !SO_DA_ORGANIZACAO_PADRAO.has(n)))
-    .sort();
+  const names = (await readdir(PLAYBOOKS_DIR).catch(() => [] as string[])).filter((n) => n.endsWith(".md")).sort();
   const docs = await Promise.all(
     names.map(async (n) => `<playbook arquivo="${n}">\n${(await readFile(path.join(PLAYBOOKS_DIR, n), "utf8")).trim()}\n</playbook>`),
   );
+  const decisoes = padrao ? await readFile(DECISOES, "utf8").catch(() => "") : "";
+  if (decisoes.trim())
+    docs.unshift(
+      `Como fazer vídeo segue só o contexto do Sávio (decisão do Vinícius em 20/10/2026): as regras do documento abaixo valem acima de qualquer regra dos playbooks e das descrições das ferramentas.\n<documento arquivo="decisoes-pendentes.md">\n${decisoes.trim()}\n</documento>`,
+    );
   return docs.join("\n\n");
 }
 
@@ -52,7 +57,8 @@ async function conhecimento(usuario?: Usuario): Promise<{ fonte: string; secao: 
     return {
       fonte: "na memória da operação abaixo",
       secao: `# Memória da operação
-Base de conhecimento da operação (regras, fluxos, dados do negócio, projetos e lotes, lições), guardada no hub com versões. Os documentos abaixo valem como regra nesta conversa. Quando uma regra daqui conflitar com as regras do hub escritas acima, siga as do hub até a decisão (documento decisoes-pendentes).
+Base de conhecimento da operação (regras, fluxos, dados do negócio, projetos e lotes, lições), guardada no hub com versões. Os documentos abaixo valem como regra nesta conversa.
+COMO FAZER VÍDEO: a referência é só o contexto do Sávio (decisão do Vinícius em 20/10/2026, documento decisoes-pendentes). Em qualquer conflito com uma regra escrita acima, de um playbook ou da descrição de uma ferramenta, vale a do Sávio. Antes de produzir, editar, traduzir ou revisar um vídeo, leia com memoria_ler os documentos do tema: 04-fluxo-producao-criativos, 05-traducao-de-criativos, 07-variacoes-gancho-corpo, 08-voz-e-dublagem, 09-lipsync-e-avatar-heygen, 10-limpeza-cor-e-qualidade-de-video, 11-revisao-e-qualidade, 12-estrategia-criativa-e-copy e 22-licoes-producao-video. O que o contexto do Sávio não decide (ex.: quem aprova o quê) está listado no documento decisoes-pendentes: pergunte ao usuário, não invente.
 
 ${docs}
 
@@ -95,8 +101,8 @@ Pelas ferramentas você opera tudo que está conectado ao hub:
 - Conversas dos outros agentes: hub_list_chats e hub_read_chat.
 - web_search e web_fetch para pesquisar e ler páginas (página de vendas, referências).
 - Editor de vídeo do hub: editor_open abre um vídeo (com legendas automáticas e estilo, se pedido) e editor_render exporta. Quando o usuário pedir legenda, cortes ou ajustes num vídeo, use o editor: ele pode corrigir legendas e cortes à mão depois, sem precisar pedir de novo aqui. Ao terminar, avise que o card do vídeo tem os botões Visualizar e Editor.
-- EDIÇÃO FINAL do criativo (fim do fluxo): hub_montage, local e sem custo, com o pipeline e os parâmetros do playbook de edição (o que o playbook roda no "sandbox do Higgsfield" roda aqui): junta os vídeos do avatar na ordem, corta os silêncios, coloca os b-rolls JÁ CRIADOS nos momentos certos e queima a legenda no padrão. Para os momentos certos: transcreva antes (hub_transcribe ou hub_view_video) e passe em broll_cues a palavra falada em que cada b-roll entra, combinando com o que o b-roll mostra (sem deixa = grade 6s/7s). Não existem mais edições de IA do Higgsfield (upscale, reenquadrar, Kling etc.). A edição padrão já sai profissional sem fx: áudio tratado (voz comprimida, -14 LUFS), cortes de silêncio com respiro e aproximação lenta, b-roll em corte seco até o fim da frase, legenda de 2 a 3 palavras, nunca efeito sonoro nas transições. Efeitos (fx: palavra-chave da legenda em cor, música de fundo, cor, barra, outras transições) e gráficos animados (graphics: título, destaque de preço, lista, contador, CTA) são OPCIONAIS: use só quando o usuário pedir ou quando o criativo claramente ganhar com eles, poucos por vídeo.
-- EDIÇÃO NA BATIDA (motion na batida, sem pessoa e sem narração): hub_beat_edit, local e sem custo. Cenas do produto em vídeo cortadas em cada batida da música, palavras gigantes, zoom/tremida/glitch/flash. Use quando o usuário pedir motion, edit na batida, vídeo dinâmico sem pessoa, ou quando o produto vende pelo visual. Precisa de 6 a 10 cenas diferentes (reaproveite b-rolls; o que faltar, gere direto em vídeo no FLORA) e, de preferência, a música do usuário (áudio anexado).
+- EDIÇÃO FINAL do criativo (fim do fluxo): hub_montage, local e sem custo, no padrão do contexto do Sávio: junta os vídeos do avatar na ordem, corta os silêncios (acima de 0,35 s, sobram 0,12 s), troca o plano a cada 1,1 a 4 s, coloca os b-rolls JÁ CRIADOS nos momentos certos e queima a legenda do Sávio PELO ROTEIRO (passe o texto exato falado em roteiro; nunca legende pela transcrição do vídeo montado). Para os momentos certos: transcreva antes (hub_transcribe ou hub_view_video) e passe em broll_cues a palavra falada em que cada b-roll entra, combinando com o que o b-roll mostra (sem deixa = depois de ~10–15 s de avatar). Entrega no padrão do Sávio: 720 de largura para origem baixa e 1080 para origem de 720 px ou mais (ou AD vencedor refeito), até 30 MB, formatos 9:16, 4:5 e 1:1. CTA sem cara de botão: as 2 setas vermelhas na palavra do CTA (campo cta); o botão do Meta tem que bater com o que a fala manda tocar. Aviso de demonstração ou cena acelerada no campo aviso. Não existem mais edições de IA do Higgsfield (upscale, reenquadrar, Kling etc.). Efeitos (fx: música a -32 LUFS sob a fala, whoosh nas entradas de b-roll, cor, barra) e gráficos animados (graphics) são opcionais: use quando o usuário pedir ou quando o criativo ganhar com eles (o lote Yara validado usa whoosh e punch-in), poucos por vídeo.
+- EDIÇÃO NA BATIDA (motion na batida, sem pessoa e sem narração): hub_beat_edit, local e sem custo. Cenas do produto em vídeo cortadas em cada batida da música, palavras gigantes, zoom/tremida/glitch/flash. Use quando o usuário pedir motion, edit na batida, vídeo dinâmico sem pessoa, ou quando o produto vende pelo visual. Precisa de 6 a 10 cenas diferentes (reaproveite b-rolls; o que faltar, gere no FLORA com frame antes do vídeo) e, de preferência, a música do usuário (áudio anexado).
 - REMOVER LEGENDA queimada de um vídeo (LaMa, local, sem custo, ~10 min para 30 s): hub_remove_captions. Use antes de traduzir ou reaproveitar um criativo que já tem legenda, ou quando pedirem; os cards de vídeo também têm o botão.
 - Juntar vídeos sem os cortes/legendas da edição final (gancho + body cru, variações de gancho): editor_join (local, ffmpeg, sem custo).
 - Quadro Kanban do Fluxo (a tela que o usuário chama de Fluxo): pipeline_get e pipeline_save_card. Quando o trabalho for de um card, registre nele as gerações aprovadas e mova de etapa quando fizer sentido.
@@ -105,21 +111,22 @@ O usuário pode anexar arquivos: imagens e PDFs você vê direto; arquivos de te
 
 As gerações aparecem sozinhas como cards de mídia na conversa, com player e download; não cole URLs nem ids na resposta a não ser que o usuário peça. FLORA, HeyGen e a edição final são assíncronos: depois de disparar, use hub_check_generations com wait_seconds quando o próximo passo depender do resultado; se não depender, avise que está gerando e siga.
 
-## Custos: sempre o caminho mais barato
-Gerar custa dinheiro real (dólar no FLORA, créditos nas outras). Regra fixa do usuário: gaste o mínimo possível em toda tarefa.
+## Custos e confirmações (regras do Sávio)
+Gerar custa dinheiro real (dólar no FLORA, créditos nas outras). Todo orçamento mostra lado a lado: custo em US$ + tempo médio + a opção paga mais rápida (às vezes vale pagar um pouco mais para terminar antes); orce pelo preço cobrado, não pela cotação.
 - Reaproveite antes de gerar: decupagens e transcrições salvas, b-rolls e frames que já existem (no hub e no projeto do FLORA), narrações e vídeos prontos. Nunca gere de novo o que já existe.
 - Ferramentas locais e grátis antes das pagas: ffmpeg, montagem (hub_montage) e editor do hub.
-- Transcrição é exceção (pedido do usuário): hub_transcribe e hub_view_video usam o ElevenLabs Scribe por padrão, pela rapidez (o Whisper local fica de reserva).
-- Voz é exceção: narração final sempre em eleven_v4 com audio tags de emoção (custa o mesmo que o multilingual_v2); o Flash economiza metade mas soa robótico, então só para rascunho. Veja a descrição de elevenlabs_tts.
-- O modelo mais barato que resolve: flora_list_models vem do mais barato para o mais caro. Explore com os baratos (Turbo/Fast; b-roll só de prompt vai direto em vídeo, sem frame) e suba de modelo só no que for escalar.
+- Transcrição: Whisper local e grátis, um por vez (hub_transcribe e hub_view_video); o ElevenLabs Scribe, pago, só de reserva. Transcreva cada take de IA antes de usar.
+- Voz: eleven_multilingual_v2, velocidade até 1,1x, uma voz por personagem. Veja a descrição de elevenlabs_tts.
+- O modelo mais barato que resolve: flora_list_models vem do mais barato para o mais caro. Explore com os baratos e suba de modelo só no que for escalar.
 - Gaste pouco com a sua própria leitura: em hub_view_video comece com poucos quadros (ou max_frames=0 quando a decupagem salva e a fala bastam) e use start/end para ver um trecho de perto; para comparar vários clipes, use hub_contact_sheet (uma imagem só) em vez de assistir um por um. Em hub_read_chat leia só o necessário.
-- Quando o usuário pede uma geração de forma clara, gere sem pedir confirmação de novo. Peça confirmação antes de lotes grandes (mais de 4 vídeos de uma vez), de modelos caros (Seedance 2.5) ou quando você mesmo estiver propondo gerar algo que não foi pedido; nesses casos diga o custo estimado (flora_quote).
+- Pare e pergunte só antes de gastar dinheiro real que o usuário ainda não aprovou ou de uma ação destrutiva; o resto, siga sem perguntar (na dúvida, escolha a leitura mais razoável e diga a premissa numa linha) e nunca pergunte "quer que eu continue?". Sempre perguntam: compliance (manter × suavizar, nunca suavizar sozinho), criador de terceiros (B1 avatar próprio × B2 mesmo criador, só com autorização) e oferta ou preço que não estejam numa fonte. Abertura de produção: as perguntas que faltam numa mensagem só (oferta e se fala preço, mercado, avatar, referências, verba diária de mídia, teto de produção, música, formato).
+- Piloto só para método novo ou caro (lipsync, avatar, tradução com rosto): 1 vídeo completo → aprovação → o lote. Método já validado e barato: tudo de uma vez. Depois do aprovado, não peça aprovação vídeo a vídeo.
 
 ## Vídeos
 Quando o usuário mandar ou citar um vídeo, assista com hub_view_video antes de opinar: os quadros mostram cena, enquadramento, texto na tela e ritmo, e a fala vem transcrita com tempo. Se já existe decupagem salva, parta dela. Depois de decupar um criativo (principalmente um validado), salve com hub_save_analysis para nenhum agente precisar assistir de novo. Para criativo validado que o usuário quer variar, siga o playbook variacoes-criativo-validado.md.
 
 ## B-rolls: sempre no FLORA, reaproveitando primeiro
-B-roll é sempre feito no FLORA. REGRA DE CUSTO DO B-ROLL: b-roll que sai só do prompt (cena genérica: pessoa na rotina, ambiente, comida, mãos, paisagem, objeto comum) vai DIRETO em vídeo no FLORA, sem frame de imagem antes (flora_generate de vídeo sem referência = texto para vídeo). Frame antes do vídeo SÓ quando a cena precisa de uma imagem base de referência: o produto real (a partir da foto, para não virar outro produto), a mesma pessoa/personagem de outra cena, um lugar ou marca específicos, ou quando o usuário mandou a imagem.
+B-roll é sempre feito no FLORA. Regra do Sávio: frames antes de vídeo (imagem base → aprovação → só então o vídeo). Produto sempre a partir da foto ORIGINAL (imagem para imagem; sem a foto, pare e peça). O b-roll casa com a idade e o cenário da persona, nenhum take repete no vídeo, nada de porta abrindo, gente entrando ou saindo de veículo ou objeto passando de mão em mão; gere o enquadramento final (zoom de montagem até ~1,2x).
 Antes de criar qualquer b-roll, procure se já existe um que sirva para o roteiro:
 1. no hub: hub_list_generations com kind=video e search com as palavras da cena (a busca olha prompts e decupagens);
 2. no projeto do FLORA da conversa (ou outro que o usuário indicar): flora_project_media;

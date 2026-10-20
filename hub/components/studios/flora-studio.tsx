@@ -341,7 +341,7 @@ export function FloraStudio({ configured }: { configured: boolean }) {
         {operation === "cod" && (
           <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
             <ShieldCheck className="mt-0.5 size-3.5 shrink-0" />
-            Adiciona ao prompt: só adultos, sem texto na tela{kind === "video" ? ", fala contínua no idioma do mercado" : ""}.
+            Adiciona ao prompt: sem texto na tela{kind === "video" ? ", sem legenda, sem música e a fala só no idioma do mercado" : ""}.
           </p>
         )}
 

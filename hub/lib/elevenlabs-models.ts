@@ -9,12 +9,12 @@ export type ElevenModel = {
   audioTags: boolean;
 };
 
-// Em ordem do mais avançado para o mais simples; o primeiro é o padrão da tela.
-// Custo: 1 crédito por caractere em todos, menos Flash e Turbo (meio). v4 e v3 custam o mesmo que o Multilingual v2.
+// O primeiro é o padrão da tela e do chat: o Multilingual v2, modelo padrão do contexto do Sávio (decisão de
+// 20/10/2026). Custo: 1 crédito por caractere em todos, menos Flash e Turbo (meio).
 export const ELEVEN_MODELS: ElevenModel[] = [
-  { id: "eleven_v4", label: "Eleven v4", note: "O mais natural e emotivo; aceita tags de emoção", audioTags: true },
+  { id: "eleven_multilingual_v2", label: "Multilingual v2", note: "Padrão (contexto do Sávio): estável em textos longos (ignora tags)", audioTags: false },
+  { id: "eleven_v4", label: "Eleven v4", note: "Mais emotivo; aceita tags de emoção", audioTags: true },
   { id: "eleven_v3", label: "Eleven v3", note: "Expressivo, aceita tags de emoção", audioTags: true },
-  { id: "eleven_multilingual_v2", label: "Multilingual v2", note: "Estável em textos longos, menos emoção (ignora tags)", audioTags: false },
   { id: "eleven_turbo_v2_5", label: "Turbo v2.5", note: "Rápido e barato, menos natural (ignora tags)", audioTags: false },
   { id: "eleven_flash_v2_5", label: "Flash v2.5", note: "O mais barato, soa mais robótico; só para rascunho (ignora tags)", audioTags: false },
 ];

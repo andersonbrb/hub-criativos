@@ -11,7 +11,8 @@ import { elevenlabsConnected, transcribeFull } from "@/lib/server/providers/elev
 import { getGeneration } from "@/lib/server/store";
 
 // Transcrição de vídeo/áudio do hub + identificação do idioma (agente "Transcrição").
-// Motor principal: ElevenLabs Scribe pelo MCP (mais preciso, devolve idioma e confiança). Reserva: Whisper local (grátis).
+// Motor padrão: Whisper local (faster-whisper "small", grátis), um por vez na fila única (contexto do Sávio, decisão
+// de 20/10/2026). Reserva: ElevenLabs Scribe pelo MCP, só se o Whisper falhar ou se pedirem.
 
 const FFMPEG = process.env.FFMPEG_BIN || "ffmpeg";
 const SCRIPT = path.join(process.cwd(), "scripts", "transcrever.py");
@@ -25,8 +26,16 @@ export type Transcript = {
   duration: number | null; // segundos
   text: string;
   segments: TranscriptSegment[];
-  words?: { text: string; start: number; end: number }[]; // palavra a palavra (Scribe); a montagem usa para cortar e legendar
+  words?: { text: string; start: number; end: number }[]; // palavra a palavra; a edição usa para cortar e legendar
 };
+
+// Fila única do trabalho pesado de CPU (Whisper e OCR): um por vez, nunca juntos (juntos ficam até 10x mais lentos).
+let fila: Promise<unknown> = Promise.resolve();
+export function naFilaDeCpu<T>(fn: () => Promise<T>): Promise<T> {
+  const vez = fila.then(fn, fn);
+  fila = vez.catch(() => undefined);
+  return vez;
+}
 
 function run(bin: string, args: string[], timeout: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -93,13 +102,14 @@ async function scribe(file: string): Promise<Transcript> {
 
 async function whisper(file: string): Promise<Transcript> {
   // Até 1 h: um VSL de 40 min no Whisper "small" em CPU passa fácil dos 15 min.
-  const out = await run(process.env.PYTHON_BIN || "python", ["-W", "ignore", SCRIPT, file], 3_600_000);
+  const out = await naFilaDeCpu(() => run(process.env.PYTHON_BIN || "python", ["-W", "ignore", SCRIPT, file], 3_600_000));
   const data = JSON.parse(out.trim().split("\n").pop() ?? "{}") as {
     error?: string;
     language?: string;
     probability?: number;
     duration?: number;
     segments?: TranscriptSegment[];
+    words?: { text: string; start: number; end: number }[];
   };
   if (data.error) throw new Error(`Whisper: ${data.error}`);
   const segments = data.segments ?? [];
@@ -112,6 +122,7 @@ async function whisper(file: string): Promise<Transcript> {
     duration: data.duration ?? null,
     text: segments.map((s) => s.text).join(" "),
     segments,
+    ...(data.words?.length ? { words: data.words } : {}),
   };
 }
 
@@ -132,16 +143,15 @@ export async function transcribeGeneration(generationId: string, engine: Engine 
       throw new InputError("Não encontrei áudio nesse arquivo para transcrever.");
     });
 
-    // Padrão fixo do usuário: sempre o ElevenLabs Scribe. O Whisper local só roda se pedirem engine=local
-    // explicitamente pela tela de transcrição, ou como último recurso no modo auto quando o ElevenLabs falha.
-    if (engine === "local") return await whisper(audio);
-    if (engine === "auto" && !(await elevenlabsConnected())) return await whisper(audio);
+    // Padrão (contexto do Sávio): Whisper local, grátis. O ElevenLabs Scribe (pago) só roda se pedirem
+    // engine=elevenlabs ou, no modo auto, quando o Whisper falha e o ElevenLabs está conectado.
+    if (engine === "elevenlabs") return await scribe(audio);
     try {
-      return await scribe(audio);
-    } catch (err) {
-      if (engine === "elevenlabs") throw err;
-      console.warn(`[hub] ElevenLabs Scribe falhou, usando o Whisper local: ${err instanceof Error ? err.message : err}`);
       return await whisper(audio);
+    } catch (err) {
+      if (engine === "local" || !(await elevenlabsConnected())) throw err;
+      console.warn(`[hub] Whisper local falhou, usando o ElevenLabs Scribe: ${err instanceof Error ? err.message : err}`);
+      return await scribe(audio);
     }
   } finally {
     await rm(tmp, { recursive: true, force: true });

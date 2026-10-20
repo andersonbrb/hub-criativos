@@ -15,7 +15,8 @@ Linguagem (padrão de edits que funcionam no feed): tensão antes da "virada" da
 aproximação), flash na virada, depois um corte em cada batida (0,35 a 0,9 s por cena) com entrada em zoom que assenta,
 tremida, velocidades variando (rápido, câmera lenta), glitch de cor nas batidas, granulado e vinheta; um "respiro" em
 câmera lenta sem palavra de tempos em tempos; no fim, a chamada pulsando no tempo da música.
-Sem efeito sonoro de transição (pedido do usuário): o único som é a música.
+O único som é a música (sem efeito sonoro de transição).
+Entrega no padrão do Sávio: H.264 high, 30 fps, AAC 48 kHz estéreo 128k, +faststart, até 30 MB.
 """
 
 import json
@@ -362,11 +363,14 @@ def process(job):
           f"rgbashift=rh=16:bh=-16:gv=6:enable='{glitch}',"
           "vignette=PI/4.5,noise=alls=10:allf=t,"
           "ass=p.ass:fontsdir=fonts,format=yuv420p")
+    # Até 30 MB (contexto do Sávio): teto de bitrate pela duração, com folga para o áudio e o contêiner; piso de 900 kbps.
+    teto = max(900, min(12000, int(30e6 * 8 * 0.96 / dur / 1000) - 128))
     run(["ffmpeg", "-y", "-v", "error", "-i", "base.mp4", "-i", "musica.wav", "-vf", vf,
          "-af", "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000",
-         "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-maxrate", "12M", "-bufsize", "24M",
-         "-pix_fmt", "yuv420p",
-         "-c:a", "aac", "-b:a", "192k", "-t", f"{dur:.3f}", "-movflags", "+faststart", "out.mp4"], "acabamento", cwd=w)
+         "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-profile:v", "high", "-preset", "medium", "-crf", "20",
+         "-maxrate", f"{teto}k", "-bufsize", f"{2 * teto}k", "-pix_fmt", "yuv420p", "-r", "30",
+         "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-t", f"{dur:.3f}", "-movflags", "+faststart", "out.mp4"],
+        "acabamento", cwd=w)
     shutil.move(os.path.join(w, "out.mp4"), job["out"])
     log(f"palavras: {n_words} entradas; arquivo final: {os.path.getsize(job['out']) / 1e6:.1f} MB, {duration(job['out']):.1f}s")
     log("DONE")

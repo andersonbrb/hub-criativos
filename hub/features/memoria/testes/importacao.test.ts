@@ -66,13 +66,20 @@ describe.skipIf(!temPasta)("importação do contexto do Sávio (pasta real)", ()
     ]);
     expect(porSlug.get("playbook-infoproduto-edicao-video")?.frente).toBe("info");
     expect(porSlug.get("playbook-dropshipping-cod-criativos")).toMatchObject({ frente: "cod", titulo: "Produtor de criativos COD (dropshipping)" });
-    expect(porSlug.get("playbook-contexto-grupo-chegou")).toMatchObject({ tipo: "fato", noPrompt: false, precisaRevisao: true });
+    // O retrato de 06/10 foi para playbooks/historico/ (decisão de 20/10/2026) e não é mais importado.
+    expect(porSlug.has("playbook-contexto-grupo-chegou")).toBe(false);
     expect(porSlug.get("14-unit-economics-cod")).toMatchObject({ tipo: "fato", frente: "cod" });
     expect(porSlug.get("21-github-e-repositorio")?.metadados.motivoRevisao).toMatch(/deixou de existir/);
-    expect(porSlug.get("decisoes-pendentes")).toMatchObject({ tipo: "decisao", titulo: "Decisões pendentes: regras do Sávio x regras atuais do Hub" });
+    expect(porSlug.get("decisoes-pendentes")).toMatchObject({
+      tipo: "decisao",
+      titulo: "Decisões: regras do Sávio x regras antigas do Hub (fechado em 20/10/2026)",
+      noPrompt: true,
+      precisaRevisao: false,
+    });
 
     const fila = (await pendentesDeRevisao()).map((d) => d.slug);
-    expect(fila).toEqual(expect.arrayContaining(["21-github-e-repositorio", "playbook-contexto-grupo-chegou", "decisoes-pendentes"]));
+    expect(fila).toEqual(expect.arrayContaining(["21-github-e-repositorio"]));
+    expect(fila).not.toContain("decisoes-pendentes");
     console.log(`[importação] ${indice.length} documentos (${arquivosSavio} do Sávio, ${playbooks} playbooks, 1 de decisões); fila de revisão: ${fila.length} (${fila.join(", ")})`);
 
     expect((await documentosDoPrompt()).map((d) => d.slug)).toEqual([
@@ -80,6 +87,7 @@ describe.skipIf(!temPasta)("importação do contexto do Sávio (pasta real)", ()
       "03-preferencias-de-trabalho",
       "leia-primeiro",
       "01-perfil-e-operacao",
+      "decisoes-pendentes",
       "playbook-dropshipping-cod-criativos",
       "playbook-infoproduto-edicao-video",
       "playbook-variacoes-criativo-validado",

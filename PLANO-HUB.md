@@ -68,4 +68,5 @@ conta do dono, importação da memória no banco de produção, convites e teste
 - Lotes ao vivo (substitui o painel local do Sávio).
 - Ferramentas vindas do kit do Sávio: revisão automática, upscale, troca de marca, lipsync sobre vídeo, analisador
   de vencedores do Meta, base de cases.
-- Resolver o documento "Decisões pendentes" da Memória: são 18 conflitos entre as regras do Sávio e as do Hub.
+- ✅ Resolver o documento "Decisões pendentes" da Memória (20/10/2026): vale o contexto do Sávio nos 18 itens; ficaram
+  para o Vinícius os pontos que o Sávio não decide (crianças no COD, quem aprova, tempo do upscale, legenda em maiúsculas).

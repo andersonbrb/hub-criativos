@@ -125,7 +125,7 @@ export function TranslateStudio() {
   const [langOpen, setLangOpen] = useState(false);
   const [langQuery, setLangQuery] = useState("");
   const [inputLanguage, setInputLanguage] = useState("auto");
-  const [mode, setMode] = useState<"speed" | "precision">("speed");
+  // Sempre o modo speed: no precision a boca segue o idioma original nas pausas (contexto do Sávio).
   const [audioOnly, setAudioOnly] = useState(false);
   const [speakers, setSpeakers] = useState("auto");
   const [dynamicDuration, setDynamicDuration] = useState(true);
@@ -238,7 +238,7 @@ export function TranslateStudio() {
         JSON.stringify({
           videoGenerationId: sourceId,
           outputLanguages: outputs,
-          mode,
+          mode: "speed",
           translateAudioOnly: audioOnly,
           inputLanguage: inputLanguage === "auto" ? null : inputLanguage,
           speakerNum: speakers === "auto" ? null : Number(speakers),
@@ -455,28 +455,6 @@ export function TranslateStudio() {
             </Popover>
           </Field>
 
-          <Field label="Qualidade" id="tr-mode">
-            <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Qualidade">
-              {(
-                [
-                  { v: "speed", label: "Rápida (Speed)", hint: "Sai mais rápido" },
-                  { v: "precision", label: "Precisão (Precision)", hint: "Lipsync melhor, mais lento" },
-                ] as const
-              ).map((o) => (
-                <button
-                  key={o.v}
-                  type="button"
-                  role="radio"
-                  aria-checked={mode === o.v}
-                  onClick={() => setMode(o.v)}
-                  className={cn("rounded-md border px-3 py-2 text-left hover:bg-muted", mode === o.v && "border-rec bg-rec/10 hover:bg-rec/10")}
-                >
-                  <span className="block text-sm font-medium">{o.label}</span>
-                  <span className="block text-xs text-muted-foreground">{o.hint}</span>
-                </button>
-              ))}
-            </div>
-          </Field>
 
           <div className="grid grid-cols-2 gap-2">
             <Field label="Idioma original" id="tr-input">
@@ -586,7 +564,18 @@ export function TranslateStudio() {
               </Field>
 
               <Field label="Áudio próprio para dublar" id="tr-audio">
-                <Select value={audioId} onValueChange={setAudioId}>
+                <Select
+                  value={audioId}
+                  onValueChange={(v) => {
+                    setAudioId(v);
+                    // Lipsync com áudio próprio (contexto do Sávio): duração dinâmica desligada, mesmo formato e quadros constantes.
+                    if (v !== "none") {
+                      setDynamicDuration(false);
+                      setSameFormat(true);
+                      setFpsMode("cfr");
+                    }
+                  }}
+                >
                   <SelectTrigger id="tr-audio" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
@@ -655,7 +644,7 @@ export function TranslateStudio() {
                 g={g}
                 onDelete={remove}
                 title={String(g.params.language ?? "Tradução")}
-                meta={`${g.params.mode === "precision" ? "Precisão" : "Rápida"}${g.params.translateAudioOnly ? " · só áudio" : ""} · ${g.params.source ?? ""}`}
+                meta={`${g.params.translateAudioOnly ? "Só áudio · " : ""}${g.params.source ?? ""}`}
               />
               {typeof g.params.srtFile === "string" && g.params.srtFile && (
                 <a href={`/api/media/${g.params.srtFile}`} download className="flex items-center gap-1 px-1 text-xs text-muted-foreground hover:text-foreground">

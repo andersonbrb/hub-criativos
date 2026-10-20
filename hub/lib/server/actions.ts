@@ -39,7 +39,7 @@ export async function runTts(req: TtsRequest): Promise<Generation> {
   if (text.length > 5000) throw new InputError("Máximo de 5.000 caracteres por geração.");
   if (!req.voiceId) throw new InputError("Escolha uma voz.");
 
-  // Padrão: Eleven v4 (o mais natural e emotivo, aceita tags como [excited]) ao mesmo custo do Multilingual v2.
+  // Padrão: Multilingual v2 (modelo padrão do contexto do Sávio). Os modelos v4/v3 continuam para quem pedir.
   const modelId = resolveElevenModel(String(req.modelId || DEFAULT_ELEVEN_MODEL));
   // stability/similarity/style/speed seguem aceitos (chat e telas antigas mandam), mas o MCP do ElevenLabs não expõe ajustes de voz.
   const input = {

@@ -1,4 +1,5 @@
-> Vale para as duas operações (infoproduto e dropshipping COD). Base de referência, não regra final.
+> Vale para as duas operações (infoproduto e dropshipping COD).
+> **Como fazer vídeo segue só o contexto do Sávio** (decisão do Vinícius em 20/10/2026; documento "decisoes-pendentes" da Memória; matriz gancho × corpo no documento 07). Em qualquer conflito com este playbook, vale o Sávio. A versão anterior está no histórico.
 
 # Variações de um criativo validado
 
@@ -31,7 +32,7 @@ O que for a razão de validar é a **base fixa**: não muda nas variações de c
 Regra 70/30: 70% contenção (mesma base, uma variável por vez) e 30% exploração (uma variável nova). Diga em cada linha qual variável mudou.
 
 Entregue o que o usuário pedir, em tabela com código:
-- **Ganchos falados**: 5 a 10, até 3s, no idioma do mercado, falados desde o primeiro frame.
+- **Ganchos**: 5 a 10, com gancho visual antes da fala (título grande, elementos e som no quadro 1), fala no idioma do mercado (take de IA: até ~20 palavras a cada 8 s). Cada variação muda o gancho de verdade: quase-duplicata não conta (o Meta agrupa como o mesmo anúncio).
 - **Ganchos visuais** (imagem ou vídeo de abertura): a cena em uma linha, o texto na tela à parte e se dá para reaproveitar um b-roll que já existe.
 - **Copies** (body e CTA) e **roteiros completos** com tempo por trecho, marcando onde entra cada b-roll.
 - **Ad text** (texto do anúncio), quando fizer sentido.
@@ -45,9 +46,9 @@ Para as variações aprovadas, monte o plano por etapa, do mais barato para o ma
 1. **Reaproveitar do original**: trechos que entram iguais (o corpo validado, a demonstração, o CTA). Corte no editor do hub, sem custo.
 2. **Voz**: o que precisa de narração nova (ElevenLabs); o que reaproveita o áudio original.
 3. **Avatar ou pessoa falando**: HeyGen só se a variação exigir uma fala nova com rosto.
-4. **B-rolls por cena**: primeiro os que já existem (busca no hub, `flora_project_media`, `hub_contact_sheet`); depois a lista do que falta gerar no FLORA, com o modelo (o mais barato que resolve) e o custo. Cena só de prompt vai direto em vídeo (sem frame); frame antes do vídeo só quando a cena precisa de imagem base de referência (produto real, mesma pessoa, lugar ou marca específicos).
-5. **Montagem e legenda**: `hub_montage` ou o editor do hub (local, sem custo).
-6. **Total estimado** da leva e o que depende de aprovação.
+4. **B-rolls por cena**: primeiro os que já existem (busca no hub, `flora_project_media`, `hub_contact_sheet`); depois a lista do que falta gerar no FLORA, com o modelo (o mais barato que resolve) e o custo. Frame antes do vídeo (regra do Sávio), com o produto sempre a partir da foto original.
+5. **Montagem e legenda**: `hub_montage` (local, sem custo), com o roteiro de cada variação para a legenda. Regras da matriz do Sávio: nenhum take repete, nunca dois seguidos da mesma fonte, voz do gancho = voz do corpo, emendas em fim de frase. Nome `VAR NN - <GANCHO> x <CORPO>`.
+6. **Total estimado** da leva (custo em US$ + tempo + opção paga mais rápida) e o que depende de aprovação. O volume cabe na verba diária de mídia: pergunte a verba antes de dimensionar.
 
 Peça aprovação do plano antes de gastar. Com o plano aprovado, registre no quadro do Fluxo (`pipeline_save_card`): um card por variação, com o roteiro e as gerações vinculadas.
 
