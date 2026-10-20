@@ -36,6 +36,7 @@ import {
 } from "@/features/drive/servicos/videos";
 import { downloadName, type Generation } from "@/lib/generations";
 import { createCard } from "@/lib/server/board";
+import { trechoDoArquivo } from "@/lib/server/media";
 import { pastaDeMidiaDa, usarRaizDosDados } from "@/lib/server/pastas";
 import * as store from "@/lib/server/store";
 
@@ -367,13 +368,43 @@ describe("vídeos no Google Drive", () => {
       expect(abrirTrecho).not.toHaveBeenCalled();
     });
 
-    it("repassa ao Drive o signal do pedido (o player que desiste fecha a conexão)", async () => {
+    it("o player que desiste antes de o Drive responder cancela o pedido ao Drive", async () => {
       await entrarCom(["biblioteca"]);
       const gen = await novoVideo({ drive: { id: "drv-7", pasta: "broll" } }, { local: false });
+      const player = new AbortController();
+      let cancelado: boolean | undefined;
+      vi.mocked(abrirTrecho).mockImplementation(async (_id, _faixa, sinal) => {
+        player.abort(); // o player pulou enquanto o Drive respondia
+        cancelado = sinal?.aborted;
+        return { status: 200, cabecalhos: {}, corpo: null };
+      });
+      await midia(new Request(`${BASE}/api/media/${gen.file}`, { signal: player.signal }), ctx({ file: gen.file! }));
+      expect(cancelado).toBe(true);
+    });
+
+    it("depois que o Drive respondeu, o pedido do navegador não mexe mais na conexão (quem para é a leitura)", async () => {
+      await entrarCom(["biblioteca"]);
+      const gen = await novoVideo({ drive: { id: "drv-7", pasta: "broll" } }, { local: false });
+      const player = new AbortController();
       vi.mocked(abrirTrecho).mockResolvedValue({ status: 200, cabecalhos: {}, corpo: null });
-      const pedido = new Request(`${BASE}/api/media/${gen.file}`);
-      await midia(pedido, ctx({ file: gen.file! }));
-      expect(vi.mocked(abrirTrecho).mock.calls[0][2]).toBe(pedido.signal);
+      await midia(new Request(`${BASE}/api/media/${gen.file}`, { signal: player.signal }), ctx({ file: gen.file! }));
+      player.abort();
+      expect(vi.mocked(abrirTrecho).mock.calls[0][2]?.aborted).toBe(false);
+    });
+
+    it("vídeo do disco: o player que fecha no meio só solta o arquivo, e o trecho chega exato", async () => {
+      const arquivo = path.join(MEDIA_DIR, "trecho-grande.bin");
+      const conteudo = Buffer.alloc(1024 * 1024, 0).map((_, i) => i % 251);
+      await mkdir(MEDIA_DIR, { recursive: true });
+      await writeFile(arquivo, conteudo);
+
+      const meio = trechoDoArquivo(arquivo, 0, conteudo.length - 1).getReader();
+      expect((await meio.read()).value!.length).toBeGreaterThan(0);
+      await meio.cancel(); // sem erro, e nada mais é lido depois
+      expect(await meio.read()).toEqual({ done: true, value: undefined });
+
+      const inteiro = new Uint8Array(await new Response(trechoDoArquivo(arquivo, 1000, 700_000)).arrayBuffer());
+      expect(Buffer.from(inteiro).equals(conteudo.subarray(1000, 700_001))).toBe(true);
     });
 
     it("404 do Drive não marca na hora: o espelho confere a lista e só então marca", async () => {

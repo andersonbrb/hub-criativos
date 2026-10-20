@@ -52,7 +52,8 @@ export function CommandMenu({ usuario, semBanco = false }: { usuario: Usuario; s
 
   const itens = useMemo<Item[]>(() => {
     const ir = (href: string) => () => router.push(href);
-    // Também as telas que o menu agrupa (cada estúdio, Integrações, Equipe...): daqui se vai direto a qualquer uma.
+    // Também as telas que o menu agrupa (cada estúdio) e as do menu da organização (Equipe, Plataforma): daqui se vai
+    // direto a qualquer uma.
     const telas = todasAsTelas(usuario, semBanco).map((i) => ({
       id: i.href,
       grupo: "Telas",

@@ -36,7 +36,7 @@ export function Topbar({ usuario }: { usuario: Usuario }) {
             Menu <span className="opacity-60">Ctrl B</span>
           </TooltipContent>
         </Tooltip>
-        {/* Numa tela de grupo (um agente, um estúdio, Integrações...), o grupo vem antes e leva de volta à página dele. */}
+        {/* Numa tela de grupo (um agente, um estúdio...), o grupo vem antes e leva de volta à página dele. */}
         <span className="flex min-w-0 items-center gap-1.5 text-[0.875rem] font-medium">
           {pagina?.grupo && (
             <>

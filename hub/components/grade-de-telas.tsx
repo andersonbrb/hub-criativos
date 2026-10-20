@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
-// Páginas que agrupam telas (Agentes, Estúdios, Configurações): um cartão por tela, que abre a tela. Sem estado nem
+// Páginas que agrupam telas (Agentes, Estúdios): um cartão por tela, que abre a tela. Sem estado nem
 // hooks: serve às páginas do servidor.
 export type CartaoDeTela = { href: string; nome: string; descricao?: string; marca?: string; icone: React.ReactNode };
 

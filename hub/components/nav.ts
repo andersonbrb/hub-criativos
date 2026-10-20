@@ -12,7 +12,6 @@ import {
   Palette,
   Plug,
   Scissors,
-  Settings,
   Sparkles,
   UserRound,
   Users,
@@ -23,8 +22,8 @@ import {
 import { podeUsar, type Chave, type Usuario } from "@/features/acesso/contrato";
 import { agents } from "@/lib/data";
 
-// Telas do hub. Uma lista só para o menu lateral, as páginas que agrupam telas (Agentes, Estúdios, Configurações), a
-// busca rápida (Ctrl K) e o nome da página na barra do topo.
+// Telas do hub. Uma lista só para o menu lateral, as páginas que agrupam telas (Agentes, Estúdios), a busca rápida
+// (Ctrl K) e o nome da página na barra do topo.
 
 // soOperador: a tela não depende de chave da organização, só de operar a plataforma (tela Plataforma).
 // descricao: uma linha no cartão da página que agrupa a tela.
@@ -47,14 +46,6 @@ export const ESTUDIOS: ItemDoMenu[] = [
   { href: "/estudios/edicao", label: "Edição", tool: "No hub", icon: Scissors, chave: "estudios", descricao: "Edição final: cortes, cenas extras e legenda, sem gastar créditos." },
 ];
 
-// Configurações: um item só no pé do menu, que abre /configuracoes com estas telas.
-export const CONFIGURACOES: ItemDoMenu[] = [
-  { href: "/integracoes", label: "Integrações", icon: Plug, chave: "integracoes", descricao: "Contas do FLORA, ElevenLabs, HeyGen e Google Drive, e as chaves do Claude e da Venice." },
-  { href: "/conector", label: "Conector do Claude", icon: Cable, chave: "conector_claude", descricao: "Ligue o seu Claude Code ao hub para ele usar a Memória, a Biblioteca e o Fluxo." },
-  { href: "/membros", label: "Equipe", icon: Users, chave: "membros", descricao: "Quem participa da organização, o que cada pessoa abre e os convites." },
-  { href: "/plataforma", label: "Plataforma", icon: Building2, chave: "membros", soOperador: true, descricao: "Todas as organizações do hub: criar, renomear e suspender." },
-];
-
 // Itens do menu lateral, na ordem. `telas`: o item abre uma página que agrupa estas telas (e fica marcado nelas).
 export type ItemDaBarra = ItemDoMenu & { telas?: ItemDoMenu[] };
 
@@ -69,8 +60,19 @@ export const BARRA: ItemDaBarra[] = [
   { href: "/memoria", label: "Memória", icon: BookOpen, chave: "memoria" },
 ];
 
-// Fica no pé do menu, separado das telas do dia a dia.
-export const ITEM_CONFIGURACOES: ItemDaBarra = { href: "/configuracoes", label: "Configurações", icon: Settings, chave: "integracoes", telas: CONFIGURACOES };
+// Ficam no pé do menu, separados das telas do dia a dia. Cada um abre a própria tela (não há mais página de
+// Configurações: /configuracoes só redireciona).
+export const RODAPE: ItemDaBarra[] = [
+  { href: "/integracoes", label: "Integrações", icon: Plug, chave: "integracoes" },
+  { href: "/conector", label: "Conector do Claude", icon: Cable, chave: "conector_claude" },
+];
+
+// Equipe e Plataforma não entram no menu lateral: abrem pelo menu da organização, no pé dele
+// (features/acesso/tela/seletor-de-organizacao.tsx). Ficam aqui para a busca rápida e o nome da página no topo.
+const DA_ORGANIZACAO: ItemDaBarra[] = [
+  { href: "/membros", label: "Equipe", icon: Users, chave: "membros" },
+  { href: "/plataforma", label: "Plataforma", icon: Building2, chave: "membros", soOperador: true },
+];
 
 // Telas que só existem com o banco (no PC sem banco ficam fora do menu).
 const SO_COM_BANCO = new Set<string>(["/memoria", "/conector", "/membros", "/plataforma"]);
@@ -82,10 +84,10 @@ const podeAbrir = (usuario: Usuario, semBanco: boolean) => (i: ItemDoMenu) =>
 export const telasDaPessoa = (telas: ItemDoMenu[], usuario: Usuario, semBanco: boolean) => telas.filter(podeAbrir(usuario, semBanco));
 
 // Menu lateral da pessoa. Item que agrupa telas aparece se ela abre pelo menos uma delas.
-export function menuDaPessoa(usuario: Usuario, semBanco: boolean): { itens: ItemDaBarra[]; rodape: ItemDaBarra | null } {
+export function menuDaPessoa(usuario: Usuario, semBanco: boolean): { itens: ItemDaBarra[]; rodape: ItemDaBarra[] } {
   const pode = podeAbrir(usuario, semBanco);
   const visivel = (i: ItemDaBarra) => (i.telas ? i.telas.some(pode) : pode(i));
-  return { itens: BARRA.filter(visivel), rodape: visivel(ITEM_CONFIGURACOES) ? ITEM_CONFIGURACOES : null };
+  return { itens: BARRA.filter(visivel), rodape: RODAPE.filter(visivel) };
 }
 
 export const agentesDaPessoa = (usuario: Usuario) => (podeUsar(usuario, "chat") ? agents : []);
@@ -93,10 +95,13 @@ export const agentesDaPessoa = (usuario: Usuario) => (podeUsar(usuario, "chat") 
 // Todas as telas que a pessoa abre, com o grupo de cada uma (busca rápida).
 export function todasAsTelas(usuario: Usuario, semBanco: boolean): (ItemDoMenu & { grupo?: string })[] {
   const { itens, rodape } = menuDaPessoa(usuario, semBanco);
-  return [...itens, ...(rodape ? [rodape] : [])].flatMap((i) => [
-    i,
-    ...(i.telas ? telasDaPessoa(i.telas, usuario, semBanco).map((t) => ({ ...t, grupo: i.label })) : []),
-  ]);
+  return [
+    ...[...itens, ...rodape].flatMap((i) => [
+      i,
+      ...(i.telas ? telasDaPessoa(i.telas, usuario, semBanco).map((t) => ({ ...t, grupo: i.label })) : []),
+    ]),
+    ...telasDaPessoa(DA_ORGANIZACAO, usuario, semBanco).map((t) => ({ ...t, grupo: "Organização" })),
+  ];
 }
 
 const dentro = (pathname: string, href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`));
@@ -112,7 +117,7 @@ export function caminhoDaPagina(pathname: string): { nome: string; grupo?: { hre
   }
   // Documento da Memória: no celular a barra do topo é o único lugar que diz em que tela a pessoa está.
   if (pathname.startsWith("/memoria/")) return { nome: "Documento", grupo: { href: "/memoria", label: "Memória" } };
-  for (const item of [...BARRA, ITEM_CONFIGURACOES]) {
+  for (const item of [...BARRA, ...RODAPE, ...DA_ORGANIZACAO]) {
     if (item.href === pathname) return { nome: item.label };
     const tela = item.telas?.find((t) => dentro(pathname, t.href));
     if (tela) return { nome: tela.label, grupo: { href: item.href, label: item.label } };

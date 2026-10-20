@@ -23,8 +23,8 @@ import { SeletorDeOrganizacao } from "@/features/acesso/tela/seletor-de-organiza
 import { cn } from "@/lib/utils";
 
 // Menu lateral no estilo do ElevenLabs: marca, as telas que a conta pode abrir (o servidor também confere) e a
-// organização no rodapé. A busca e a conta ficam na barra do topo. Agentes, Estúdios e Configurações são um item só
-// cada, que abre a página com todas as telas do grupo (components/nav.ts).
+// organização no rodapé. A busca e a conta ficam na barra do topo. Agentes e Estúdios são um item só cada, que abre a
+// página com todas as telas do grupo (components/nav.ts). Equipe e Plataforma abrem pelo menu da organização.
 export function AppSidebar({ usuario, semBanco = false }: { usuario: Usuario; semBanco?: boolean }) {
   const pathname = usePathname();
   const { state, isMobile, setOpenMobile } = useSidebar();
@@ -55,12 +55,14 @@ export function AppSidebar({ usuario, semBanco = false }: { usuario: Usuario; se
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* Configurações: no pé do menu, longe das telas do dia a dia. */}
-        {rodape && (
+        {/* Integrações e Conector do Claude: no pé do menu, longe das telas do dia a dia. */}
+        {rodape.length > 0 && (
           <SidebarGroup className="mt-auto py-1">
             <SidebarGroupContent>
               <SidebarMenu className="gap-px">
-                <ItemDaBarraLateral item={rodape} ativo={itemAtivo(rodape, pathname)} />
+                {rodape.map((item) => (
+                  <ItemDaBarraLateral key={item.href} item={item} ativo={itemAtivo(item, pathname)} />
+                ))}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

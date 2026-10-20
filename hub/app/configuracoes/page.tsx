@@ -1,24 +1,15 @@
-import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
-import { PaginaDeGrupo } from "@/components/grade-de-telas";
-import { CONFIGURACOES, telasDaPessoa } from "@/components/nav";
+import { menuDaPessoa } from "@/components/nav";
+import { telaInicial } from "@/features/acesso/contrato";
 import { modoLocalSemBanco } from "@/features/acesso/modo-local";
 import { exigirPagina } from "@/features/acesso/servicos/sessao";
 
-export const metadata: Metadata = { title: "Configurações · Hub de Criativos" };
-
-// Integrações, Conector do Claude, Equipe e Plataforma juntos (o menu tem um item só, "Configurações").
-// Cada pessoa vê só as que pode abrir; cada tela confere de novo no servidor.
+// A página de Configurações saiu do hub: Integrações e o Conector do Claude são itens do menu, e Equipe e Plataforma
+// abrem pelo menu da organização. Link antigo cai na primeira tela do pé do menu que a pessoa abre (Integrações, em
+// geral) ou, sem nenhuma, na tela inicial dela.
 export default async function ConfiguracoesPage() {
   const usuario = await exigirPagina();
-  const telas = telasDaPessoa(CONFIGURACOES, usuario, modoLocalSemBanco());
-  if (telas.length === 0) redirect("/sem-acesso");
-  return (
-    <PaginaDeGrupo
-      titulo="Configurações"
-      descricao="Contas conectadas, a equipe e o resto do que se ajusta uma vez e depois quase não se mexe."
-      cartoes={telas.map((t) => ({ href: t.href, nome: t.label, descricao: t.descricao, icone: <t.icon className="size-5" strokeWidth={1.6} /> }))}
-    />
-  );
+  const { rodape } = menuDaPessoa(usuario, modoLocalSemBanco());
+  redirect(rodape[0]?.href ?? telaInicial(usuario) ?? "/sem-acesso");
 }

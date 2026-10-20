@@ -22,9 +22,11 @@ O que mora onde:
 ## Serviços
 
 ### `hub-criativos`
-- Constrói pelo `Dockerfile` da raiz (`railway.json`: builder `DOCKERFILE`).
+- Constrói pelo `Dockerfile` da raiz (o Railway acha sozinho o `Dockerfile` na raiz do repositório).
+- As configurações de publicação ficam no próprio serviço (Settings → Deploy), não num arquivo do repositório: o
+  `railway.json` foi removido em 20/10/2026 porque o serviço não o lia e esse formato deixa de valer em 1º/12/2026.
 - Ao subir, roda as migrações e depois o servidor (veja [Migrações](#migrações)).
-- Reinicia sozinho se cair (`ON_FAILURE`, até 5 tentativas).
+- Reinicia sozinho se cair (`ON_FAILURE`, até 10 tentativas).
 - Tem um volume, então cada publicação tem alguns segundos fora do ar: o Railway não deixa duas versões montarem o
   mesmo volume ao mesmo tempo.
 
@@ -80,7 +82,8 @@ uso. Podem ser apagados com os volumes deles. Também existe um projeto "Hub de 
 
 ## Domínio
 
-- Domínio gerado pelo Railway: **https://hub-criativos-production.up.railway.app** (porta 3000).
+- Domínio gerado pelo Railway: **https://hubdecriativos.up.railway.app** (porta 3000). O Hub Teste responde em
+  **https://hubdecriativosteste.up.railway.app**. O antigo `hub-criativos-production.up.railway.app` não responde mais.
 - Se trocar por um domínio próprio, atualize `HUB_PUBLIC_URL` e refaça o login das integrações que dependem do
   endereço (ElevenLabs) e as conexões do conector do Claude.
 
@@ -133,6 +136,7 @@ Se o banco estiver vazio, rode antes `npm run db:migrar` na mesma sessão (ou pu
   - `503 { "ok": false, "banco": "fora" }`: o banco não respondeu em 5 s. O motivo fica só no log.
 - O Railway chama essa rota antes de liberar cada versão nova (`healthcheckPath`), com até 120 s de espera
   (`healthcheckTimeout`), porque o primeiro start roda a migração. A chamada vem do host `healthcheck.railway.app`.
+  Configurado direto no serviço (Hub Produção e Hub Teste → Settings → Deploy → Healthcheck Path) desde 20/10/2026.
 - O Railway não monitora a rota depois que a versão entra no ar.
 
 ## Backups
@@ -143,7 +147,9 @@ Se o banco estiver vazio, rode antes `npm run db:migrar` na mesma sessão (ou pu
   - Cobrança só pelo que muda entre um backup e outro, no preço do volume.
   - A restauração monta um volume novo no lugar e publica de novo. Só restaura no mesmo projeto e ambiente.
   - Apagar o volume apaga os backups junto.
-- **Os agendamentos ainda não foram ligados.** Ligue pelo menos o diário no `Postgres` e no `hub`.
+- **Ligados em 20/10/2026:** diário e semanal no volume do Postgres Produção e no do Hub Produção. No mesmo dia ficou
+  uma cópia manual de cada um, "antes-dos-testes-2026-10-20" (cópia manual não vence sozinha; apague na aba Backups
+  quando não precisar mais).
 - Antes de uma migração arriscada (apagar ou renomear coluna, mexer em dados), faça um `pg_dump` do PC, além do
   backup manual do volume:
 
@@ -162,4 +168,5 @@ pg_dump --format=custom --no-owner --file "hub-$(Get-Date -Format yyyyMMdd-HHmm)
   da conta).
 - **Hub antigo:** está em outra conta do Railway. O endereço padrão de `HUB_PUBLIC_URL` no código (usado no PC
   quando a variável está vazia) já aponta para o hub novo.
-- **Backups agendados:** ainda não ligados (veja [Backups](#backups)).
+- **Chave de cifra do Hub Teste:** ainda é a mesma da produção (`HUB_CHAVE_SEGREDOS`). Trocar exige recifrar as
+  chaves e o Drive guardados no Postgres Teste com a chave nova; trocar sem isso apaga essas configurações do Hub Teste.

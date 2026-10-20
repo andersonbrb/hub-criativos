@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, open, rename, unlink, writeFile, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -36,6 +36,64 @@ export const CONTENT_TYPES: Record<string, string> = {
   ogg: "audio/ogg",
   pdf: "application/pdf",
 };
+
+// Tamanho de cada leitura do disco ao servir um arquivo.
+const PEDACO_DA_LEITURA = 256 * 1024;
+
+// Trecho de um arquivo do disco (do byte `inicio` ao `fim`, inclusive) como stream para a resposta. Só lê quando o
+// navegador pede mais, e para quando ele desiste.
+// Não usa Readable.toWeb: quando o player pula para outro ponto ou fecha no meio, o adaptador do Node ainda tentava
+// fechar o stream já cancelado, e o servidor registrava "Controller is already closed" (uncaughtException).
+export function trechoDoArquivo(caminho: string, inicio: number, fim: number): ReadableStream<Uint8Array> {
+  let arquivo: FileHandle | null = null;
+  let posicao = inicio;
+  // true depois do fim, de um erro ou de o navegador desistir: a partir daí nada mais toca no stream.
+  let encerrado = false;
+  const fechar = async () => {
+    encerrado = true;
+    const aberto = arquivo;
+    arquivo = null;
+    await aberto?.close().catch(() => undefined);
+  };
+  return new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        if (encerrado) return;
+        try {
+          if (!arquivo) {
+            const aberto = await open(caminho, "r");
+            if (encerrado) {
+              await aberto.close().catch(() => undefined);
+              return;
+            }
+            arquivo = aberto;
+          }
+          const tamanho = Math.min(PEDACO_DA_LEITURA, fim - posicao + 1);
+          const { bytesRead, buffer } = tamanho > 0 ? await arquivo.read(Buffer.allocUnsafe(tamanho), 0, tamanho, posicao) : { bytesRead: 0, buffer: null };
+          // Sem nenhum await entre esta conferência e o close/enqueue: o stream não muda de estado no meio.
+          if (encerrado) return;
+          // Chegou ao fim pedido (ou o arquivo encolheu no meio): fecha a resposta.
+          if (!bytesRead || !buffer) {
+            encerrado = true;
+            controller.close();
+            await fechar();
+            return;
+          }
+          posicao += bytesRead;
+          controller.enqueue(new Uint8Array(buffer.buffer, buffer.byteOffset, bytesRead));
+        } catch (err) {
+          if (encerrado) return;
+          encerrado = true;
+          controller.error(err);
+          await fechar();
+        }
+      },
+      // O navegador desistiu (o player pulou ou fechou): só solta o arquivo.
+      cancel: fechar,
+    },
+    { highWaterMark: 0 },
+  );
+}
 
 export async function saveMedia(data: ArrayBuffer | Buffer, ext: string): Promise<string> {
   const pasta = await pastaDeMidia();

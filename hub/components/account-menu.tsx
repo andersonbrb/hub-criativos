@@ -54,12 +54,13 @@ export function AccountMenu({ usuario, side = "bottom" }: { usuario: Usuario; si
       {form}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
+          {/* No celular o círculo é maior (o dedo precisa de alvo) e a área de toque passa um pouco da borda (after). */}
           <button
             type="button"
             aria-label="Sua conta"
-            className="rounded-full bg-[linear-gradient(135deg,var(--brand-500),var(--cyan-400))] p-[1.5px] transition-shadow outline-none hover:shadow-[0_0_14px_-3px_var(--brand-500)] focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:shadow-[0_0_14px_-3px_var(--brand-500)]"
+            className="relative shrink-0 rounded-full bg-[linear-gradient(135deg,var(--brand-500),var(--cyan-400))] p-[1.5px] transition-shadow outline-none after:absolute after:-inset-1 after:rounded-full hover:shadow-[0_0_14px_-3px_var(--brand-500)] focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:shadow-[0_0_14px_-3px_var(--brand-500)]"
           >
-            <Avatar nome={usuario.nome} className="size-7 ring-2 ring-background" />
+            <Avatar nome={usuario.nome} className="size-9 text-xs ring-2 ring-background md:size-7 md:text-[0.6875rem]" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent side={side} align="end" sideOffset={8} className="w-64">

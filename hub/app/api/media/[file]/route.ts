@@ -1,12 +1,10 @@
-import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
-import { Readable } from "node:stream";
 
 import { abrirTrecho, ArquivoForaDoDrive } from "@/features/drive/servicos/arquivos";
 import { midiaDoArquivo, sincronizarComDrive } from "@/features/drive/servicos/videos";
 import { route } from "@/lib/server/http";
-import { CHAVES_DE_PRODUCAO, CONTENT_TYPES } from "@/lib/server/media";
+import { CHAVES_DE_PRODUCAO, CONTENT_TYPES, trechoDoArquivo } from "@/lib/server/media";
 import { pastaDeMidia } from "@/lib/server/pastas";
 
 // O vídeo foi apagado (ou mandado para a lixeira) direto no Drive: o hub não tem outra cópia.
@@ -67,9 +65,15 @@ export const GET = route(async (request: Request, { params }: { params: Promise<
     if (midia?.foraDoDrive) return apagadoNoDrive();
     if (midia?.drive && !info?.isFile()) {
       let trecho;
+      // O navegador que desiste antes de o Drive responder cancela o pedido ao Drive. Depois que o Drive responde,
+      // quem para o download é o próprio cancelamento da leitura (o player pulou ou fechou). Os dois juntos disputavam
+      // o fechamento do stream, e o servidor registrava "Controller is already closed".
+      const ateResponder = new AbortController();
+      const desistiu = () => ateResponder.abort(request.signal.reason);
+      if (request.signal.aborted) desistiu();
+      else request.signal.addEventListener("abort", desistiu, { once: true });
       try {
-        // Com o signal: o navegador que desiste do pedaço (o player pulou para outro ponto) fecha a conexão com o Drive.
-        trecho = await abrirTrecho(midia.drive.id, request.headers.get("range"), request.signal);
+        trecho = await abrirTrecho(midia.drive.id, request.headers.get("range"), ateResponder.signal);
       } catch (err) {
         if (err instanceof ArquivoForaDoDrive) {
           // Não marca na hora (pode ser outra conta conectada): o espelho confere a lista do Drive e marca se confirmar.
@@ -77,6 +81,8 @@ export const GET = route(async (request: Request, { params }: { params: Promise<
           return apagadoNoDrive();
         }
         throw err;
+      } finally {
+        request.signal.removeEventListener("abort", desistiu);
       }
       // Os cabeçalhos do Drive (tamanho, Content-Range) com as travas do hub por cima.
       const headers = new Headers(trecho.cabecalhos);
@@ -97,8 +103,7 @@ export const GET = route(async (request: Request, { params }: { params: Promise<
 
   const { inicio, fim } = intervalo ?? { inicio: 0, fim: info.size - 1 };
   const tamanho = fim - inicio + 1;
-  // Arquivo vazio: createReadStream não aceita fim antes do início.
-  const corpo = tamanho > 0 ? (Readable.toWeb(createReadStream(filePath, { start: inicio, end: fim })) as unknown as ReadableStream<Uint8Array>) : null;
+  const corpo = tamanho > 0 ? trechoDoArquivo(filePath, inicio, fim) : null;
   return new Response(corpo, {
     status: intervalo ? 206 : 200,
     headers: {
