@@ -129,6 +129,14 @@ O `Dockerfile` e o `railway.json` da raiz montam uma imagem com Node 22, ffmpeg,
 - `HUB_CHAT` (opcional): `off` desliga o chat.
 - As chaves das integrações não são variáveis: ficam em Integrações (veja acima).
 
+Publicar é só commit + push na `main`: a produção implanta sozinha a partir dela.
+
+### Acesso desta máquina à produção
+- O Railway logado no CLI e na MCP deste PC é outra conta e **não enxerga o hub**. O acesso à produção é um token de projeto guardado em `.env.railway`, na raiz (linha `RAILWAY_TOKEN=`). O `.env*` do `.gitignore` mantém o arquivo fora do git: nunca copie o valor do token para um arquivo versionado, commit, log ou resposta.
+- Alcance: só o projeto "Hub de Criativos" (workspace "GC Pro Compartilhado's Projects"), ambiente `production`, com os serviços Hub Produção, Hub Teste, Postgres Produção e Postgres Teste. Não lista outros projetos nem a conta.
+- Uso: API GraphQL `https://backboard.railway.com/graphql/v2` com o cabeçalho `Project-Access-Token` (não `Authorization: Bearer`), ou `RAILWAY_TOKEN` no ambiente do CLI. Lê variáveis, publicações e os registros do servidor e da montagem. Ao ler variáveis, mostre só os nomes, nunca os valores.
+- Pelo tipo (token de projeto), ele também consegue mudar variáveis, publicar e reiniciar nesse ambiente. Só faça isso quando o dono pedir aquela mudança.
+
 ## Outros arquivos da raiz
 - `prototipo-hub.html`: protótipo estático original. Não faz parte do app.
 - `.claude/skills/` + `skills-lock.json`: skills do Higgsfield para as sessões do Claude Code neste repositório. Também não fazem parte do app.
