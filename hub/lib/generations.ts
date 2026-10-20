@@ -37,6 +37,16 @@ export type Generation = {
 
 export const mediaUrl = (g: Generation) => (g.file ? `/api/media/${g.file}` : g.remoteUrl);
 
+// Regra do dono: vídeo só fica guardado no Google Drive. Vídeo pronto que ainda não chegou lá não aparece como pronto:
+// a Biblioteca e o Fluxo não mostram, e o card diz que está subindo (ou esperando o Drive).
+export const videoForaDoDrive = (g: Generation) => g.kind === "video" && g.status === "done" && !g.drive;
+
+// Vídeo novo subindo para o Drive agora (dentro do prazo, sem falha no envio): a tela acompanha até chegar lá.
+export const subindoParaODrive = (g: Generation) => videoForaDoDrive(g) && typeof g.params.prazoNoHub === "string" && g.params.paraDrive !== true;
+
+// O que as listas da Biblioteca e do Fluxo mostram.
+export const apareceNasListas = (g: Generation) => !videoForaDoDrive(g);
+
 // Nome mostrado no card: o seu, senão o da tela que listou (ex.: nome da edição), senão o prompt.
 export const generationTitle = (g: Generation, fallback?: string) => g.name || fallback || g.prompt;
 

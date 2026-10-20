@@ -2,7 +2,7 @@ import "server-only";
 
 import { readFile } from "node:fs/promises";
 
-import { arquivoLocal, guardarNoDriveEmSegundoPlano } from "@/features/drive/servicos/videos";
+import { arquivoLocal, concluirComArquivo, exigirDriveParaVideo } from "@/features/drive/servicos/videos";
 import { DEFAULT_ELEVEN_MODEL, getElevenModel, resolveElevenModel, stripAudioTags } from "@/lib/elevenlabs-models";
 import { applyRules, FLORA_FAMILIES, type FloraFamily, getFamily, MAX_REFERENCES, type Operation, paramsFor } from "@/lib/flora-models";
 import type { Generation } from "@/lib/generations";
@@ -74,6 +74,8 @@ export async function runAvatar(req: AvatarRequest): Promise<Generation> {
   const aspectRatio = ["9:16", "1:1", "16:9", "4:5"].includes(String(req.aspectRatio)) ? String(req.aspectRatio) : "9:16";
   const resolution = ["720p", "1080p"].includes(String(req.resolution)) ? String(req.resolution) : "1080p";
   if (!lookId) throw new InputError("Escolha um avatar.");
+  // Regra do dono: o vídeo pronto vai só para o Drive. Sem Drive conectado, nem gasta crédito no HeyGen.
+  await exigirDriveParaVideo();
 
   let videoId: string;
   let prompt: string;
@@ -160,6 +162,8 @@ function pickParams(family: FloraFamily, raw: Record<string, string> = {}, withI
 export async function runFlora(req: FloraRequest): Promise<Generation[]> {
   const family = getFamily(String(req.family ?? ""));
   if (!family) throw new InputError("Escolha um modelo.");
+  // Vídeo do FLORA vai só para o Drive (regra do dono): sem Drive conectado, nem gasta crédito. Imagem não precisa.
+  if (family.kind === "video") await exigirDriveParaVideo();
   const rawPrompt = String(req.prompt ?? "").trim();
   if (!rawPrompt) throw new InputError("Escreva o prompt.");
   const count = Math.min(4, Math.max(1, Number(req.count) || 1));
@@ -273,11 +277,28 @@ export async function quoteFlora(req: {
 
 // ---------- Status dos jobs ----------
 
+// Uma conferência por geração ao mesmo tempo: a tela e o chat conferindo o mesmo job baixariam o resultado duas vezes,
+// e a segunda cópia ficaria solta no disco. Quem chega junto espera a mesma resposta.
+const conferindo: Map<string, Promise<Generation>> = ((globalThis as { __hubConferindoJobs?: Map<string, Promise<Generation>> }).__hubConferindoJobs ??=
+  new Map());
+
 // Consulta a ferramenta; quando o job termina, baixa o resultado para hub/.data/media. Vídeo pronto segue para o
-// Google Drive em segundo plano (features/drive): a geração devolvida aqui ainda usa a cópia local.
+// Google Drive em segundo plano (features/drive): a tela mostra "Guardando no Google Drive" até ele chegar lá.
 export async function refreshGeneration(gen: Generation): Promise<Generation> {
   if (gen.tool === "montagem") return montageStatus(gen); // processo local, atualiza o próprio status
   if (gen.tool === "heygen-traducao") return refreshTranslation(gen); // pelo MCP do HeyGen
+  if (!gen.jobId || gen.status === "done" || gen.status === "failed") return gen;
+  let vez = conferindo.get(gen.id);
+  if (!vez) {
+    vez = conferirJob(gen).finally(() => conferindo.delete(gen.id));
+    conferindo.set(gen.id, vez);
+  }
+  return vez;
+}
+
+async function conferirJob(original: Generation): Promise<Generation> {
+  // Relê: outra conferência pode ter terminado agora (e a geração já tem o arquivo).
+  const gen = (await getGeneration(original.id)) ?? original;
   if (!gen.jobId || gen.status === "done" || gen.status === "failed") return gen;
   const fail = async (error: string) => (await updateGeneration(gen.id, { status: "failed", error })) ?? gen;
 
@@ -288,9 +309,7 @@ export async function refreshGeneration(gen: Generation): Promise<Generation> {
       if (!out) return fail("FLORA não devolveu mídia.");
       const file = await downloadMedia(out.url, out.type === "videoUrl" ? "mp4" : "png");
       const params = { ...gen.params, cost: run.charged_cost ?? gen.params.cost ?? null };
-      const pronta = await updateGeneration(gen.id, { status: "done", file, remoteUrl: out.url, params });
-      guardarNoDriveEmSegundoPlano(pronta);
-      return pronta ?? gen;
+      return (await concluirComArquivo(gen.id, { file, remoteUrl: out.url, params })) ?? gen;
     }
     if (run.status === "failed") return fail(run.error_message ?? "FLORA: falhou");
     return gen;
@@ -300,9 +319,7 @@ export async function refreshGeneration(gen: Generation): Promise<Generation> {
     const video = await getVideo(gen.jobId);
     if (video.status === "completed" && video.url) {
       const file = await downloadMedia(video.url, "mp4");
-      const pronta = await updateGeneration(gen.id, { status: "done", file, remoteUrl: video.url });
-      guardarNoDriveEmSegundoPlano(pronta);
-      return pronta ?? gen;
+      return (await concluirComArquivo(gen.id, { file, remoteUrl: video.url })) ?? gen;
     }
     if (video.status === "failed") return fail(video.error ?? "HeyGen: falhou");
     return gen;
@@ -312,9 +329,7 @@ export async function refreshGeneration(gen: Generation): Promise<Generation> {
     const job = await getJob(gen.jobId);
     if (DONE.has(job.status) && job.result_url) {
       const file = await downloadMedia(job.result_url, gen.kind === "video" ? "mp4" : "png");
-      const pronta = await updateGeneration(gen.id, { status: "done", file, remoteUrl: job.result_url });
-      guardarNoDriveEmSegundoPlano(pronta);
-      return pronta ?? gen;
+      return (await concluirComArquivo(gen.id, { file, remoteUrl: job.result_url })) ?? gen;
     }
     if (FAILED.has(job.status)) {
       return fail(job.status === "nsfw" ? "Bloqueado pelo filtro de conteúdo do Higgsfield." : `Higgsfield: ${job.status}`);

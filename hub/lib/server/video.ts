@@ -7,7 +7,7 @@ import path from "node:path";
 
 import sharp from "sharp";
 
-import { arquivoLocal, guardarNoDriveEmSegundoPlano } from "@/features/drive/servicos/videos";
+import { arquivoLocal, exigirDriveParaVideo, guardarNoDriveEmSegundoPlano, prazoNoHub } from "@/features/drive/servicos/videos";
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
 import { downloadMedia } from "@/lib/server/media";
@@ -302,6 +302,8 @@ const baseUrl = (u: string) => u.split("?")[0];
 
 // Traz para o hub (como geração "flora") as mídias do canvas que ainda não estão aqui. Só baixa: não cobra nada no FLORA.
 export async function importFloraMedia(projectId: string, projectName: string, kind: "video" | "image", limit: number) {
+  // Vídeo importado vai só para o Drive (regra do dono): sem Drive conectado, não traz.
+  if (kind === "video") await exigirDriveParaVideo();
   const nodes = (await listProjectMedia(projectId)).filter((n) => n.type === kind);
   const known = (await listGenerations("flora")).filter((g) => g.status === "done" && g.file);
   const byUrl = new Map(known.filter((g) => g.remoteUrl).map((g) => [baseUrl(g.remoteUrl!), g]));
@@ -321,7 +323,14 @@ export async function importFloraMedia(projectId: string, projectName: string, k
       prompt: `Importado do projeto "${projectName}" do FLORA`,
       file,
       remoteUrl: n.url,
-      params: { modelName: "FLORA (importado)", floraProjectId: projectId, nodeId: n.nodeId, assetId: n.assetId, imported: true },
+      params: {
+        modelName: "FLORA (importado)",
+        floraProjectId: projectId,
+        nodeId: n.nodeId,
+        assetId: n.assetId,
+        imported: true,
+        ...(kind === "video" ? { prazoNoHub: prazoNoHub() } : {}),
+      },
     });
     // Vídeo importado é b-roll do FLORA como os gerados: segue para o Google Drive em segundo plano.
     guardarNoDriveEmSegundoPlano(generation);

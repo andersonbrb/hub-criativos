@@ -7,7 +7,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as ReadableStreamDoNode } from "node:stream/web";
 
-import type { ArquivoDrive, PastaDoDrive, Trecho } from "@/features/drive/contrato";
+import { PRAZO_MAXIMO_NO_HUB_MS, type ArquivoDrive, type PastaDoDrive, type Trecho } from "@/features/drive/contrato";
 import {
   API_DRIVE,
   BUSCA_EM_TODOS_OS_DRIVES,
@@ -46,6 +46,8 @@ export class SemEspacoNoServidor extends Error {
 }
 
 const CAMPOS = "id,name,mimeType,size,modifiedTime,trashed";
+// Resposta do envio: também a impressão digital (MD5), para conferir o vídeo antes de apagar a cópia do hub.
+const CAMPOS_DO_ENVIO = `${CAMPOS},md5Checksum`;
 const MiB = 1024 * 1024;
 const GiB = 1024 * MiB;
 // O Google exige pedaços múltiplos de 256 KiB (menos o último).
@@ -62,7 +64,15 @@ const MAX_DOWNLOADS = 3;
 // Espera entre tentativas (dobra a cada falha). Os testes encolhem para não esperar de verdade.
 export const ajustes = { esperaInicialMs: 1000 };
 
-type ArquivoDoGoogle = { id: string; name?: string; mimeType?: string; size?: string; modifiedTime?: string; trashed?: boolean };
+type ArquivoDoGoogle = {
+  id: string;
+  name?: string;
+  mimeType?: string;
+  size?: string;
+  modifiedTime?: string;
+  trashed?: boolean;
+  md5Checksum?: string;
+};
 
 const paraArquivo = (f: ArquivoDoGoogle): ArquivoDrive => ({
   id: f.id,
@@ -71,6 +81,7 @@ const paraArquivo = (f: ArquivoDoGoogle): ArquivoDrive => ({
   tamanho: Number(f.size ?? 0),
   modificadoEm: f.modifiedTime ?? "",
   noLixo: f.trashed === true,
+  ...(f.md5Checksum && /^[0-9a-f]{32}$/i.test(f.md5Checksum) ? { md5: f.md5Checksum.toLowerCase() } : {}),
 });
 
 // Ids do Drive têm só letras, números, "-" e "_". Conferir evita caminho estranho na pasta temporária.
@@ -211,7 +222,7 @@ export async function enviarArquivo(
 
 // Abre a sessão de envio e devolve o endereço dela. O `fields` daqui vale para a resposta final do envio.
 async function abrirSessao(total: number, pasta: string, opcoes: { nome: string; mimeType: string }): Promise<string> {
-  const url = `${UPLOAD_DRIVE}/files?uploadType=resumable&fields=${CAMPOS}&${TODOS_OS_DRIVES}`;
+  const url = `${UPLOAD_DRIVE}/files?uploadType=resumable&fields=${CAMPOS_DO_ENVIO}&${TODOS_OS_DRIVES}`;
   const init: RequestInit = {
     method: "POST",
     headers: { ...JSON_UTF8, "X-Upload-Content-Type": opcoes.mimeType, "X-Upload-Content-Length": String(total) },
@@ -312,11 +323,16 @@ export async function abrirTrecho(id: string, range: string | null, signal?: Abo
 
 // Cópias temporárias para ffmpeg, Python e envios. Fica em .data/tmp/drive/<id>.<ext>.
 export const PASTA_TEMP = path.join(DATA_DIR, "tmp", "drive");
-const SEIS_HORAS = 6 * 60 * 60 * 1000;
+// Regra do dono: vídeo só fica guardado no Drive. A cópia temporária sai 30 minutos depois do último uso (a faxina
+// passa a cada 5 minutos, features/drive/servicos/faxina.ts) e, segura por um trabalho longo, no máximo 12 horas.
+export const SEM_USO_MAXIMO_MS = 30 * 60 * 1000;
 const VINTE_GB = 20 * GiB;
 const DEZ_MINUTOS = 10 * 60 * 1000;
-// Mesmo acima do limite de espaço, não apaga o que foi usado há menos de 1 hora: pode estar aberto no ffmpeg.
-const CARENCIA = 60 * 60 * 1000;
+// Ao soltar a última trava, a cópia sai na hora, a não ser que alguém a tenha pedido há menos disto (pode estar
+// abrindo no ffmpeg agora): aí fica para a faxina.
+const USO_RECENTE_MS = 2 * 60 * 1000;
+// Mesmo acima do limite de espaço, não apaga o que foi usado há menos de 10 minutos: pode estar aberto no ffmpeg.
+const CARENCIA = 10 * 60 * 1000;
 // Espaço que fica livre no disco para o resto do hub (banco, mídia, logs) mesmo com uma cópia grande chegando.
 const FOLGA_NO_DISCO = 2 * GiB;
 
@@ -332,7 +348,7 @@ export async function baixarParaTemp(id: string, extensao: string): Promise<stri
   const promessa = (async () => {
     const destino = path.join(PASTA_TEMP, nome);
     if (await copiaCompleta(destino)) {
-      // Marca o uso: a limpeza apaga o que ficou sem uso há mais de 6 horas.
+      // Marca o uso: a limpeza apaga o que ficou sem uso há mais de 30 minutos.
       const agora = new Date();
       await utimes(destino, agora, agora).catch(() => undefined);
     } else {
@@ -494,26 +510,44 @@ async function tetoDaPasta(ocupado: number): Promise<number> {
 
 // Marca a cópia temporária como em uso até agora + `ms` (montagem e remover legenda passam horas lendo o vídeo).
 // Enquanto isso a limpeza não a apaga, nem pela idade nem pelo espaço. Pode ser chamada por vários trabalhos.
+// Nunca por mais de 12 horas (regra do dono: vídeo fora do Drive tem prazo).
 export function segurarTemp(caminho: string, ms: number): void {
   if (Number.isNaN(ms)) return;
   const chave = path.resolve(caminho);
   const prazos = memoria.segurados.get(chave) ?? [];
-  prazos.push(Date.now() + Math.max(0, ms));
+  prazos.push(Date.now() + Math.min(PRAZO_MAXIMO_NO_HUB_MS, Math.max(0, ms)));
   memoria.segurados.set(chave, prazos);
 }
 
 // Solta uma das marcas de segurarTemp (a que vence primeiro: as dos outros trabalhos continuam valendo pelo prazo
-// mais longo). Sem marca nenhuma, a cópia volta às regras normais da limpeza.
+// mais longo). Sem marca nenhuma, a cópia da pasta temporária sai na hora (a não ser que alguém tenha acabado de
+// pedi-la: aí fica para a faxina, que passa a cada 5 minutos).
 export function soltarTemp(caminho: string): void {
   const chave = path.resolve(caminho);
   const prazos = vigentes(chave);
   prazos.shift();
-  if (prazos.length) memoria.segurados.set(chave, prazos);
-  else memoria.segurados.delete(chave);
+  if (prazos.length) {
+    memoria.segurados.set(chave, prazos);
+    return;
+  }
+  memoria.segurados.delete(chave);
+  if (path.dirname(chave) === path.resolve(PASTA_TEMP)) void apagarSeLivre(chave);
+}
+
+async function apagarSeLivre(caminho: string): Promise<void> {
+  const info = await stat(caminho).catch(() => null);
+  if (!info?.isFile() || Date.now() - info.mtimeMs < USO_RECENTE_MS || intocavel(caminho)) return;
+  await unlink(caminho).then(
+    () => memoria.tamanhos.delete(path.basename(caminho)),
+    () => undefined, // aberta por outro programa (Windows) ou já apagada: a faxina tenta de novo
+  );
 }
 
 // Prazos ainda no futuro, do que vence primeiro ao que vence por último.
 const vigentes = (chave: string) => (memoria.segurados.get(chave) ?? []).filter((prazo) => prazo > Date.now()).sort((a, b) => a - b);
+
+// Algum trabalho longo ainda segura este arquivo (cópia temporária ou vídeo na pasta de mídia).
+export const copiaSegurada = (caminho: string): boolean => segurada(caminho);
 
 function segurada(caminho: string): boolean {
   const chave = path.resolve(caminho);
@@ -541,8 +575,9 @@ type Limites = {
   liberar?: number;
 };
 
-// Apaga as cópias sem uso há mais de 6 horas e, se o total passar do teto, as mais antigas até caber. Nunca toca no
-// que está sendo baixado, no que está segurado nem no que foi usado há menos de 1 hora. Uma limpeza por vez.
+// Apaga as cópias sem uso há mais de 30 minutos e, se o total passar do teto, as mais antigas até caber. Nunca toca
+// no que está sendo baixado, no que está segurado nem no que foi usado há menos de 10 minutos. Uma limpeza por vez.
+// `idadeMaximaMs: 0` (subida do servidor, quando nada está em uso): apaga todas as que não estão em uso.
 export async function limparTemp(limites: Limites = {}): Promise<void> {
   const limpeza = memoria.limpeza;
   while (limpeza.emCurso) await limpeza.emCurso.catch(() => undefined);
@@ -570,7 +605,7 @@ async function limpar(limites: Limites): Promise<void> {
   }
   if (!copias.length) return;
 
-  const idadeMaxima = limites.idadeMaximaMs ?? SEIS_HORAS;
+  const idadeMaxima = limites.idadeMaximaMs ?? SEM_USO_MAXIMO_MS;
   const ficaram: Copia[] = [];
   for (const copia of copias) {
     if (!copia.intocavel && agora - copia.usadaEm > idadeMaxima && (await apagar(copia))) continue;

@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { OPERATIONS, operationLabel, type BoardCard, type BoardColumn, type Operation } from "@/lib/board";
 import { apiFetch, type Generation } from "@/lib/generations";
 import { cn } from "@/lib/utils";
+import { AvisoSemDrive } from "@/features/drive/tela/aviso-sem-drive";
 
 type CardPatch = Partial<Pick<BoardCard, "title" | "description" | "operation" | "product" | "generationIds">>;
 
@@ -258,6 +259,7 @@ export function CardDetails({
       </div>
 
       <section className="flex flex-col gap-2.5">
+        <AvisoSemDrive oQue="enviar vídeos" />
         <div className="flex items-center justify-between gap-2">
           <h3 className={LABEL}>
             Gerações vinculadas <span className="font-mono tabular-nums">· {card.generationIds.length}</span>

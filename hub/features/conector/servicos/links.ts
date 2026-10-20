@@ -18,7 +18,8 @@ import { buscarUsuario } from "@/features/acesso/servicos/sessao";
 import { json, SEM_CACHE } from "@/features/conector/servicos/http";
 import { PREFIXO_LINK, hashDe, novo } from "@/features/conector/servicos/segredos";
 import { ArquivoForaDoDrive } from "@/features/drive/servicos/arquivos";
-import { guardarNoDriveEmSegundoPlano, lerDoDrive } from "@/features/drive/servicos/videos";
+import { driveConectado } from "@/features/drive/servicos/conta";
+import { guardarNoDriveEmSegundoPlano, lerDoDrive, MENSAGEM_SEM_DRIVE, prazoNoHub } from "@/features/drive/servicos/videos";
 import { downloadName, type MediaKind } from "@/lib/generations";
 import { CONTENT_TYPES } from "@/lib/server/media";
 import { pastaDeMidia } from "@/lib/server/pastas";
@@ -120,6 +121,8 @@ async function receberNaOrganizacao(request: Request, link: Link): Promise<Respo
   const tipo = tipoDoArquivo(nome);
   if (!tipo) return recusa("Tipo de arquivo não aceito pela Biblioteca.", 400);
   if (!request.body) return recusa("O arquivo chegou vazio. Confira o caminho no comando curl.", 400);
+  // Regra do dono: vídeo fica só no Google Drive. Sem Drive conectado, recusa antes de receber (o link continua valendo).
+  if (tipo.kind === "video" && !(await driveConectado())) return recusa(MENSAGEM_SEM_DRIVE, 400);
 
   const db = banco();
   const pegou = await db
@@ -154,7 +157,7 @@ async function receberNaOrganizacao(request: Request, link: Link): Promise<Respo
       prompt: nome,
       // Sem a extensão: o nome do download soma a extensão do arquivo (downloadName) e ela sairia dobrada.
       name: path.parse(nome).name.slice(0, 100) || undefined,
-      params: { origem: "conector", por: dono.email },
+      params: { origem: "conector", por: dono.email, ...(tipo.kind === "video" ? { prazoNoHub: prazoNoHub() } : {}) },
       file: arquivo,
       // É entrega: vai direto para a Biblioteca.
       saved: true,

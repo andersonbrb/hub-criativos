@@ -6,7 +6,8 @@ import { mkdir, mkdtemp, readdir, readFile, rename, rm, unlink, writeFile } from
 import os from "node:os";
 import path from "node:path";
 
-import { arquivoLocal, guardarNoDriveEmSegundoPlano } from "@/features/drive/servicos/videos";
+import { segurarTemp, soltarTemp } from "@/features/drive/servicos/arquivos";
+import { apagarDaMidia, arquivoLocal, concluirComArquivo, exigirDriveParaVideo } from "@/features/drive/servicos/videos";
 import {
   DEFAULT_STYLE,
   newId,
@@ -293,6 +294,8 @@ export function buildAss(project: EditorProject): string {
 }
 
 export async function renderProject(projectId: string): Promise<Generation> {
+  // Regra do dono: o vídeo exportado vai só para o Drive. Sem Drive conectado, nem começa.
+  await exigirDriveParaVideo();
   const project = await getProject(projectId);
   if (!project) throw new InputError("Projeto não encontrado.");
   const { clips, total } = placeClips(project);
@@ -319,11 +322,18 @@ async function encode(project: EditorProject, generationId: string) {
   const { clips } = placeClips(project);
   const { width: W, height: H, fps } = project;
   const tmp = await mkdtemp(path.join(os.tmpdir(), "hub-render-"));
+  // Cópias temporárias das fontes, seguras enquanto o ffmpeg trabalha e soltas no fim (saem logo depois).
+  const seguras: string[] = [];
+  let outName: string | null = null;
   try {
     // Caminho no disco de cada fonte (vídeo que está só no Google Drive vira uma cópia temporária).
     const entradas = new Map<string, string>();
     for (const c of clips) {
-      if (!entradas.has(c.sourceId)) entradas.set(c.sourceId, await arquivoLocal(path.basename(project.sources[c.sourceId].url)));
+      if (entradas.has(c.sourceId)) continue;
+      const caminho = await arquivoLocal(path.basename(project.sources[c.sourceId].url));
+      segurarTemp(caminho, 6 * 60 * 60 * 1000);
+      seguras.push(caminho);
+      entradas.set(c.sourceId, caminho);
     }
     const args = ["-y", "-loglevel", "error"];
     const filters: string[] = [];
@@ -356,7 +366,7 @@ async function encode(project: EditorProject, generationId: string) {
 
     const midia = await pastaDeMidia();
     await mkdir(midia, { recursive: true });
-    const outName = `${randomUUID()}.mp4`;
+    outName = `${randomUUID()}.mp4`;
     args.push(
       "-filter_complex", filters.join(";"),
       "-map", videoOut, "-map", "[ac]",
@@ -372,14 +382,20 @@ async function encode(project: EditorProject, generationId: string) {
       child.on("error", (e) => reject((e as NodeJS.ErrnoException).code === "ENOENT" ? new Error("ffmpeg não encontrado. Instale o ffmpeg ou defina FFMPEG_BIN.") : e));
       child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg: ${stderr.trim().split("\n").slice(-3).join(" ")}`))));
     });
-    // Pronta, a exportação segue para o Google Drive em segundo plano (features/drive).
-    guardarNoDriveEmSegundoPlano(await updateGeneration(generationId, { status: "done", file: outName }));
+    // Pronta, a exportação segue para o Google Drive em segundo plano (features/drive). Apagada durante a exportação,
+    // o vídeo novo não tem dono e sai na hora.
+    const pronto = outName;
+    outName = null;
+    await concluirComArquivo(generationId, { file: pronto });
   } finally {
+    // Deu erro no meio: o vídeo pela metade sai da pasta de mídia.
+    if (outName) await apagarDaMidia(outName);
+    for (const caminho of seguras) soltarTemp(caminho);
     await rm(tmp, { recursive: true, force: true });
   }
 }
 
-// Vídeos do hub que podem entrar no editor.
+// Vídeos do hub que podem entrar no editor: só os que estão no Google Drive (regra do dono).
 export async function libraryVideos() {
-  return (await listGenerations()).filter((g) => g.kind === "video" && g.status === "done" && g.file);
+  return (await listGenerations()).filter((g) => g.kind === "video" && g.status === "done" && g.file && g.drive);
 }

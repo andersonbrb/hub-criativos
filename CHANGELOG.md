@@ -18,3 +18,8 @@ aqui o que já foi validado em produção.
 - **[📄 Páginas públicas]** Quem abre o Hub sem estar logado vê uma apresentação do app, com o botão de entrar.
   A Política de Privacidade (o que o Hub faz com a conta Google do Drive) abre para qualquer pessoa. O Google
   pede as duas para liberar o login com Google.
+
+### 🔄 Mudanças
+- **[☁️ Google Drive]** Vídeo só fica guardado no Google Drive. Os vídeos enviados pela equipe também vão para lá
+  (pasta "Enviados pela equipe"). Sem o Drive conectado, o Hub avisa e não gera nem recebe vídeo. A Biblioteca e
+  o Fluxo mostram só vídeos que estão no Drive. Cópia temporária fica no servidor no máximo 12 horas.

@@ -155,7 +155,7 @@ export function CardGoogleDrive({
     const quem = status.conta?.email ?? "a conta";
     if (
       !confirm(
-        `Desconectar o Google Drive (${quem})? Os vídeos continuam no Drive, e o hub volta a abri-los quando esta mesma conta for conectada de novo. Com outra conta, eles somem das listas do hub até esta voltar. Sem conta conectada, os vídeos novos ficam guardados no hub.`,
+        `Desconectar o Google Drive (${quem})? Os vídeos continuam no Drive, e o hub volta a abri-los quando esta mesma conta for conectada de novo. Com outra conta, eles somem das listas do hub até esta voltar. Sem conta conectada, o hub não gera nem recebe vídeos.`,
       )
     )
       return;
@@ -220,7 +220,7 @@ export function CardGoogleDrive({
   );
 
   return (
-    <CartaoDeIntegracao logo={{ src: "/logos/google-drive.png" }} nome="Google Drive" descricao="Onde os vídeos gerados ficam guardados." rodape={rodape}>
+    <CartaoDeIntegracao logo={{ src: "/logos/google-drive.png" }} nome="Google Drive" descricao="Onde os vídeos ficam guardados. Sem ele, o hub não gera nem recebe vídeos." rodape={rodape}>
       {conectado && conta && (
         <CaixaDeStatus
           titulo={conta.nome ?? conta.email}

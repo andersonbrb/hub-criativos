@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { callTool, uploadAsset } from "@/lib/server/heygen-mcp";
@@ -68,11 +68,18 @@ const PREVIEW_KEYS = ["preview_image_url", "image_url", "previewImageUrl", "prev
 const MAX = { photo: 10 * 1024 * 1024, ref: 10 * 1024 * 1024, video: 2 * 1024 * 1024 * 1024 };
 
 // Salva o arquivo enviado no hub e sobe para o HeyGen; devolve a referência no formato do MCP.
+// O vídeo da pessoa (gêmeo digital) sai do hub logo depois de chegar ao HeyGen, dê certo ou não (regra do dono:
+// vídeo não fica guardado fora do Drive). As fotos continuam como antes.
 async function asset(file: File, fallbackExt: string) {
   const ext = (file.name.split(".").pop() ?? "").toLowerCase();
   const saved = await saveMedia(Buffer.from(await file.arrayBuffer()), /^[a-z0-9]{2,5}$/.test(ext) ? ext : fallbackExt);
-  const id = await uploadAsset(path.join(await pastaDeMidia(), saved), `avatar:${saved}`, file.type || "application/octet-stream");
-  return { type: "asset_id", asset_id: id };
+  const caminho = path.join(await pastaDeMidia(), saved);
+  try {
+    const id = await uploadAsset(caminho, `avatar:${saved}`, file.type || "application/octet-stream");
+    return { type: "asset_id", asset_id: id };
+  } finally {
+    if (file.type.startsWith("video/")) await unlink(caminho).catch(() => undefined);
+  }
 }
 
 export async function createAvatar(input: {

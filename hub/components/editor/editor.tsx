@@ -12,8 +12,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Workspace, WorkspacePanel, type WorkspacePreset } from "@/components/workspace";
 import { formatTime, placeClips, splitAt, type EditorProject, type EditorProjectSummary } from "@/lib/editor";
-import { apiFetch, mediaUrl, type Generation } from "@/lib/generations";
+import { apiFetch, mediaUrl, subindoParaODrive, videoForaDoDrive, type Generation } from "@/lib/generations";
 import { cn } from "@/lib/utils";
+import { AvisoSemDrive } from "@/features/drive/tela/aviso-sem-drive";
 
 const PRESETS: WorkspacePreset[] = [
   { id: "padrao", label: "Padrão", layout: { biblioteca: 18, centro: 54, inspetor: 28, previa: 64, timeline: 36 } },
@@ -327,22 +328,28 @@ export function Editor({ initialProjectId, initialGenerationId }: { initialProje
     }
   };
 
-  // Acompanha as exportações em andamento.
-  const runningKey = exports.filter((g) => g.status === "running" || g.status === "pending").map((g) => g.id).join(",");
+  // Acompanha as exportações em andamento e as que estão subindo para o Google Drive (regra do dono: o vídeo só fica
+  // pronto quando chega lá).
+  const runningKey = exports.filter((g) => g.status === "running" || g.status === "pending" || subindoParaODrive(g)).map((g) => g.id).join(",");
   useEffect(() => {
     if (!runningKey) return;
     const timer = setInterval(async () => {
       const updates = await Promise.all(
         runningKey.split(",").map((id) => apiFetch<{ generation: Generation }>(`/api/editor/jobs/${id}`, { method: "POST" }).then((r) => r.generation).catch(() => null)),
       );
-      const done = updates.filter((g): g is Generation => Boolean(g) && g!.status !== "running");
+      const done = updates.filter((g): g is Generation => Boolean(g) && g!.status !== "running" && g!.status !== "pending");
       if (!done.length) return;
       setExports((prev) => prev.map((g) => done.find((d) => d.id === g.id) ?? g));
+      // Só avisa (e recarrega a biblioteca) quando a exportação chega ao fim: no Drive, com falha, ou esperando o Drive.
+      let terminou = false;
       for (const g of done) {
-        if (g.status === "done") toast.success("Vídeo exportado");
-        else toast.error(g.error ?? "A exportação falhou");
+        if (subindoParaODrive(g)) continue;
+        terminou = true;
+        if (g.status === "failed") toast.error(g.error ?? "A exportação falhou");
+        else if (!videoForaDoDrive(g)) toast.success("Vídeo exportado e guardado no Google Drive");
+        else toast.warning("O Google Drive não aceitou o vídeo agora. O hub tenta de novo sozinho.");
       }
-      loadLibrary();
+      if (terminou) loadLibrary();
     }, 2500);
     return () => clearInterval(timer);
   }, [runningKey, loadLibrary]);
@@ -475,6 +482,7 @@ export function Editor({ initialProjectId, initialGenerationId }: { initialProje
   return (
     <Workspace id="editor" className="h-full" toolbar={toolbar} presets={PRESETS}>
       <WorkspacePanel id="biblioteca" title="Biblioteca" defaultSize={18} minSize={12} icon={<FolderOpen className="size-3.5 text-muted-foreground" />}>
+        <AvisoSemDrive oQue="enviar e exportar vídeos" className="m-3" />
         <input
           ref={uploadRef}
           type="file"

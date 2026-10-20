@@ -479,7 +479,7 @@ describe("drive: enviarArquivo", () => {
     expect(arquivo).toMatchObject({ nome: "corte final.mp4", tamanho: conteudo.length, noLixo: false });
     const abertura = drive.pedidosDe("POST", "/upload/drive/v3/files")[0];
     expect(abertura.headers.get("x-upload-content-length")).toBe(String(conteudo.length));
-    expect(abertura.url.searchParams.get("fields")).toBe("id,name,mimeType,size,modifiedTime,trashed");
+    expect(abertura.url.searchParams.get("fields")).toBe("id,name,mimeType,size,modifiedTime,trashed,md5Checksum");
   });
 
   it("continua de onde o Google parou depois de um 308 parcial", async () => {
@@ -686,12 +686,12 @@ describe("drive: espaço no disco do servidor", () => {
   const SEM_ESPACO = "Sem espaço no servidor para trabalhar com esse vídeo agora. Tente de novo em alguns minutos.";
 
   it("o teto da pasta temporária baixa quando o disco tem pouco espaço livre", async () => {
-    await copia("a.mp4", 5);
-    await copia("b.mp4", 4);
-    await copia("c.mp4", 3);
+    await copia("a.mp4", 25 / 60);
+    await copia("b.mp4", 20 / 60);
+    await copia("c.mp4", 15 / 60);
     await copia("d.mp4", 0);
 
-    // Disco folgado: nada sai (todas têm menos de 6 horas).
+    // Disco folgado: nada sai (todas têm menos de 30 minutos sem uso).
     await limparTemp();
     expect(await nomesNaPastaTemp()).toEqual(["a.mp4", "b.mp4", "c.mp4", "d.mp4"]);
 
@@ -715,7 +715,7 @@ describe("drive: espaço no disco do servidor", () => {
 
   it("a limpeza abre espaço apagando as cópias mais antigas e o download segue", async () => {
     const video = drive.criar({ name: "v.mp4", conteudo: randomBytes(100 * KiB) });
-    await copia("antiga.mp4", 3, 100 * KiB); // dentro das 6 horas, mas pode sair para abrir espaço
+    await copia("antiga.mp4", 3, 100 * KiB); // sai para abrir espaço (e já passou dos 30 minutos sem uso)
     await copia("recente.mp4", 0, 10 * KiB);
     disco(2 * GiB + 200 * KiB); // livre: 2 GB + 90 KiB, faltam 10 KiB
 
@@ -740,6 +740,36 @@ describe("drive: espaço no disco do servidor", () => {
 });
 
 describe("drive: cópias seguradas", () => {
+  it("soltar a última marca apaga a cópia logo (menos a pedida há instantes); a marca nunca passa de 12 horas", async () => {
+    const usada = await copia("usada.mp4", 1);
+    segurarTemp(usada, HORA);
+    soltarTemp(usada);
+    await vi.waitFor(async () => expect(await nomesNaPastaTemp()).toEqual([]));
+
+    // Pedida agora por outro trabalho (pode estar abrindo no ffmpeg): fica para a faxina.
+    const agora = await copia("agora.mp4", 0);
+    segurarTemp(agora, HORA);
+    soltarTemp(agora);
+    await new Promise((ok) => setTimeout(ok, 50));
+    expect(await nomesNaPastaTemp()).toEqual(["agora.mp4"]);
+    await rm(agora);
+
+    const longa = await copia("longa.mp4", 1);
+    segurarTemp(longa, 48 * HORA);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.now() + 11 * HORA);
+      await limparTemp();
+      expect(await nomesNaPastaTemp()).toEqual(["longa.mp4"]);
+
+      vi.setSystemTime(Date.now() + 2 * HORA);
+      await limparTemp();
+      expect(await nomesNaPastaTemp()).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a limpeza não apaga uma cópia segurada, nem pela idade nem pelo espaço", async () => {
     const longa = await copia("longa.mp4", 7);
     await copia("solta.mp4", 7);
@@ -779,10 +809,10 @@ describe("drive: cópias seguradas", () => {
 });
 
 describe("drive: limpeza da pasta temporária", () => {
-  it("apaga o que está sem uso há mais de 6 horas", async () => {
-    await copia("velho.mp4", 7);
-    await copia("velho.mp4.parcial", 8);
-    await copia("recente.mp4", 1);
+  it("apaga o que está sem uso há mais de 30 minutos (regra do dono: vídeo só fica guardado no Drive)", async () => {
+    await copia("velho.mp4", 35 / 60);
+    await copia("velho.mp4.parcial", 40 / 60);
+    await copia("recente.mp4", 20 / 60);
 
     await limparTemp();
 
@@ -790,15 +820,15 @@ describe("drive: limpeza da pasta temporária", () => {
   });
 
   it("mantém o total abaixo do limite apagando os mais antigos primeiro, sem tocar no que acabou de ser usado", async () => {
-    await copia("a.mp4", 5);
-    await copia("b.mp4", 4);
-    await copia("c.mp4", 3);
+    await copia("a.mp4", 25 / 60);
+    await copia("b.mp4", 20 / 60);
+    await copia("c.mp4", 15 / 60);
     await copia("d.mp4", 0);
 
     await limparTemp({ tamanhoMaximo: 2500 });
     expect((await readdir(PASTA_TEMP)).sort()).toEqual(["c.mp4", "d.mp4"]);
 
-    // Limite zero: mesmo assim o usado há menos de 1 hora fica (pode estar aberto no ffmpeg).
+    // Limite zero: mesmo assim o usado há menos de 10 minutos fica (pode estar aberto no ffmpeg).
     await limparTemp({ tamanhoMaximo: 0 });
     expect(await readdir(PASTA_TEMP)).toEqual(["d.mp4"]);
   });

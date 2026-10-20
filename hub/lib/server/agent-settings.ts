@@ -11,7 +11,8 @@ import { documentRef, imageRef } from "@/lib/server/chat/images";
 import { InputError } from "@/lib/server/http";
 import { saveMedia } from "@/lib/server/media";
 import { pastaDeDados, pastaDeMidia } from "@/lib/server/pastas";
-import { createGeneration, deleteGeneration } from "@/lib/server/store";
+import { createGeneration, deleteGeneration, getGeneration } from "@/lib/server/store";
+import { exigirDriveParaVideo, guardarNoDriveEmSegundoPlano, prazoNoHub, tirarDoDrive } from "@/features/drive/servicos/videos";
 
 // Personalização de cada agente feita pelo usuário (botão "Editar agente"): instruções, contexto e arquivos.
 // Fica em agents/<id>.json, na pasta da organização (cada organização personaliza os agentes do seu jeito), e vale
@@ -86,6 +87,8 @@ export async function addAgentFiles(id: string, files: File[]): Promise<AgentSet
   if (count("pdf") > REFERENCE_LIMITS.pdfs) throw new InputError(`Cada agente aceita até ${REFERENCE_LIMITS.pdfs} PDFs de referência.`);
   const attachedBytes = [...s.files.filter((f) => f.kind === "image" || f.kind === "pdf").map((f) => f.size), ...files.filter((f) => ["image", "pdf"].includes(kindOf(f) ?? "")).map((f) => f.size)].reduce((a, b) => a + b, 0);
   if (attachedBytes > REFERENCE_LIMITS.totalMb * 1024 * 1024) throw new InputError(`Imagens e PDFs de referência somados podem ter até ${REFERENCE_LIMITS.totalMb} MB (eles vão em toda conversa do agente).`);
+  // Regra do dono: vídeo de referência fica só no Google Drive. Sem Drive conectado, não entra.
+  if (files.some((f) => kindOf(f) === "video")) await exigirDriveParaVideo();
   for (const f of files) {
     const kind = kindOf(f);
     if (!kind) throw new InputError(`Formato não aceito: ${f.name}. Use imagem, vídeo, áudio, PDF ou texto.`);
@@ -96,8 +99,18 @@ export async function addAgentFiles(id: string, files: File[]): Promise<AgentSet
     const entry: AgentFile = { id: randomUUID(), name: f.name || `arquivo.${fallback}`, kind, file: saved, size: f.size };
     // Mídia vira geração do hub (salva na Biblioteca, não some no "Limpar"), para o agente ver/usar pelas ferramentas.
     if (kind === "image" || kind === "video" || kind === "audio") {
-      const g = await createGeneration({ tool: "upload", kind, status: "done", prompt: `Referência do agente ${agent.name}: ${entry.name}`, file: saved, params: { agentRef: id }, saved: true });
+      const g = await createGeneration({
+        tool: "upload",
+        kind,
+        status: "done",
+        prompt: `Referência do agente ${agent.name}: ${entry.name}`,
+        file: saved,
+        params: { agentRef: id, ...(kind === "video" ? { prazoNoHub: prazoNoHub() } : {}) },
+        saved: true,
+      });
       entry.generationId = g.id;
+      // Vídeo sobe para a pasta "Enviados pela equipe" do Drive; a cópia do hub sai quando o Drive confirma.
+      guardarNoDriveEmSegundoPlano(g);
     }
     s.files.push(entry);
   }
@@ -108,6 +121,9 @@ export async function removeAgentFile(id: string, fileId: string): Promise<Agent
   const s = await getAgentSettings(id);
   const f = s.files.find((x) => x.id === fileId);
   if (!f) throw new InputError("Arquivo não encontrado.");
+  // Vídeo no Drive vai para a lixeira de lá antes (se o Drive recusar, nada muda aqui).
+  const gen = f.generationId ? await getGeneration(f.generationId) : undefined;
+  if (gen) await tirarDoDrive(gen);
   s.files = s.files.filter((x) => x.id !== fileId);
   if (f.generationId) await deleteGeneration(f.generationId);
   await unlink(path.join(await pastaDeMidia(), f.file)).catch(() => undefined);

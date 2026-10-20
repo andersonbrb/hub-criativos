@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 
 import { PipelineView } from "@/components/pipeline/pipeline-view";
+import { apareceNasListas } from "@/lib/generations";
 import { getBoard } from "@/lib/server/board";
 import { listGenerations } from "@/lib/server/store";
 import { podeUsar, telaInicial } from "@/features/acesso/contrato";
@@ -19,7 +20,8 @@ export default async function PipelinePage() {
   const [board, generations] = await Promise.all([getBoard(), listGenerations()]);
   return (
     <main className="h-workspace">
-      <PipelineView initialBoard={board} initialGenerations={generations} />
+      {/* Regra do dono: o Fluxo só mostra vídeos que estão no Google Drive. */}
+      <PipelineView initialBoard={board} initialGenerations={generations.filter(apareceNasListas)} />
     </main>
   );
 }

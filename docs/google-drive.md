@@ -1,10 +1,28 @@
-# Google Drive: onde os vídeos gerados ficam guardados
+# Google Drive: onde os vídeos ficam guardados
 
 ## Visão geral
 
-Os vídeos que o hub gera (edição final, edição na batida, editor, tradução, sem legenda, b-rolls, avatar e entregas do
-Claude) ficam **só** no Google Drive de uma conta Google, na pasta **Hub de Criativos**, com uma subpasta por tipo.
-O disco do hub guarda apenas cópias temporárias enquanto processa um vídeo.
+Regra do dono: **vídeo só fica guardado no Google Drive.** Os vídeos que o hub gera (edição final, edição na batida,
+editor, tradução, sem legenda, b-rolls, avatar e entregas do Claude) e os que a equipe envia (chat, editor, Fluxo,
+tradução, referências dos agentes) ficam **só** no Google Drive de uma conta Google, na pasta **Hub de Criativos**,
+com uma subpasta por tipo (os enviados vão para **Enviados pela equipe**).
+
+- **Sem Drive conectado, a organização não gera nem recebe vídeo.** As telas de vídeo mostram o aviso para conectar
+  em Integrações, e o servidor recusa com a mesma explicação (também para o chat e o Claude Code). Imagens e áudios
+  continuam no disco do hub, como antes.
+- **Cópia temporária:** só enquanto o hub trabalha no vídeo (editar, transcrever, renderizar, subir ao Drive, ao
+  HeyGen ou ao YouTube). Sai até 30 minutos depois do último uso; um trabalho longo a segura enquanto roda, **nunca
+  mais de 12 horas**. Sobras de trabalho interrompido (servidor reiniciado, erro no meio) saem sozinhas.
+- **Vídeo pronto:** sobe na hora para o Drive e só sai do hub depois de conferido lá (mesmo tamanho e mesma
+  impressão digital). Se o Drive não aceitar, o hub tenta de novo sozinho por até 12 horas; passou disso, o vídeo é
+  descartado e a geração aparece como falha, com o motivo. Até chegar ao Drive, o vídeo não aparece como pronto: o
+  card mostra "Guardando no Google Drive" e a Biblioteca e o Fluxo não o mostram.
+- **Faxina:** roda quando o servidor sobe e a cada 5 minutos (registro do servidor com o prefixo `[videos-no-drive]`).
+  Na subida, ela escreve, por organização, quantos vídeos ainda estão no disco do hub e se a organização tem Drive.
+- **Vídeos de antes da regra** que ainda estão no disco vão para o Drive quando a organização tem Drive conectado, e
+  só saem daqui depois de conferidos. Organização sem Drive: eles ficam onde estão (nunca são apagados sem chegar ao
+  Drive) e não aparecem nas listas. Vídeos soltos no disco, sem registro, de antes da regra, vão para a pasta
+  **Recuperados do hub** no Drive antes de sair.
 
 - Uma conta Google por organização (cada organização do hub conecta a sua). Pode ser um Gmail comum. A mesma conta
   Google não serve a duas organizações: o hub recusa e pede outra conta.
@@ -88,9 +106,9 @@ não tem 32 bytes), o hub recusa guardar o cliente e conectar: ele não grava se
 3. Na tela do Google, deixe **marcada** a opção de acesso ao Google Drive. Sem ela o hub recusa a conexão e avisa.
 4. O hub volta para Integrações com "Google Drive conectado". O card mostra a conta e o espaço usado.
 
-Os vídeos que já estavam no disco do hub antes da conexão vão para o Drive sozinhos, um por vez, enquanto o hub é
-usado. O card mostra quantos ainda estão no hub. Para começar na hora, use o botão **Levar vídeos antigos para o
-Drive**, no mesmo card. O progresso aparece ali e atualiza sozinho.
+Os vídeos que já estavam no disco do hub antes da conexão vão para o Drive sozinhos, um por vez (a faxina passa a
+cada 5 minutos). O card mostra quantos ainda estão no hub. Para começar na hora, use o botão **Levar vídeos antigos
+para o Drive**, no mesmo card. O progresso aparece ali e atualiza sozinho.
 
 ## 4. Escolher a pasta (opcional, inclusive num Drive compartilhado)
 
@@ -118,8 +136,8 @@ outra pasta (por exemplo, uma pasta de um Drive compartilhado da empresa):
 
 - **Pelo botão Desconectar (Integrações):** o hub tira o próprio acesso na conta Google e apaga a autorização dele.
   Os vídeos continuam no Drive, mas o hub não toca nem baixa esses vídeos até a mesma conta ser conectada de novo.
-  Os vídeos gerados nesse meio-tempo ficam no disco do hub, sem se perder, e vão sozinhos para o Drive depois que a
-  conta voltar.
+  Enquanto isso, a organização não gera nem recebe vídeo (regra do dono). Um vídeo que estava subindo na hora da
+  desconexão espera até 12 horas pela conta voltar; depois disso é descartado.
 - **Pela própria conta Google** (acesso removido em [myaccount.google.com/permissions](https://myaccount.google.com/permissions),
   troca de senha ou conta suspensa): na próxima vez que o hub precisar do Drive, o Google recusa. O hub então
   desconecta sozinho e o card volta a mostrar **Conectar**.

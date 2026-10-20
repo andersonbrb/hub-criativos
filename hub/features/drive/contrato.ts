@@ -1,6 +1,8 @@
-// Contrato do Drive: os vídeos gerados moram SÓ no Google Drive de uma conta Google, numa pasta "Hub de Criativos"
-// com uma subpasta por tipo. O disco do hub guarda apenas cópias temporárias para processar (ffmpeg, Python, envio
-// ao HeyGen), apagadas depois. As telas tocam e baixam pelo /api/media/<file>, que busca no Drive.
+// Contrato do Drive (regra do dono): todo vídeo do hub, gerado ou enviado pela equipe, mora SÓ no Google Drive de uma
+// conta Google, numa pasta "Hub de Criativos" com uma subpasta por tipo. O disco do hub guarda apenas cópias
+// temporárias para processar (ffmpeg, Python, envio ao Drive, ao HeyGen ou ao YouTube), apagadas logo depois e nunca
+// por mais de 12 horas (PRAZO_MAXIMO_NO_HUB_MS). As telas tocam e baixam pelo /api/media/<file>, que busca no Drive.
+// Sem Drive conectado, a organização não gera nem recebe vídeo.
 // Arquivo puro (sem código de servidor). Funções em features/drive/servicos/{conta,arquivos,videos}.ts.
 //
 // Acesso: escopo drive.file (o hub só enxerga o que ele mesmo criou). Não exige verificação do app no Google, então
@@ -8,6 +10,10 @@
 // hub (espelho). Arquivos postos à mão na pasta não aparecem.
 
 export const PASTA_RAIZ = "Hub de Criativos";
+
+// O máximo que um vídeo fica no disco do hub: cópia temporária segura por um trabalho longo, ou vídeo novo que o
+// Drive não aceitou na hora (o hub tenta de novo até esse prazo e depois descarta).
+export const PRAZO_MAXIMO_NO_HUB_MS = 12 * 60 * 60 * 1000;
 
 export const PASTAS = {
   "edicao-final": "Edição final",
@@ -18,7 +24,11 @@ export const PASTAS = {
   broll: "B-rolls (FLORA)",
   avatar: "Avatar (HeyGen)",
   entregas: "Entregas do Claude",
+  enviados: "Enviados pela equipe",
   outros: "Outros",
+  // Vídeos que estavam soltos no disco do hub, sem registro (sobras de antes da regra do dono): vão para cá em vez de
+  // serem apagados sem ninguém ver.
+  recuperados: "Recuperados do hub",
 } as const;
 
 export type PastaDoDrive = keyof typeof PASTAS;
@@ -30,6 +40,9 @@ export type ArquivoDrive = {
   tamanho: number;
   modificadoEm: string;
   noLixo: boolean;
+  // Impressão digital (MD5) que o Google calcula do conteúdo: confere que o vídeo chegou inteiro antes de a cópia do
+  // hub sair. Pode faltar (o Google nem sempre devolve); aí vale só o tamanho.
+  md5?: string;
 };
 
 export type StatusDrive = {

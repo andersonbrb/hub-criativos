@@ -27,6 +27,8 @@ import {
   formatRemaining,
   generationTitle,
   mediaUrl,
+  subindoParaODrive,
+  videoForaDoDrive,
   type Generation,
   type GenerationTool,
 } from "@/lib/generations";
@@ -122,7 +124,8 @@ export function useGenerations(tool: GenerationTool, poll?: (g: Generation) => P
     refresh();
   }, [refresh]);
 
-  const pending = items.filter((g) => g.status === "pending" || g.status === "running");
+  // Também o vídeo que já ficou pronto e está subindo para o Google Drive: só aparece pronto quando chega lá.
+  const pending = items.filter((g) => g.status === "pending" || g.status === "running" || subindoParaODrive(g));
   const pendingKey = pending.map((g) => g.id).join(",");
 
   useEffect(() => {
@@ -138,9 +141,12 @@ export function useGenerations(tool: GenerationTool, poll?: (g: Generation) => P
       const changed = updates.filter((u): u is Generation => Boolean(u));
       if (changed.length) {
         setItems((prev) => prev.map((g) => changed.find((c) => c.id === g.id) ?? g));
+        const pronta = (g: Generation | undefined) => g?.status === "done" && !videoForaDoDrive(g);
         for (const c of changed) {
-          if (c.status === "done") toast.success("Geração pronta");
-          if (c.status === "failed") toast.error(c.error ?? "A geração falhou");
+          const antes = items.find((x) => x.id === c.id);
+          if (pronta(c) && !pronta(antes)) toast.success("Geração pronta");
+          if (c.status === "failed" && antes?.status !== "failed") toast.error(c.error ?? "A geração falhou");
+          if (c.params.paraDrive === true && antes?.params.paraDrive !== true) toast.warning("O Google Drive não aceitou o vídeo agora. O hub tenta de novo sozinho.");
         }
       }
     }, 6000);
@@ -188,6 +194,29 @@ export function GenerationProgress({ g, className }: { g: Generation; className?
 const statusMap: Record<Generation["status"], Status> = { pending: "idle", running: "run", done: "ok", failed: "warn" };
 const statusLabel: Record<Generation["status"], string> = { pending: "Na fila", running: "Gerando", done: "Pronto", failed: "Falhou" };
 
+// Vídeo pronto que ainda não está no Google Drive (regra do dono: vídeo só fica guardado lá). Subindo agora, ou
+// esperando o Drive: o texto diz o que acontece com ele.
+function AvisoDoDrive({ g }: { g: Generation }) {
+  if (subindoParaODrive(g)) {
+    return (
+      <div className="flex w-full flex-col items-center gap-2 px-5 text-center">
+        <TextShimmer className="text-sm" duration={1.6}>
+          Guardando no Google Drive…
+        </TextShimmer>
+        <p className="text-xs text-muted-foreground">O vídeo fica pronto aqui assim que chegar ao Drive.</p>
+      </div>
+    );
+  }
+  const prazo = typeof g.params.prazoNoHub === "string" ? new Date(g.params.prazoNoHub) : null;
+  return (
+    <p className="px-4 text-center text-xs text-warn">
+      {prazo
+        ? `O Google Drive não aceitou este vídeo agora. O hub tenta de novo até ${prazo.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}; depois disso ele é descartado. Confira o Drive em Integrações.`
+        : "Este vídeo está esperando o Google Drive. Ele vai para lá quando o Drive desta organização estiver conectado em Integrações."}
+    </p>
+  );
+}
+
 export function GenerationCard({
   g,
   onDelete,
@@ -206,6 +235,9 @@ export function GenerationCard({
 }) {
   const url = mediaUrl(g);
   const busy = g.status === "pending" || g.status === "running";
+  // Vídeo só aparece pronto (tocar, baixar, editar, enviar) quando está no Google Drive.
+  const foraDoDrive = videoForaDoDrive(g);
+  const pronto = g.status === "done" && Boolean(url) && !foraDoDrive;
   const [saved, setSaved] = useState(Boolean(g.saved));
   const [saving, setSaving] = useState(false);
   // Renomear: o nome novo vale na hora (o card pode estar numa lista que só recarrega depois).
@@ -253,13 +285,15 @@ export function GenerationCard({
     <div className={cn("@container flex flex-col overflow-hidden rounded-lg border bg-card", className)}>
       {g.kind !== "audio" && (
         <div className="relative flex aspect-[9/16] max-h-80 items-center justify-center bg-muted">
-          {g.status === "done" && url ? (
+          {pronto ? (
             g.kind === "video" ? (
               <video src={url} controls playsInline className="size-full object-contain" />
             ) : (
               // eslint-disable-next-line @next/next/no-img-element -- mídia local gerada
               <img src={url} alt={g.prompt} className="size-full object-contain" />
             )
+          ) : foraDoDrive ? (
+            <AvisoDoDrive g={g} />
           ) : busy ? (
             <div className="flex w-full flex-col items-center gap-3 px-5">
               <TextShimmer className="text-center text-sm" duration={1.6}>
@@ -295,12 +329,16 @@ export function GenerationCard({
               {shownTitle}
             </p>
           )}
-          <StatusBadge status={statusMap[g.status]} label={statusLabel[g.status]} />
+          {foraDoDrive ? (
+            <StatusBadge status={subindoParaODrive(g) ? "run" : "warn"} label={subindoParaODrive(g) ? "Guardando" : "Esperando o Drive"} />
+          ) : (
+            <StatusBadge status={statusMap[g.status]} label={statusLabel[g.status]} />
+          )}
         </div>
         {g.kind === "audio" && busy && <GenerationProgress g={g} />}
         {g.kind === "audio" && g.status === "done" && url && <audio src={url} controls className="h-9 w-full" />}
         {g.kind === "audio" && g.status === "failed" && <p className="text-xs text-destructive">{g.error}</p>}
-        {g.kind === "video" && g.status === "done" && url && (
+        {g.kind === "video" && pronto && (
           <div className="grid grid-cols-1 gap-1.5 @[12rem]:grid-cols-2">
             <Button variant="outline" size="xs" asChild>
               <a href={`/ver/${g.id}`} target="_blank" rel="noreferrer">
@@ -320,7 +358,7 @@ export function GenerationCard({
         <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs text-muted-foreground">
           <span className="max-w-full truncate">{meta}</span>
           <span className="flex max-w-full flex-wrap gap-1">
-            {url && g.status === "done" && (
+            {pronto && (
               <Button
                 variant="ghost"
                 size="icon-xs"
@@ -334,12 +372,12 @@ export function GenerationCard({
                 {saved ? <BookmarkCheck /> : <Bookmark />}
               </Button>
             )}
-            {g.kind === "video" && g.status === "done" && url && <RemoveCaptionsButton g={g} />}
-            {g.kind === "video" && g.status === "done" && url && <BotaoEnviarParaOYoutube g={g} titulo={shownTitle} />}
+            {g.kind === "video" && pronto && <RemoveCaptionsButton g={g} />}
+            {g.kind === "video" && pronto && <BotaoEnviarParaOYoutube g={g} titulo={shownTitle} />}
             <Button variant="ghost" size="icon-xs" aria-label="Renomear" title="Renomear" onClick={() => setEditing(shownTitle)}>
               <Pencil />
             </Button>
-            {url && g.status === "done" && (
+            {pronto && (
               <Button variant="ghost" size="icon-xs" asChild aria-label="Baixar">
                 <a href={url} download={downloadName(named)}>
                   <Download />

@@ -6,7 +6,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { segurarTemp, soltarTemp } from "@/features/drive/servicos/arquivos";
-import { arquivoLocal, guardarNoDriveEmSegundoPlano } from "@/features/drive/servicos/videos";
+import { apagarDaMidia, arquivoLocal, concluirComArquivo, exigirDriveParaVideo } from "@/features/drive/servicos/videos";
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
 import { applyGraphics, sanitizeGraphics, type GraphicRequest } from "@/lib/server/motion";
@@ -32,6 +32,9 @@ export const logPath = (id: string) => path.join(LOG_DIR, `${id}.log`);
 
 // Montagens rodando neste processo do servidor (sobrevive ao hot reload do dev).
 const running: Set<string> = ((globalThis as { __montagens?: Set<string> }).__montagens ??= new Set());
+
+// A edição desta geração está rodando neste processo (a faxina não apaga a pasta de trabalho dela).
+export const montagemRodando = (id: string) => running.has(id);
 
 // Cópias temporárias do Drive (arquivoLocal) ficam seguras da limpeza enquanto o Python trabalha: um trabalho longo
 // passa horas sem tocar no arquivo. Soltas no fim, com sucesso ou com erro. Se algo impedir de soltar, a trava vence
@@ -115,6 +118,8 @@ async function videoFile(id: string, label: string) {
 }
 
 export async function runMontage(req: MontageRequest): Promise<Generation> {
+  // Regra do dono: o vídeo pronto vai só para o Drive. Sem Drive conectado, nem começa.
+  await exigirDriveParaVideo();
   const avatarIds = [...new Set((req.avatarIds?.length ? req.avatarIds : [req.avatarId ?? ""]).map(String).filter(Boolean))].slice(0, MAX_AVATARS);
   if (!avatarIds.length) throw new InputError("Escolha pelo menos um vídeo do avatar.");
   const avatars = await Promise.all(avatarIds.map((id, i) => videoFile(id, avatarIds.length > 1 ? `O avatar ${i + 1}` : "O avatar")));
@@ -213,7 +218,8 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
 // Roda um script Python da edição em segundo plano: o log fica em .data/montagem/<id>.log (na raiz) e o status da geração é
 // atualizado ao terminar. `after` roda depois de um DONE (ex.: gráficos animados), antes de marcar como pronta.
 // Pronto, o vídeo segue para o Google Drive (features/drive), também em segundo plano. As `copias` seguras são
-// soltas quando o processo termina, com sucesso ou com erro.
+// soltas quando o processo termina, com sucesso ou com erro. Com erro, o que o script deixou pela metade na pasta de
+// mídia sai na hora (regra do dono: vídeo fora do Drive não fica).
 function launch(
   id: string,
   script: string,
@@ -237,21 +243,27 @@ function launch(
   };
   child.stdout.on("data", collect);
   child.stderr.on("data", collect);
+  const tirarSobras = () => Promise.all([apagarDaMidia(outName), apagarDaMidia(`${outName}.gfx.mp4`)]);
   child.on("error", (err) => {
     running.delete(id);
     soltarCopias(copias);
-    void naOrganizacao(() => updateGeneration(id, { status: "failed", error: `Não consegui rodar o Python (${err.message}). Defina PYTHON_BIN no .env.local.` }));
+    void naOrganizacao(async () => {
+      await tirarSobras();
+      await updateGeneration(id, { status: "failed", error: `Não consegui rodar o Python (${err.message}). Defina PYTHON_BIN no .env.local.` });
+    });
   });
   child.on("close", (code) => naOrganizacao(async () => {
     // O Python já não lê as cópias (os gráficos do `after` usam só o vídeo novo).
     soltarCopias(copias);
     const text = log.join("");
     if (code === 0 && text.includes("DONE")) {
-      if (after) await after((m: string) => collect(Buffer.from(`[${new Date().toLocaleTimeString("pt-BR")}] ${m}\n`)));
+      if (after) await after((m: string) => collect(Buffer.from(`[${new Date().toLocaleTimeString("pt-BR")}] ${m}\n`))).catch(() => undefined);
       running.delete(id);
-      guardarNoDriveEmSegundoPlano(await updateGeneration(id, { status: "done", file: outName }));
+      // Apagada durante a edição: o vídeo novo não tem dono e sai na hora.
+      await concluirComArquivo(id, { file: outName });
     } else {
       running.delete(id);
+      await tirarSobras();
       const missing = /No module named '(torch|cv2)'/.exec(text)?.[1];
       const err = missing
         ? `falta instalar ${missing === "cv2" ? "o OpenCV" : "o PyTorch"} neste servidor (pip install torch opencv-python-headless); por enquanto isso roda no PC`
@@ -280,6 +292,7 @@ export type BeatRequest = {
 const MAX_BEAT_CLIPS = 16;
 
 export async function runBeatEdit(req: BeatRequest): Promise<Generation> {
+  await exigirDriveParaVideo();
   const ids = [...new Set((req.clipIds ?? []).map(String).filter(Boolean))].slice(0, MAX_BEAT_CLIPS);
   if (!ids.length) throw new InputError("Escolha pelo menos um vídeo de cena.");
   const clips = await Promise.all(ids.map((id, i) => videoFile(id, `A cena ${i + 1}`)));
@@ -370,6 +383,7 @@ function seconds(file: string): Promise<number> {
 }
 
 export async function runRemoveCaptions(req: CaptionRemovalRequest): Promise<Generation> {
+  await exigirDriveParaVideo();
   const { g, file } = await videoFile(String(req.videoId ?? ""), "O vídeo");
   const region = CAPTION_REGIONS.includes(req.region as (typeof CAPTION_REGIONS)[number]) ? (req.region as string) : "baixo";
   const mode = req.mode === "faixa" ? "faixa" : "auto";

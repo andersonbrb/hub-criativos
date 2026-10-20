@@ -2,7 +2,7 @@ import { unlink } from "node:fs/promises";
 import path from "node:path";
 
 import { sincronizarComDrive, tirarDoDrive } from "@/features/drive/servicos/videos";
-import type { Generation, GenerationTool } from "@/lib/generations";
+import { apareceNasListas, type Generation, type GenerationTool } from "@/lib/generations";
 import { InputError, route } from "@/lib/server/http";
 import { CHAVES_DE_PRODUCAO } from "@/lib/server/media";
 import { pastaDeMidia } from "@/lib/server/pastas";
@@ -12,11 +12,14 @@ import { clearGenerations, listGenerations } from "@/lib/server/store";
 // Listam: Biblioteca, Editor, Fluxo e os estúdios. As outras telas de produção mostram as mesmas gerações nos cards.
 // Cada lista dispara o espelho do Drive em segundo plano (no máximo 1 vez por minuto): o que foi apagado ou
 // renomeado direto no Drive aparece na lista seguinte.
+// Regra do dono: a Biblioteca e o Fluxo (as listas sem ?tool=) só mostram vídeos que estão no Google Drive. O
+// histórico de um estúdio (?tool=) mostra também o vídeo que acabou de ficar pronto e ainda está subindo, com o aviso.
 export const GET = route(async (request: Request) => {
   void sincronizarComDrive();
   const params = new URL(request.url).searchParams;
   const tool = params.get("tool") as GenerationTool | null;
   let generations = await listGenerations(tool ?? undefined);
+  if (!tool || params.get("saved") === "1") generations = generations.filter(apareceNasListas);
   if (params.get("saved") === "1") generations = generations.filter((g) => g.saved);
   return Response.json({ generations });
 }, { chave: CHAVES_DE_PRODUCAO });

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { arquivoLocal, guardarNoDriveEmSegundoPlano } from "@/features/drive/servicos/videos";
+import { arquivoLocal, concluirComArquivo, exigirDriveParaVideo } from "@/features/drive/servicos/videos";
 import type { Generation } from "@/lib/generations";
 import { callTool, uploadAsset } from "@/lib/server/heygen-mcp";
 import { InputError } from "@/lib/server/http";
@@ -59,6 +59,8 @@ export async function brandGlossaries(): Promise<{ id: string; name: string }[]>
 export async function runTranslation(req: TranslateRequest): Promise<Generation[]> {
   const source = await getGeneration(String(req.videoGenerationId ?? ""));
   if (!source?.file || source.kind !== "video" || source.status !== "done") throw new InputError("Escolha um vídeo pronto do hub.");
+  // O vídeo traduzido vai só para o Drive (regra do dono): sem Drive conectado, nem gasta crédito. Só áudio não precisa.
+  if (!req.translateAudioOnly) await exigirDriveParaVideo();
   const languages = [...new Set((req.outputLanguages ?? []).map(String).filter(Boolean))];
   if (!languages.length) throw new InputError("Escolha pelo menos um idioma de saída.");
   const valid = await translationLanguages();
@@ -158,9 +160,25 @@ type Detail = {
   duration?: number | null;
 };
 
+// Uma conferência por tradução ao mesmo tempo (a tela e o chat juntos baixariam o vídeo duas vezes).
+const conferindo: Map<string, Promise<Generation>> = ((globalThis as { __hubConferindoTraducoes?: Map<string, Promise<Generation>> }).__hubConferindoTraducoes ??=
+  new Map());
+
 // Consulta a tradução; quando termina, baixa o vídeo (e a legenda .srt) para o hub. O vídeo segue para o Google
-// Drive em segundo plano (features/drive); a legenda e a tradução só de áudio ficam no disco.
+// Drive em segundo plano (features/drive); a legenda e a tradução só de áudio ficam no disco (não são vídeo).
 export async function refreshTranslation(gen: Generation): Promise<Generation> {
+  if (!gen.jobId || gen.status === "done" || gen.status === "failed") return gen;
+  let vez = conferindo.get(gen.id);
+  if (!vez) {
+    vez = conferirTraducao(gen).finally(() => conferindo.delete(gen.id));
+    conferindo.set(gen.id, vez);
+  }
+  return vez;
+}
+
+async function conferirTraducao(original: Generation): Promise<Generation> {
+  // Relê: outra conferência pode ter terminado agora.
+  const gen = (await getGeneration(original.id)) ?? original;
   if (!gen.jobId || gen.status === "done" || gen.status === "failed") return gen;
   const raw = await callTool<Detail & { data?: Detail }>("get_video_translation", { videoTranslationId: gen.jobId });
   const d: Detail = raw.data ?? raw;
@@ -170,13 +188,11 @@ export async function refreshTranslation(gen: Generation): Promise<Generation> {
   if (!url) return (await updateGeneration(gen.id, { status: "failed", error: "HeyGen não devolveu o vídeo traduzido." })) ?? gen;
   const file = await downloadMedia(url, d.video_url ? "mp4" : "mp3");
   const srtFile = d.srt_caption_url ? await downloadMedia(d.srt_caption_url, "srt").catch(() => null) : null;
-  const pronta = await updateGeneration(gen.id, {
-    status: "done",
+  const pronta = await concluirComArquivo(gen.id, {
     file,
     remoteUrl: url,
     kind: d.video_url ? "video" : "audio",
     params: { ...gen.params, srtFile, duration: d.duration ?? null, outputLanguage: d.output_language ?? gen.params.language ?? null },
   });
-  guardarNoDriveEmSegundoPlano(pronta);
   return pronta ?? gen;
 }

@@ -204,7 +204,11 @@ const tipoDeMidia = (tipo: string): MediaKind | null =>
 
 // Recebe o arquivo do campo `campo` de um FormData e grava nas mídias da organização. Só aceita vídeo, áudio ou imagem (pelo tipo
 // que o navegador informa). Erros de quem enviou viram InputError (400) com a mensagem para a tela.
-export async function saveUploadedMedia(request: Request, { campo = "file", tetoBytes }: { campo?: string; tetoBytes: number }) {
+// `antesDeGravar`: conferência pelo tipo, antes de gravar o primeiro byte (ex.: vídeo sem Drive conectado é recusado).
+export async function saveUploadedMedia(
+  request: Request,
+  { campo = "file", tetoBytes, antesDeGravar }: { campo?: string; tetoBytes: number; antesDeGravar?: (kind: MediaKind) => Promise<void> },
+) {
   const limite = `O arquivo pode ter até ${tetoBytes >= 1024 ** 3 ? `${tetoBytes / 1024 ** 3} GB` : `${Math.round(tetoBytes / 1024 ** 2)} MB`}.`;
   const contentType = request.headers.get("content-type") ?? "";
   const fronteira = /^multipart\/form-data\b/i.test(contentType) ? /;\s*boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(contentType) : null;
@@ -254,6 +258,7 @@ export async function saveUploadedMedia(request: Request, { campo = "file", teto
       if (!parte.nomeDoArquivo) throw new InputError("Escolha um arquivo.");
       const kind = tipoDeMidia(parte.tipo);
       if (!kind) throw new InputError("Envie um vídeo, áudio ou imagem.");
+      await antesDeGravar?.(kind);
       const ext = (parte.nomeDoArquivo.split(".").pop() ?? "").toLowerCase();
       const fallback = kind === "video" ? "mp4" : kind === "audio" ? "mp3" : "png";
       const file = `${randomUUID()}.${/^[a-z0-9]{2,5}$/.test(ext) ? ext : fallback}`;

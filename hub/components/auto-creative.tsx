@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { downloadName, mediaUrl } from "@/lib/generations";
 import { CREATIVE_LANGUAGES } from "@/lib/languages";
 import { cn } from "@/lib/utils";
+import { AvisoSemDrive } from "@/features/drive/tela/aviso-sem-drive";
 
 // Criativo automático: a pessoa diz o que quer anunciar (texto e/ou foto do produto), escolhe poucas opções e o
 // agente "auto" (lib/agent-profiles.ts) faz tudo até o vídeo final. A conversa continua aberta para responder às
@@ -332,6 +333,7 @@ function StartForm({ start, configured }: { start: StartChat; configured: boolea
         </Field>
       </div>
 
+      <AvisoSemDrive oQue="criar vídeos" />
       <div className="flex flex-wrap items-center gap-3 border-t pt-4">
         <Button size="lg" className="bg-rec text-white hover:bg-rec/85" disabled={!ready} onClick={submit}>
           {busy ? <Loader2 className="animate-spin" /> : <WandSparkles />}

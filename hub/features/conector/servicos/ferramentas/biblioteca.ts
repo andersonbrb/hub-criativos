@@ -16,8 +16,9 @@ import {
   type Ferramenta,
 } from "@/features/conector/servicos/ferramentas/comum";
 import { criarLinkDeDownload, criarLinkDeEnvio, extensoesAceitas, tipoDoArquivo } from "@/features/conector/servicos/links";
-import { sincronizarComDrive } from "@/features/drive/servicos/videos";
-import { downloadName, generationTitle, type Generation } from "@/lib/generations";
+import { driveConectado } from "@/features/drive/servicos/conta";
+import { MENSAGEM_SEM_DRIVE, sincronizarComDrive } from "@/features/drive/servicos/videos";
+import { apareceNasListas, downloadName, generationTitle, type Generation } from "@/lib/generations";
 import { pastaDeMidia } from "@/lib/server/pastas";
 import { getGeneration, listGenerations } from "@/lib/server/store";
 
@@ -68,8 +69,10 @@ const bibliotecaListar: Ferramenta = {
     const kind = umDe(args, "tipo", KINDS);
     const limite = inteiro(args, "limite", { max: 200, padrao: 30 })!;
     const todas = booleano(args, "incluir_estudios") === true;
+    // Vídeo que ainda não está no Google Drive não aparece (regra do dono: vídeo da Biblioteca é sempre do Drive).
     const achadas = (await listGenerations()).filter(
       (g) =>
+        apareceNasListas(g) &&
         (todas || g.saved) &&
         (!kind || g.kind === kind) &&
         (!busca || semAcento(`${g.name ?? ""} ${g.prompt} ${g.id}`).includes(busca)),
@@ -115,9 +118,12 @@ const linkDeEnvio: Ferramenta = {
   async executar(ctx, args) {
     const nome = path.basename(texto(args, "nome_arquivo", { obrigatorio: true, max: 200 }).replace(/\\/g, "/")).replace(/["\r\n]/g, "").trim();
     if (!nome) throw new ErroDaFerramenta("Informe `nome_arquivo` com o nome do arquivo e a extensão.");
-    if (!tipoDoArquivo(nome)) {
+    const tipo = tipoDoArquivo(nome);
+    if (!tipo) {
       throw new ErroDaFerramenta(`A Biblioteca aceita só vídeo, imagem e áudio. Extensões aceitas: ${extensoesAceitas().join(", ")}.`);
     }
+    // Regra do dono: vídeo fica só no Google Drive da organização. Sem Drive conectado, nem gera o link.
+    if (tipo.kind === "video" && !(await driveConectado())) throw new ErroDaFerramenta(MENSAGEM_SEM_DRIVE);
     const link = await criarLinkDeEnvio(ctx.usuario.id, nome, ctx.base);
     return [
       `Link de envio para "${nome}" (uso único, vale até ${link.expiraEm.toISOString()}, 15 minutos).`,

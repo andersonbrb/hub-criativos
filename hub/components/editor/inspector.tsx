@@ -466,7 +466,7 @@ function ExportTab({ project, exports, busy, onRender, onDeleteExport }: Props) 
           {busy.render ? <Loader2 className="animate-spin" /> : <Download />}
           Exportar MP4
         </Button>
-        <p className="text-xs text-muted-foreground">O vídeo exportado entra no histórico do hub e pode ir para o chat, o Higgsfield ou o quadro.</p>
+        <p className="text-xs text-muted-foreground">O vídeo exportado vai para o Google Drive da organização e entra no histórico do hub, de onde pode ir para o chat ou o Fluxo.</p>
       </div>
       {exports.length > 0 && <Label>Exportações</Label>}
       <div className="grid grid-cols-2 gap-2">

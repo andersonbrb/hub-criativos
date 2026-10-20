@@ -92,7 +92,8 @@ export function Politica() {
           <li>o nome e o e-mail da conta Google conectada;</li>
           <li>
             os vídeos que ele mesmo guardou no Drive e as informações desses arquivos: nome, tipo, tamanho, data da
-            última alteração e se estão na lixeira;
+            última alteração, se estão na lixeira e a impressão digital do arquivo (para conferir que o vídeo chegou
+            inteiro);
           </li>
           <li>
             a pasta que você escolher na janela do próprio Google para guardar os vídeos: o hub lê só o identificador e
@@ -123,7 +124,7 @@ export function Politica() {
         <Lista>
           <li>
             Guardar no seu Drive, numa pasta &ldquo;Hub de Criativos&rdquo; com uma subpasta por tipo, os vídeos que o
-            hub gera para a sua equipe (edições, traduções, avatares e outros).
+            hub gera para a sua equipe (edições, traduções, avatares e outros) e os vídeos que a equipe envia ao hub.
           </li>
           <li>Mostrar, tocar e baixar esses vídeos dentro do hub, e usá-los nas próximas edições.</li>
           <li>
@@ -193,8 +194,9 @@ export function Politica() {
           </li>
           <li>Para cada vídeo, o hub guarda o identificador e o nome do arquivo no Drive, para achá-lo de novo.</li>
           <li>
-            Os vídeos ficam no seu Google Drive. O servidor do hub só guarda cópias temporárias enquanto trabalha num
-            vídeo, e a limpeza automática apaga essas cópias depois de algumas horas sem uso.
+            Os vídeos ficam só no seu Google Drive. O servidor do hub guarda uma cópia temporária apenas enquanto
+            trabalha num vídeo (editar, transcrever, enviar ao Drive ou ao YouTube) e a apaga logo depois, inclusive
+            quando dá erro. Nenhuma cópia fica no servidor por mais de 12 horas.
           </li>
           <li>O espaço usado do Drive não é gravado: o hub consulta na hora e guarda por um minuto na memória.</li>
           <li>

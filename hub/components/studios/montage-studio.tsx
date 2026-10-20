@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { EffectsPanel, FX_OFF, fxCount, GraphicsPanel, type Fx, type Grafico } from "@/components/studios/edit-extras";
 import { Field, GenerationCard, HistoryActions, HistoryPanel, useGenerations } from "@/components/studios/shared";
+import { AvisoSemDrive } from "@/features/drive/tela/aviso-sem-drive";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -153,6 +154,7 @@ export function MontageStudio() {
       ]}
     >
       <WorkspacePanel id="videos" title="Vídeos" defaultSize={64} fill minSize={25} bodyClassName="@container flex flex-col gap-5 p-4">
+        <AvisoSemDrive oQue="editar vídeos" />
         {videos === null ? (
           <Loader2 className="mx-auto my-10 size-5 animate-spin text-muted-foreground" />
         ) : videos.length === 0 ? (

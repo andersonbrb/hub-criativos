@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { OpenAppButton } from "@/components/open-app-button";
 import { Field, GenerationCard, HistoryActions, HistoryPanel, useGenerations } from "@/components/studios/shared";
+import { AvisoSemDrive } from "@/features/drive/tela/aviso-sem-drive";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -298,6 +299,7 @@ export function TranslateStudio() {
       ]}
     >
       <WorkspacePanel id="entrada" title="1. Vídeo original" defaultSize={58} fill minSize={20} bodyClassName="@container flex flex-col gap-3 p-4">
+        <AvisoSemDrive oQue="enviar e traduzir vídeos" />
         <Tabs value={sourceTab} onValueChange={(v) => setSourceTab(v as "hub" | "upload")}>
           <TabsList>
             <TabsTrigger value="hub">Do hub</TabsTrigger>

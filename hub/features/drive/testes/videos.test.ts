@@ -25,11 +25,15 @@ import {
   moverParaLixeira,
   renomear,
 } from "@/features/drive/servicos/arquivos";
-import { DriveNaoConectado, tokenDeAcesso } from "@/features/drive/servicos/conta";
+import { DriveNaoConectado, driveConectado, tokenDeAcesso } from "@/features/drive/servicos/conta";
+import { faxinaDosVideos, MOTIVO_DO_DESCARTE, MOTIVO_SEM_ARQUIVO, zerarFaxinaDosVideos } from "@/features/drive/servicos/faxina";
 import {
   arquivoLocal,
+  concluirComArquivo,
   estadoDaMigracao as migracaoAgora,
+  exigirDriveParaVideo,
   guardarNoDrive,
+  md5DoArquivo,
   pastaDaGeracao,
   sincronizarComDrive,
   zerarVideosNoDrive,
@@ -61,6 +65,9 @@ vi.mock("@/features/drive/servicos/arquivos", () => ({
   renomear: vi.fn(),
   listarArquivosDoHub: vi.fn(),
   ArquivoForaDoDrive: class ArquivoForaDoDrive extends Error {},
+  copiaSegurada: vi.fn(() => false),
+  limparTemp: vi.fn(async () => undefined),
+  SEM_USO_MAXIMO_MS: 30 * 60 * 1000,
 }));
 vi.mock("@/features/drive/servicos/conta", () => ({
   DriveNaoConectado: class DriveNaoConectado extends Error {
@@ -69,6 +76,7 @@ vi.mock("@/features/drive/servicos/conta", () => ({
     }
   },
   tokenDeAcesso: vi.fn(),
+  driveConectado: vi.fn(async () => true),
 }));
 // As gerações ficam na memória do teste e a pasta de dados é temporária (a mídia vai para <temp>/media). Como o
 // store de verdade (que relê o JSON do disco), cada leitura devolve uma cópia. `leituras.listas` conta as listagens
@@ -154,6 +162,7 @@ describe("vídeos no Google Drive", () => {
     vi.resetAllMocks();
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
     zerarVideosNoDrive();
     geracoes.length = 0;
     sessao.logado = null;
@@ -177,7 +186,7 @@ describe("vídeos no Google Drive", () => {
       expect(await existe(gen.file!)).toBe(false);
     });
 
-    it("cada origem vai para a sua pasta; imagens, áudios e anexos das pessoas ficam no disco", async () => {
+    it("cada origem vai para a sua pasta, inclusive o vídeo que a equipe envia; imagens e áudios ficam no disco", async () => {
       const pasta = (dados: Partial<Generation>) => pastaDaGeracao({ id: "x", tool: "flora", kind: "video", status: "done", prompt: "", params: {}, createdAt: "", ...dados } as Generation);
       expect(pasta({ tool: "montagem" })).toBe("edicao-final");
       expect(pasta({ tool: "montagem", params: { formato: "batida" } })).toBe("batida");
@@ -187,17 +196,66 @@ describe("vídeos no Google Drive", () => {
       expect(pasta({ tool: "flora" })).toBe("broll");
       expect(pasta({ tool: "heygen" })).toBe("avatar");
       expect(pasta({ tool: "higgsfield" })).toBe("outros");
+      expect(pasta({ tool: "elevenlabs" })).toBe("outros");
       expect(pasta({ tool: "upload", params: { origem: "conector" } })).toBe("entregas");
-      expect(pasta({ tool: "upload" })).toBeNull();
+      expect(pasta({ tool: "upload" })).toBe("enviados");
       expect(pasta({ tool: "flora", kind: "image" })).toBeNull();
+      expect(pasta({ tool: "upload", kind: "image" })).toBeNull();
       expect(pasta({ tool: "heygen-traducao", kind: "audio" })).toBeNull();
 
       const anexo = await novoVideo({ tool: "upload", prompt: "video-do-celular.mp4" });
       const rodando = await novoVideo({ status: "running" });
-      expect(await guardarNoDrive(anexo)).toMatchObject({ id: anexo.id, file: anexo.file });
+      expect((await guardarNoDrive(anexo)).drive).toEqual({ id: "drv-1", pasta: "enviados" });
       await guardarNoDrive(rodando);
+      expect(enviarArquivo).toHaveBeenCalledTimes(1);
+      expect(await existe(anexo.file!)).toBe(false);
+      expect(await existe(rodando.file!)).toBe(true);
+    });
+
+    it("impressão digital diferente no Drive: a cópia de lá vai para a lixeira e o vídeo fica no hub", async () => {
+      vi.mocked(enviarArquivo).mockImplementationOnce(async (_caminho, opcoes) => arquivoNoDrive("drv-trocado", opcoes.nome, { md5: "0".repeat(32) }));
+      const gen = await novoVideo({ tool: "editor" });
+      const depois = await guardarNoDrive(gen);
+      expect(depois.drive).toBeUndefined();
+      expect(moverParaLixeira).toHaveBeenCalledWith("drv-trocado");
+      expect(daMemoria(gen.id)).toMatchObject({ status: "done", params: { paraDrive: true } });
+      expect(await existe(gen.file!)).toBe(true);
+    });
+
+    it("impressão digital igual: o vídeo fica no Drive e sai do hub", async () => {
+      const gen = await novoVideo({ tool: "editor" });
+      const md5 = await md5DoArquivo(path.join(MEDIA_DIR, gen.file!));
+      vi.mocked(enviarArquivo).mockImplementationOnce(async (_caminho, opcoes) => arquivoNoDrive("drv-certo", opcoes.nome, { md5 }));
+      expect((await guardarNoDrive(gen)).drive).toEqual({ id: "drv-certo", pasta: "editor" });
+      expect(moverParaLixeira).not.toHaveBeenCalled();
+      expect(await existe(gen.file!)).toBe(false);
+    });
+
+    it("concluirComArquivo: vídeo novo ganha o prazo de 12 horas e já sobe; o prazo sai quando chega ao Drive", async () => {
+      const gen = await novoVideo({ status: "running" });
+      const pronta = await concluirComArquivo(gen.id, { file: gen.file! });
+      expect(pronta).toMatchObject({ status: "done", params: { prazoNoHub: expect.any(String) } });
+      const prazo = Date.parse(String(pronta!.params.prazoNoHub)) - Date.now();
+      expect(prazo).toBeGreaterThan(11.9 * 3600_000);
+      expect(prazo).toBeLessThanOrEqual(12 * 3600_000);
+      await vi.waitFor(() => expect(daMemoria(gen.id)!.drive).toEqual({ id: "drv-1", pasta: "broll" }));
+      expect(daMemoria(gen.id)!.params.prazoNoHub).toBeUndefined();
+      expect(await existe(gen.file!)).toBe(false);
+    });
+
+    it("concluirComArquivo: geração apagada durante o trabalho apaga o arquivo novo na hora", async () => {
+      const gen = await novoVideo({ status: "running" });
+      await store.deleteGeneration(gen.id);
+      expect(await concluirComArquivo(gen.id, { file: gen.file! })).toBeUndefined();
+      expect(await existe(gen.file!)).toBe(false);
       expect(enviarArquivo).not.toHaveBeenCalled();
-      expect(await existe(anexo.file!)).toBe(true);
+    });
+
+    it("sem Drive conectado, gerar ou enviar vídeo é recusado com a explicação", async () => {
+      vi.mocked(driveConectado).mockResolvedValue(false);
+      await expect(exigirDriveParaVideo()).rejects.toThrow("O Google Drive desta organização não está conectado.");
+      vi.mocked(driveConectado).mockResolvedValue(true);
+      await expect(exigirDriveParaVideo()).resolves.toBeUndefined();
     });
 
     it("sem Drive conectado (ou com falha no envio), o vídeo fica no disco marcado para depois", async () => {
@@ -461,7 +519,7 @@ describe("vídeos no Google Drive", () => {
       const renomeado = await novoVideo({ drive: { id: "c", pasta: "edicao-final" }, tool: "montagem", name: "Edição AD 3" }, { local: false });
       const devolvido = await novoVideo({ drive: { id: "d", pasta: "broll" }, foraDoDrive: true }, { local: false });
       const igual = await novoVideo({ drive: { id: "e", pasta: "broll" }, name: "Café" }, { local: false });
-      // Anexo de quem enviou: fica no disco e o espelho não mexe.
+      // Vídeo ainda no disco (sem `drive`): o espelho não o marca; ele vai para o Drive pela fila.
       const local = await novoVideo({ tool: "upload" });
       vi.mocked(listarArquivosDoHub).mockResolvedValue([
         arquivoNoDrive("b", downloadName(naLixeira), { noLixo: true }),
@@ -557,7 +615,7 @@ describe("vídeos no Google Drive", () => {
 
     it("sem nenhum vídeo no Drive nem na fila, nem chama o Google", async () => {
       await novoVideo({ tool: "elevenlabs", kind: "audio" });
-      await novoVideo({ tool: "upload" });
+      await novoVideo({ tool: "upload", kind: "image" });
       await sincronizarComDrive();
       expect(listarArquivosDoHub).not.toHaveBeenCalled();
       expect(tokenDeAcesso).not.toHaveBeenCalled();
@@ -730,21 +788,22 @@ describe("vídeos no Google Drive", () => {
       const audio = await novoVideo({ tool: "elevenlabs", kind: "audio" });
 
       const inicio = await (await pedirMigracao()).json();
-      expect(inicio).toEqual({ rodando: true, total: 3, feitos: 0, falhas: 0, ultimoErro: null });
+      expect(inicio).toEqual({ rodando: true, total: 4, feitos: 0, falhas: 0, ultimoErro: null, bytes: 0 });
       // Já rodando: o segundo pedido só devolve o estado.
-      expect(await (await pedirMigracao()).json()).toMatchObject({ rodando: true, total: 3 });
+      expect(await (await pedirMigracao()).json()).toMatchObject({ rodando: true, total: 4 });
 
       primeiro.resolver();
       await vi.waitFor(async () => expect((await verMigracao()).rodando).toBe(false));
-      expect(await verMigracao()).toEqual({ rodando: false, total: 3, feitos: 2, falhas: 1, ultimoErro: "O Google Drive está sem espaço." });
-      expect(enviarArquivo).toHaveBeenCalledTimes(3);
+      expect(await verMigracao()).toEqual({ rodando: false, total: 4, feitos: 3, falhas: 1, ultimoErro: "O Google Drive está sem espaço.", bytes: 3000 });
+      expect(enviarArquivo).toHaveBeenCalledTimes(4);
 
       expect(daMemoria(entrega.id)!.drive).toEqual({ id: "drv-entregas", pasta: "entregas" });
+      expect(daMemoria(anexo.id)!.drive).toEqual({ id: "drv-enviados", pasta: "enviados" });
       expect(daMemoria(broll.id)!.drive).toEqual({ id: "drv-broll", pasta: "broll" });
       expect(daMemoria(broll.id)!.params.paraDrive).toBeUndefined();
       expect(daMemoria(edicao.id)!.params.paraDrive).toBe(true);
       expect(await existe(edicao.file!)).toBe(true);
-      expect(await existe(anexo.file!)).toBe(true);
+      expect(await existe(anexo.file!)).toBe(false);
       expect(await existe(audio.file!)).toBe(true);
       expect(daMemoria(jaNoDrive.id)!.drive).toEqual({ id: "drv-antigo", pasta: "broll" });
     });
@@ -764,6 +823,93 @@ describe("vídeos no Google Drive", () => {
       await entrarCom(["biblioteca", "estudios"]);
       expect((await pedirMigracao()).status).toBe(403);
       expect((await estadoDaMigracao()).status).toBe(403);
+      expect(enviarArquivo).not.toHaveBeenCalled();
+    });
+  });
+
+  // Regra do dono: vídeo só fica guardado no Google Drive. A faxina roda na subida e a cada 5 minutos.
+  describe("faxina dos vídeos", () => {
+    const HORA = 3600_000;
+    const marcaDaRegra = path.join(path.dirname(MEDIA_DIR), "videos-so-no-drive.json");
+    const solto = async (quando: Date, sufixo = "") => {
+      const nome = `${crypto.randomUUID()}.mp4${sufixo}`;
+      await writeFile(path.join(MEDIA_DIR, nome), new Uint8Array(1000));
+      await utimes(path.join(MEDIA_DIR, nome), quando, quando);
+      return nome;
+    };
+
+    beforeEach(async () => {
+      await bancoDeTeste();
+      await zerarFaxinaDosVideos();
+      await rm(marcaDaRegra, { force: true });
+    });
+
+    it("vídeo novo que passou do prazo sem chegar ao Drive sai do disco e vira falha; o vídeo antigo de quem não tem Drive fica", async () => {
+      vi.mocked(driveConectado).mockResolvedValue(false);
+      const vencido = await novoVideo({ params: { prazoNoHub: new Date(Date.now() - 1000).toISOString(), paraDrive: true } });
+      const noPrazo = await novoVideo({ params: { prazoNoHub: new Date(Date.now() + HORA).toISOString(), paraDrive: true } });
+      const antigo = await novoVideo({ tool: "montagem" });
+      const semArquivo = await novoVideo({ tool: "editor" }, { local: false });
+
+      await faxinaDosVideos();
+
+      expect(daMemoria(vencido.id)).toMatchObject({ status: "failed", error: MOTIVO_DO_DESCARTE });
+      expect(daMemoria(vencido.id)!.file).toBeUndefined();
+      expect(await existe(vencido.file!)).toBe(false);
+      expect(daMemoria(noPrazo.id)!.status).toBe("done");
+      expect(await existe(noPrazo.file!)).toBe(true);
+      expect(daMemoria(antigo.id)!.status).toBe("done");
+      expect(await existe(antigo.file!)).toBe(true);
+      expect(daMemoria(semArquivo.id)).toMatchObject({ status: "failed", error: MOTIVO_SEM_ARQUIVO });
+      expect(enviarArquivo).not.toHaveBeenCalled();
+    });
+
+    it("com Drive conectado, leva ao Drive o vídeo que ficou no disco e só então apaga daqui", async () => {
+      vi.mocked(driveConectado).mockResolvedValue(true);
+      vi.mocked(tokenDeAcesso).mockResolvedValue("token");
+      const antigo = await novoVideo({ tool: "montagem" });
+      await faxinaDosVideos();
+      await vi.waitFor(() => expect(daMemoria(antigo.id)!.drive).toEqual({ id: "drv-1", pasta: "edicao-final" }));
+      expect(await existe(antigo.file!)).toBe(false);
+    });
+
+    it("vídeo solto de antes da regra: sem Drive fica; com Drive vai para Recuperados do hub e só então sai", async () => {
+      const antigo = await solto(new Date(Date.now() - 24 * HORA));
+      vi.mocked(driveConectado).mockResolvedValue(false);
+      await faxinaDosVideos();
+      expect(await existe(antigo)).toBe(true);
+      expect(enviarArquivo).not.toHaveBeenCalled();
+
+      vi.mocked(driveConectado).mockResolvedValue(true);
+      await faxinaDosVideos();
+      await vi.waitFor(async () => expect(await existe(antigo)).toBe(false));
+      expect(enviarArquivo).toHaveBeenCalledWith(path.join(MEDIA_DIR, antigo), expect.objectContaining({ pasta: "recuperados" }));
+    });
+
+    it("vídeo solto que não chegou inteiro ao Drive não sai do hub", async () => {
+      const antigo = await solto(new Date(Date.now() - 24 * HORA));
+      vi.mocked(driveConectado).mockResolvedValue(true);
+      vi.mocked(enviarArquivo).mockImplementation(async (_caminho, opcoes) => arquivoNoDrive("drv-cortado", opcoes.nome, { tamanho: 10 }));
+      await faxinaDosVideos();
+      await vi.waitFor(() => expect(moverParaLixeira).toHaveBeenCalledWith("drv-cortado"));
+      expect(await existe(antigo)).toBe(true);
+    });
+
+    it("resto de trabalho solto de depois da regra sai depois de 1 hora sem mudar; o recente fica", async () => {
+      vi.mocked(driveConectado).mockResolvedValue(false);
+      // A regra começou há 2 horas.
+      await faxinaDosVideos({ agora: Date.now() - 2 * HORA });
+      const velho = await solto(new Date(Date.now() - 90 * 60_000));
+      const pelaMetade = await solto(new Date(Date.now() - 90 * 60_000), ".parcial");
+      const recente = await solto(new Date());
+      const comRegistro = await novoVideo({ tool: "montagem" });
+
+      await faxinaDosVideos();
+
+      expect(await existe(velho)).toBe(false);
+      expect(await existe(pelaMetade)).toBe(false);
+      expect(await existe(recente)).toBe(true);
+      expect(await existe(comRegistro.file!)).toBe(true);
       expect(enviarArquivo).not.toHaveBeenCalled();
     });
   });

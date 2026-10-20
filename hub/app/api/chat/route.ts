@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
 
 import { exigirUsuario } from "@/features/acesso/servicos/sessao";
+import { exigirDriveParaVideo, guardarNoDriveEmSegundoPlano, prazoNoHub } from "@/features/drive/servicos/videos";
 import type { Attachment, ChatEvent } from "@/lib/chat";
 import type { MediaKind } from "@/lib/generations";
 import { ATTACHMENTS_NOTE } from "@/lib/server/chat/display";
@@ -30,6 +31,10 @@ export const GET = route(async (request: Request) => {
 const MAX_FILE_BYTES = 500 * 1024 * 1024;
 const MAX_TEXT_CHARS = 150_000;
 const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|srt|vtt|ass|html?|xml|ya?ml|log)$/i;
+
+// Vídeo pelo tipo que o navegador informa ou, sem tipo, pela extensão (senão ficaria solto no disco, sem registro).
+const VIDEO_EXT = /\.(mp4|m4v|mov|webm|mkv|avi|3gp|mpe?g|wmv|flv|mts|m2ts|ogv)$/i;
+const ehVideo = (file: File) => file.type.startsWith("video/") || (!file.type.startsWith("audio/") && !file.type.startsWith("image/") && VIDEO_EXT.test(file.name || ""));
 
 const extOf = (name: string, fallback: string) => {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
@@ -74,10 +79,19 @@ async function prepare(file: File): Promise<Prepared> {
     };
   }
 
-  const media: MediaKind | null = file.type.startsWith("video/") ? "video" : file.type.startsWith("audio/") ? "audio" : null;
+  const media: MediaKind | null = ehVideo(file) ? "video" : file.type.startsWith("audio/") ? "audio" : null;
   if (media) {
     const saved = await saveMedia(bytes, extOf(name, media === "video" ? "mp4" : "mp3"));
-    const g = await createGeneration({ tool: "upload", kind: media, status: "done", prompt: name, file: saved, params: {} });
+    const g = await createGeneration({
+      tool: "upload",
+      kind: media,
+      status: "done",
+      prompt: name,
+      file: saved,
+      params: media === "video" ? { prazoNoHub: prazoNoHub() } : {},
+    });
+    // Vídeo anexado sobe para a pasta "Enviados pela equipe" do Drive; a cópia do hub sai quando o Drive confirma.
+    guardarNoDriveEmSegundoPlano(g);
     return {
       attachment: { name, url: `/api/media/${saved}`, kind: media, generationId: g.id },
       blocks: [],
@@ -131,6 +145,8 @@ export const POST = route(async (request: Request) => {
     chat.title = titleFrom.replace(/\s+/g, " ").slice(0, 60);
   }
 
+  // Regra do dono: vídeo só com o Google Drive conectado (ele vai para lá logo depois). Confere antes de gravar qualquer anexo.
+  if (files.some(ehVideo)) await exigirDriveParaVideo();
   const prepared = await Promise.all(files.map(prepare));
   const notes = prepared.map((p) => p.note).filter(Boolean);
   // 1ª mensagem de uma conversa de agente: imagens/PDFs de referência configurados em "Editar agente"

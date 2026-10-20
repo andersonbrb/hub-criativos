@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { OpenAppButton } from "@/components/open-app-button";
 import { Field, GenerationCard, HistoryActions, HistoryPanel, McpMissing, useGenerations } from "@/components/studios/shared";
+import { AvisoSemDrive } from "@/features/drive/tela/aviso-sem-drive";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -160,6 +161,7 @@ export function FloraStudio({ configured }: { configured: boolean }) {
     >
       <WorkspacePanel id="prompt" title="Prompt e referência" defaultSize={68} fill minSize={20} bodyClassName="flex flex-col gap-3 p-4">
         {!configured && <McpMissing service="flora" />}
+        {kind === "video" && <AvisoSemDrive oQue="gerar vídeos" />}
         <Tabs value={kind} onValueChange={switchKind}>
           <TabsList>
             <TabsTrigger value="image">Frame / imagem</TabsTrigger>

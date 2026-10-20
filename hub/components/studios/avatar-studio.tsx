@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { OpenAppButton } from "@/components/open-app-button";
 import { CreateAvatarDialog, CreationsList, useAvatarCreations } from "@/components/studios/create-avatar-dialog";
 import { Field, GenerationCard, HistoryActions, HistoryPanel, McpMissing, useGenerations } from "@/components/studios/shared";
+import { AvisoSemDrive } from "@/features/drive/tela/aviso-sem-drive";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -171,6 +172,7 @@ export function AvatarStudio({ configured }: { configured: boolean }) {
     >
       <WorkspacePanel id="avatares" title="1. Avatar" defaultSize={62} fill minSize={20} bodyClassName="@container flex flex-col gap-3 p-4">
         {!configured && <McpMissing service="heygen" />}
+        <AvisoSemDrive oQue="gerar vídeos de avatar" />
         <div className="flex flex-wrap items-center gap-2">
           <Tabs value={ownership} onValueChange={(v) => setOwnership(v as "private" | "public")}>
             <TabsList>

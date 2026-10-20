@@ -14,6 +14,7 @@ import { bancoDeTeste } from "@/db/teste";
 import { ORGANIZACAO_PADRAO, type Chave } from "@/features/acesso/contrato";
 import { criarConta } from "@/features/acesso/testes/ajuda";
 import { sessao } from "@/features/conector/testes/sessao-falsa";
+import { driveConectado } from "@/features/drive/servicos/conta";
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
 import { saveUploadedMedia } from "@/lib/server/media";
@@ -69,6 +70,12 @@ vi.mock("@/lib/server/store", async () => {
       return sai;
     },
   };
+});
+// Drive "conectado" (regra do dono: sem ele o hub não recebe vídeo). O envio de verdade ao Google não acontece: sem
+// conta no banco de teste, o token falha e o vídeo fica no disco marcado para depois.
+vi.mock("@/features/drive/servicos/conta", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/features/drive/servicos/conta")>();
+  return { ...real, driveConectado: vi.fn(async () => true) };
 });
 // A página /ver devolve o redirect como erro, para o teste ver o destino.
 vi.mock("next/navigation", () => ({
@@ -171,8 +178,10 @@ describe("rotas de gerações e mídia: chave da tela", () => {
   });
 
   it("listar: qualquer tela de produção serve", async () => {
-    await novaGeracao({ saved: true });
+    await novaGeracao({ saved: true, drive: { id: "drv-1", pasta: "broll" } });
     await novaGeracao();
+    // Regra do dono: vídeo salvo que não está no Google Drive não aparece na Biblioteca.
+    await novaGeracao({ saved: true });
     for (const chave of ["biblioteca", "estudios", "editor", "fluxo", "chat", "criativo-automatico"] as Chave[]) {
       await entrarCom([chave]);
       const res = await pedirLista("?saved=1");
@@ -311,6 +320,24 @@ describe("rotas de gerações e mídia: chave da tela", () => {
       expect(generation).toMatchObject({ tool: "upload", kind: "video", status: "done", prompt: "Meu vídeo.MP4" });
       expect(generation.file).toMatch(/^[\w-]+\.mp4$/);
       expect(Buffer.compare(await readFile(path.join(MEDIA_DIR, generation.file!)), Buffer.from(video))).toBe(0);
+    }
+  });
+
+  it("envio de vídeo sem Google Drive conectado: recusado antes de gravar; áudio e imagem continuam", async () => {
+    await entrarCom(["editor"]);
+    vi.mocked(driveConectado).mockResolvedValue(false);
+    try {
+      const video = await formulario(new File([new Uint8Array(5000)], "v.mp4", { type: "video/mp4" }));
+      const res = await pedirEnvio(video.bytes, { "content-type": video.tipo });
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toContain("O Google Drive desta organização não está conectado.");
+      expect(geracoes).toHaveLength(0);
+      expect(await arquivosNaPasta()).toEqual([]);
+
+      const audio = await formulario(new File([new Uint8Array(5000)], "voz.mp3", { type: "audio/mpeg" }));
+      expect((await pedirEnvio(audio.bytes, { "content-type": audio.tipo })).status).toBe(200);
+    } finally {
+      vi.mocked(driveConectado).mockResolvedValue(true);
     }
   });
 

@@ -447,6 +447,17 @@ export async function tokenDeAcesso(): Promise<string> {
   return m.renovacao;
 }
 
+// A organização atual tem um Drive conectado e utilizável (regra do dono: sem ele o hub não gera nem recebe vídeo).
+// Google fora do ar ou lento NÃO conta como desconectado: a conta existe, e o envio do vídeo tenta de novo depois.
+export async function driveConectado(): Promise<boolean> {
+  try {
+    await tokenDeAcesso();
+    return true;
+  } catch (err) {
+    return !(err instanceof DriveNaoConectado);
+  }
+}
+
 // Acréscimo ao contrato: o Drive respondeu 401 a um token que ainda não tinha vencido pelo relógio (a pessoa tirou o
 // acesso na conta Google, por exemplo). Joga o token fora, na memória e no banco; o próximo tokenDeAcesso() renova
 // (continua uma renovação por vez) ou, se a autorização permanente também foi cortada, desconecta e lança

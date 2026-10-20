@@ -10,6 +10,7 @@ import { GET as baixar, PUT as enviar } from "@/app/api/conector/arquivos/[token
 import { banco } from "@/db/cliente";
 import { conectorLinks } from "@/db/schema";
 import { ORGANIZACAO_PADRAO } from "@/features/acesso/contrato";
+import { driveConectado } from "@/features/drive/servicos/conta";
 import type { Generation } from "@/lib/generations";
 import { pastaDeMidiaDa, usarRaizDosDados } from "@/lib/server/pastas";
 import * as store from "@/lib/server/store";
@@ -22,6 +23,12 @@ vi.mock("@/features/acesso/servicos/sessao", async (importOriginal) => {
   return { ...real, exigirUsuario: exigir, exigirPagina: exigir };
 });
 vi.mock("@/features/memoria/servicos/memoria", () => ({}));
+// Drive "conectado" (regra do dono: sem ele o hub não recebe vídeo). O envio ao Google não acontece: sem conta no
+// banco de teste, o token falha e o vídeo fica no disco marcado para depois.
+vi.mock("@/features/drive/servicos/conta", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/features/drive/servicos/conta")>();
+  return { ...real, driveConectado: vi.fn(async () => true) };
+});
 // As gerações ficam na memória do teste (o store de verdade grava em hub/.data/db.json).
 vi.mock("@/lib/server/store", () => {
   const geracoes: Generation[] = [];
@@ -57,8 +64,28 @@ const get = (url: string) => baixar(new Request(url), { params: Promise.resolve(
 describe("conector: links de envio e download", () => {
   beforeEach(async () => {
     vi.resetAllMocks();
+    vi.mocked(driveConectado).mockResolvedValue(true);
     await prepararTeste();
     geracoes.length = 0;
+  });
+
+  it("sem Google Drive conectado, vídeo não entra (nem o link sai); imagem continua", async () => {
+    const { acesso } = await conectado();
+    vi.mocked(driveConectado).mockResolvedValue(false);
+    const video = await chamar(acesso, "link_de_envio", { nome_arquivo: "kit.mp4" });
+    expect(video.isError).toBe(true);
+    expect(video.texto).toContain("O Google Drive desta organização não está conectado.");
+    expect((await chamar(acesso, "link_de_envio", { nome_arquivo: "foto.png" })).isError).toBe(false);
+
+    // Link criado com o Drive conectado, e o Drive caiu antes do envio: recusa sem gravar e o link continua valendo.
+    vi.mocked(driveConectado).mockResolvedValue(true);
+    const url = urlDoComando((await chamar(acesso, "link_de_envio", { nome_arquivo: "kit.mp4" })).texto);
+    vi.mocked(driveConectado).mockResolvedValue(false);
+    const res = await put(url, new Uint8Array(1000));
+    expect(res.status).toBe(400);
+    expect(geracoes).toHaveLength(0);
+    vi.mocked(driveConectado).mockResolvedValue(true);
+    expect((await put(url, new Uint8Array(1000))).status).toBe(201);
   });
   afterAll(() => rm(MEDIA_DIR, { recursive: true, force: true }));
 
@@ -144,22 +171,27 @@ describe("conector: links de envio e download", () => {
 
   it("download: devolve o arquivo como anexo e pode repetir dentro do prazo", async () => {
     const { acesso } = await conectado();
-    const envio = urlDoComando((await chamar(acesso, "link_de_envio", { nome_arquivo: "Criativo Final.mp4" })).texto);
+    // Regra do dono: vídeo que ainda não chegou ao Google Drive não aparece na Biblioteca.
+    const doVideo = urlDoComando((await chamar(acesso, "link_de_envio", { nome_arquivo: "Corte bruto.mp4" })).texto);
+    await put(doVideo, new Uint8Array([9, 9, 9]));
+    expect(JSON.parse((await chamar(acesso, "biblioteca_listar", { busca: "corte" })).texto).itens).toEqual([]);
+
+    const envio = urlDoComando((await chamar(acesso, "link_de_envio", { nome_arquivo: "Criativo Final.mp3" })).texto);
     const conteudo = new Uint8Array([1, 2, 3, 4, 5]);
     const { generation_id } = await (await put(envio, conteudo)).json();
 
     const lista = JSON.parse((await chamar(acesso, "biblioteca_listar", { busca: "criativo" })).texto);
-    expect(lista.itens[0]).toMatchObject({ id: generation_id, nome: "Criativo Final", tipo: "video", ferramenta: "upload", tamanho_bytes: 5 });
+    expect(lista.itens[0]).toMatchObject({ id: generation_id, nome: "Criativo Final", tipo: "audio", ferramenta: "upload", tamanho_bytes: 5 });
 
     const pedido = await chamar(acesso, "link_de_download", { generation_id });
     expect(pedido.isError).toBe(false);
-    expect(pedido.texto).toContain('curl -fL -o "Criativo Final.mp4"');
+    expect(pedido.texto).toContain('curl -fL -o "Criativo Final.mp3"');
     const url = urlDoComando(pedido.texto);
     for (let i = 0; i < 2; i++) {
       const res = await get(url);
       expect(res.status).toBe(200);
-      expect(res.headers.get("content-disposition")).toContain('filename="Criativo Final.mp4"');
-      expect(res.headers.get("content-type")).toBe("video/mp4");
+      expect(res.headers.get("content-disposition")).toContain('filename="Criativo Final.mp3"');
+      expect(res.headers.get("content-type")).toBe("audio/mpeg");
       expect(new Uint8Array(await res.arrayBuffer())).toEqual(conteudo);
     }
     // Link de download não serve para envio, e vice-versa.

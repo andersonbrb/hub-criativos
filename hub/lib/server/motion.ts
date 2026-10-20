@@ -155,33 +155,38 @@ export async function applyGraphics(opts: { video: string; timelineFile: string;
   await mkdir(opts.workdir, { recursive: true });
   const seq = path.join(opts.workdir, "graficos");
   const props = path.join(opts.workdir, "graficos.json");
-  await writeFile(props, JSON.stringify({ duracao: tl.duration, elementos }));
-  opts.log(`gráficos animados: ${elementos.map((e) => `${e.tipo} em ${e.inicio}s`).join(", ")} (renderizando com Remotion)`);
-
-  const root = process.cwd();
-  const cli = path.join(root, "node_modules", "@remotion", "cli", "remotion-cli.js");
-  await exec(process.execPath, [cli, "render", "remotion/index.ts", "Graficos", seq, `--props=${props}`, "--sequence", "--image-format=png", "--log=error"], root, 15 * 60_000);
-
-  const frames = (await readdir(seq)).filter((f) => f.endsWith(".png")).sort();
-  if (!frames.length) throw new Error("o Remotion não gerou quadros");
-  const digits = frames[0].match(/(\d+)\.png$/)?.[1].length ?? 3;
   const tmp = `${opts.video}.gfx.mp4`;
-  await exec(
-    FFMPEG,
-    [
-      "-y", "-v", "error",
-      "-i", opts.video,
-      "-framerate", "30", "-i", path.join(seq, `element-%0${digits}d.png`),
-      "-filter_complex", "[0:v][1:v]overlay=0:0:eof_action=pass[v]",
-      "-map", "[v]", "-map", "0:a?",
-      "-c:v", "libx264", "-r", "30", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "21",
-      "-c:a", "copy", "-movflags", "+faststart",
-      tmp,
-    ],
-    root,
-    10 * 60_000,
-  );
-  await rename(tmp, opts.video);
-  await rm(opts.workdir, { recursive: true, force: true });
-  opts.log("gráficos animados aplicados");
+  // Os quadros e o vídeo intermediário saem sempre, com sucesso ou com erro (regra do dono: sobra de vídeo não fica).
+  try {
+    await writeFile(props, JSON.stringify({ duracao: tl.duration, elementos }));
+    opts.log(`gráficos animados: ${elementos.map((e) => `${e.tipo} em ${e.inicio}s`).join(", ")} (renderizando com Remotion)`);
+
+    const root = process.cwd();
+    const cli = path.join(root, "node_modules", "@remotion", "cli", "remotion-cli.js");
+    await exec(process.execPath, [cli, "render", "remotion/index.ts", "Graficos", seq, `--props=${props}`, "--sequence", "--image-format=png", "--log=error"], root, 15 * 60_000);
+
+    const frames = (await readdir(seq)).filter((f) => f.endsWith(".png")).sort();
+    if (!frames.length) throw new Error("o Remotion não gerou quadros");
+    const digits = frames[0].match(/(\d+)\.png$/)?.[1].length ?? 3;
+    await exec(
+      FFMPEG,
+      [
+        "-y", "-v", "error",
+        "-i", opts.video,
+        "-framerate", "30", "-i", path.join(seq, `element-%0${digits}d.png`),
+        "-filter_complex", "[0:v][1:v]overlay=0:0:eof_action=pass[v]",
+        "-map", "[v]", "-map", "0:a?",
+        "-c:v", "libx264", "-r", "30", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "21",
+        "-c:a", "copy", "-movflags", "+faststart",
+        tmp,
+      ],
+      root,
+      10 * 60_000,
+    );
+    await rename(tmp, opts.video);
+    opts.log("gráficos animados aplicados");
+  } finally {
+    await rm(tmp, { force: true }).catch(() => undefined);
+    await rm(opts.workdir, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
