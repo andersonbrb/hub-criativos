@@ -34,15 +34,20 @@ function Externo({ href, children }: { href: string; children: React.ReactNode }
   );
 }
 
+function EmailDeContato() {
+  return (
+    <a href={`mailto:${EMAIL_DE_CONTATO}`} className="text-primary underline-offset-4 hover:underline">
+      {EMAIL_DE_CONTATO}
+    </a>
+  );
+}
+
 function Contato() {
   if (!EMAIL_DE_CONTATO) return <p>Responsável pelo Hub de Criativos: {RESPONSAVEL}.</p>;
   return (
     <p>
-      Responsável pelo Hub de Criativos: {RESPONSAVEL}. E-mail:{" "}
-      <a href={`mailto:${EMAIL_DE_CONTATO}`} className="text-primary underline-offset-4 hover:underline">
-        {EMAIL_DE_CONTATO}
-      </a>
-      .
+      Responsável pelo Hub de Criativos: {RESPONSAVEL}. Dúvidas, reclamações e pedidos sobre os seus dados (ver,
+      corrigir ou apagar): <EmailDeContato />.
     </p>
   );
 }
@@ -252,8 +257,14 @@ export function Politica() {
           </li>
           <li>Para apagar o que o hub guarda sobre a sua conta Google ou o seu canal, desconecte (veja o item 6).</li>
           <li>
-            Para pedir a exclusão de todos os seus dados no hub, ou para ver ou corrigir esses dados, fale com o
-            responsável pelo hub (veja o item 11).
+            Para pedir a exclusão de todos os seus dados no hub, ou para ver ou corrigir esses dados,{" "}
+            {EMAIL_DE_CONTATO ? (
+              <>
+                escreva para <EmailDeContato />.
+              </>
+            ) : (
+              "fale com o responsável pelo hub (veja o item 11)."
+            )}
           </li>
         </Lista>
       </Secao>

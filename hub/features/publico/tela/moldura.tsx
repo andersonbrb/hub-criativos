@@ -2,9 +2,10 @@ import Link from "next/link";
 
 import { HubLogo } from "@/components/hub-logo";
 import { Button } from "@/components/ui/button";
-import { CAMINHO_DA_POLITICA, RESPONSAVEL } from "@/features/publico/contrato";
+import { CAMINHO_DA_POLITICA, EMAIL_DE_CONTATO, RESPONSAVEL } from "@/features/publico/contrato";
 
-// Rodapé das páginas fora do menu (apresentação, entrar, convite e política): o responsável e o link da política.
+// Rodapé das páginas fora do menu (apresentação, entrar, convite e política): o responsável, o link da política e o
+// e-mail de contato.
 export function RodapePublico() {
   return (
     <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -14,6 +15,11 @@ export function RodapePublico() {
       <Link href={CAMINHO_DA_POLITICA} className="transition-colors hover:text-foreground">
         Política de Privacidade
       </Link>
+      {EMAIL_DE_CONTATO && (
+        <a href={`mailto:${EMAIL_DE_CONTATO}`} className="transition-colors hover:text-foreground">
+          {EMAIL_DE_CONTATO}
+        </a>
+      )}
     </footer>
   );
 }

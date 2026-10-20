@@ -5,9 +5,9 @@
 // Quem responde pelo hub e pelos dados que ele guarda.
 export const RESPONSAVEL = "Grupo Chegou";
 
-// E-mail de contato da Política de Privacidade (dúvidas, revogação e pedidos de exclusão). Vazio até o dono escolher
-// qual e-mail publicar: sem ele, a política mostra só o nome do responsável.
-export const EMAIL_DE_CONTATO = "";
+// E-mail de contato das páginas públicas (dúvidas, revogação e pedidos de exclusão), escolhido pelo dono em
+// 2026-10-20. Aparece na política e no rodapé das páginas fora do menu.
+export const EMAIL_DE_CONTATO = "acessocompartilhado49@gmail.com";
 
 // Mude a data a cada mudança no texto da política (features/publico/tela/politica.tsx).
 export const POLITICA_ATUALIZADA_EM = "20 de outubro de 2026";
