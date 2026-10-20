@@ -2,18 +2,24 @@
 
 import { useEffect } from "react";
 
-import { useLayoutMode } from "@/hooks/use-mobile";
+import { useIsMobile } from "@/hooks/use-mobile";
 
-// Marca no <html> se está na versão celular ou computador e, com a versão celular forçada numa tela larga, liga a
-// coluna do tamanho de um celular (app/globals.css). Não desenha nada.
+// Escolha antiga do botão "Versão celular/computador", que saiu do menu: apagada para não prender ninguém numa versão.
+const ESCOLHA_ANTIGA = "hub:layout-mode";
+
+// Marca no <html> se está na versão celular ou computador (segue a largura da tela). Não desenha nada.
 export function ShellEffects() {
-  const { isMobile, isNarrow } = useLayoutMode();
+  const isMobile = useIsMobile();
 
   useEffect(() => {
-    const html = document.documentElement;
-    html.dataset.layout = isMobile ? "mobile" : "desktop";
-    html.toggleAttribute("data-mobile-frame", isMobile && !isNarrow);
-  }, [isMobile, isNarrow]);
+    try {
+      localStorage.removeItem(ESCOLHA_ANTIGA);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.layout = isMobile ? "mobile" : "desktop";
+  }, [isMobile]);
 
   return null;
 }

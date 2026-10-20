@@ -7,3 +7,4 @@ export * from "../features/memoria/tabelas";
 export * from "../features/conector/tabelas";
 export * from "../features/drive/tabelas";
 export * from "../features/integracoes/tabelas";
+export * from "../features/youtube/tabelas";

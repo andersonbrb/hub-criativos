@@ -332,7 +332,8 @@
   backdrop-filter: blur(14px);
   color: #fff;
 }
-@media (max-width: 900px) {
+/* Abaixo de 1024 px (celular e tablet em pé, o mesmo ponto do menu em gaveta): só o formulário, sem a arte. */
+@media (width < 64rem) {
   .hub-auth {
     display: block;
   }

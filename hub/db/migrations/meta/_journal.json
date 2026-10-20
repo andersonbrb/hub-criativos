@@ -36,6 +36,13 @@
       "when": 1792159881535,
       "tag": "0004_pasta_do_drive",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792502900156,
+      "tag": "0005_youtube",
+      "breakpoints": true
     }
   ]
 }

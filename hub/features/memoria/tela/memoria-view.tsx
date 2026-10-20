@@ -208,8 +208,8 @@ export function MemoriaView({
 
         <TabsContent value="projetos" className="mt-4">
           {projetos.length ? (
-            <div className="border">
-              <Table>
+            <div className="lg:border">
+              <Table empilhar>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Projeto</TableHead>
@@ -228,14 +228,16 @@ export function MemoriaView({
                         </Link>
                         <span className="block font-mono text-[0.6875rem] text-muted-foreground">{p.slug}</span>
                       </TableCell>
-                      <TableCell className="whitespace-normal">
+                      <TableCell data-rotulo="Frente" className="whitespace-normal">
                         {FRENTE_ROTULO[p.frente]}
                         {p.frenteOriginal && p.frenteOriginal !== FRENTE_ROTULO[p.frente] && (
                           <span className="block text-xs text-muted-foreground">{p.frenteOriginal}</span>
                         )}
                       </TableCell>
-                      <TableCell className="whitespace-normal">{p.mercado ?? "—"}</TableCell>
-                      <TableCell className="max-w-72 whitespace-normal">
+                      <TableCell data-rotulo="Mercado" className="whitespace-normal">
+                        {p.mercado ?? "—"}
+                      </TableCell>
+                      <TableCell data-rotulo="Status" className="max-w-72 whitespace-normal">
                         {p.status ?? "—"}
                         {p.precisaRevisao && (
                           <Badge variant="secondary" className="ml-1.5 bg-warn/15 text-warn">
@@ -243,7 +245,9 @@ export function MemoriaView({
                           </Badge>
                         )}
                       </TableCell>
-                      <TableCell className="font-mono text-xs tabular-nums">{dataCurta(p.data)}</TableCell>
+                      <TableCell data-rotulo="Data" className="font-mono text-xs tabular-nums">
+                        {dataCurta(p.data)}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

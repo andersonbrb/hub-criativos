@@ -3,10 +3,17 @@
 import * as React from "react"
 import { cn } from "cn"
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+// Coluna de ações presa à direita no computador: numa tabela mais larga que a tela, os botões continuam à vista.
+// Use no TableHead e no TableCell das ações, com "group/linha" no TableRow (o fundo acompanha o realce da linha).
+export const COLUNA_DE_ACOES =
+  "right-0 text-right lg:sticky lg:bg-background lg:group-hover/linha:bg-[color-mix(in_oklab,var(--muted)_50%,var(--background))]"
+
+// empilhar: abaixo de 1024 px cada linha vira um cartão (regras em app/globals.css); dê data-rotulo às células.
+function Table({ className, empilhar = false, ...props }: React.ComponentProps<"table"> & { empilhar?: boolean }) {
   return (
     <div
       data-slot="table-container"
+      data-empilhar={empilhar || undefined}
       className="relative w-full overflow-x-auto"
     >
       <table

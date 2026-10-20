@@ -20,18 +20,20 @@ const buttonVariants = cva(
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline",
       },
+      // pointer-coarse: na tela de toque (celular, tablet) cada tamanho ganha uns pixels para o dedo acertar; com
+      // mouse fica igual.
       size: {
         default:
-          "h-9 gap-2 px-3.5 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
-        xs: "h-7 gap-1 rounded-lg px-2.5 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3.5",
-        sm: "h-8 gap-1.5 rounded-lg px-3 text-[0.8125rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 [&_svg:not([class*='size-'])]:size-4",
-        lg: "h-10 gap-2 px-4 has-data-[icon=inline-end]:pr-3.5 has-data-[icon=inline-start]:pl-3.5",
-        icon: "size-9",
+          "h-9 gap-2 px-3.5 pointer-coarse:h-10 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
+        xs: "h-7 gap-1 rounded-lg px-2.5 text-xs pointer-coarse:h-8 in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3.5",
+        sm: "h-8 gap-1.5 rounded-lg px-3 text-[0.8125rem] pointer-coarse:h-9 in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 [&_svg:not([class*='size-'])]:size-4",
+        lg: "h-10 gap-2 px-4 pointer-coarse:h-11 has-data-[icon=inline-end]:pr-3.5 has-data-[icon=inline-start]:pl-3.5",
+        icon: "size-9 pointer-coarse:size-10",
         "icon-xs":
-          "size-7 rounded-lg in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3.5",
+          "size-7 rounded-lg pointer-coarse:size-8 in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3.5",
         "icon-sm":
-          "size-8 rounded-lg in-data-[slot=button-group]:rounded-lg",
-        "icon-lg": "size-10",
+          "size-8 rounded-lg pointer-coarse:size-9 in-data-[slot=button-group]:rounded-lg",
+        "icon-lg": "size-10 pointer-coarse:size-11",
       },
     },
     defaultVariants: {

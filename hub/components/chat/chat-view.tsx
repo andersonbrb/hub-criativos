@@ -430,7 +430,7 @@ export function ChatView({
                 variant="ghost"
                 size="icon-xs"
                 aria-label={`Renomear conversa ${c.title}`}
-                className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
                 onClick={() => setRenaming({ id: c.id, title: c.title })}
               >
                 <Pencil />
@@ -439,7 +439,7 @@ export function ChatView({
                 variant="ghost"
                 size="icon-xs"
                 aria-label={`Apagar conversa ${c.title}`}
-                className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
                 onClick={() => removeChat(c.id)}
               >
                 <Trash2 />
@@ -595,10 +595,11 @@ export function ChatView({
                       : "Peça qualquer coisa: analisar uma página, criar ganchos, gerar narração, avatar, frames, vídeos, legendar, editar…"
                   }
                   rows={1}
-                  className="max-h-56 min-h-10 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 dark:bg-transparent"
+                  className="max-h-56 min-h-10 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 baixa:max-h-20 dark:bg-transparent"
                 />
-                {/* Quebra em telas estreitas (celular); o enviar fica sempre à direita. */}
-                <div className="flex flex-wrap items-center gap-2">
+                {/* Quebra em telas estreitas (celular); o enviar fica sempre à direita. A dica de anexos (o span) só aparece
+                    quando a linha tem largura para ela e o Enviar juntos. */}
+                <div className="@container flex flex-wrap items-center gap-2 [&>span]:hidden @min-[46rem]:[&>span]:inline">
                   <input
                     ref={fileRef}
                     type="file"
@@ -615,7 +616,7 @@ export function ChatView({
                   </Button>
                   <BlackModeButton on={black} onToggle={toggleBlack} />
                   <LanguagePicker value={lang} onChange={(v) => setLang(v)} />
-                  <span className="hidden text-[0.6875rem] text-muted-foreground sm:inline [html[data-mobile-frame]_&]:hidden">imagem, vídeo, áudio, PDF ou texto · arraste ou cole</span>
+                  <span className="hidden text-[0.6875rem] text-muted-foreground sm:inline">imagem, vídeo, áudio, PDF ou texto · arraste ou cole</span>
                   {running ? (
                     <Button type="button" size="icon" variant="outline" aria-label="Parar" className="ml-auto" onClick={stop}>
                       <Square className="fill-current" />
@@ -717,14 +718,15 @@ function Item({ item, onDelete }: { item: ViewItem; onDelete: (id: string) => vo
           </div>
         ))}
         {item.text && !hideText && (
-          <div className="rounded-xl rounded-tr-sm bg-primary px-3.5 py-2.5 text-sm whitespace-pre-wrap text-primary-foreground">{item.text}</div>
+          <div className="rounded-xl rounded-tr-sm bg-primary px-3.5 py-2.5 text-sm whitespace-pre-wrap text-primary-foreground [overflow-wrap:anywhere]">{item.text}</div>
         )}
       </div>
     );
   }
   if (item.kind === "assistant") {
     return (
-      <div className="text-sm">
+      // [overflow-wrap:anywhere]: link ou palavra comprida quebra a linha em vez de passar da tela no celular.
+      <div className="min-w-0 text-sm [overflow-wrap:anywhere]">
         <Markdown text={item.text} />
       </div>
     );

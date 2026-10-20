@@ -12,6 +12,8 @@ export const CHAVES = [
   { chave: "criativo-automatico", rotulo: "Criativo automático", grupo: "Produção" },
   { chave: "editor", rotulo: "Editor de vídeo", grupo: "Produção" },
   { chave: "biblioteca", rotulo: "Biblioteca", grupo: "Produção" },
+  // Publica no canal da organização: fica fora do "marcar tudo" (o dono libera para quem pode falar pela empresa).
+  { chave: "youtube", rotulo: "Enviar vídeos ao YouTube (publica no canal da organização)", grupo: "Produção", restrita: true },
   { chave: "estudios", rotulo: "Estúdios (gera no FLORA, ElevenLabs e HeyGen, gasta créditos)", grupo: "Estúdios" },
   { chave: "memoria", rotulo: "Memória (ler)", grupo: "Memória" },
   { chave: "memoria_editar", rotulo: "Memória (editar)", grupo: "Memória" },

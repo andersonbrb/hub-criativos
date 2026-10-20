@@ -12,7 +12,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { podeUsar, type Usuario } from "@/features/acesso/contrato";
 
 // Barra do topo, como a do ElevenLabs: abrir/recolher o menu e o nome da página à esquerda, a busca no meio e, à
-// direita, o atalho para o chat ("Perguntar"), a Biblioteca e a conta.
+// direita, o atalho para o chat ("Perguntar"), a Biblioteca e a conta. Abaixo de 1024 px a busca vira só a lupa, para o
+// nome da página caber; no celular deitado a barra fica mais baixa.
 export function Topbar({ usuario }: { usuario: Usuario }) {
   const { isMobile, toggleSidebar } = useSidebar();
   const pathname = usePathname();
@@ -21,7 +22,7 @@ export function Topbar({ usuario }: { usuario: Usuario }) {
   const biblioteca = podeUsar(usuario, "biblioteca");
 
   return (
-    <header className="sticky top-0 z-20 grid h-13 shrink-0 grid-cols-[1fr_auto] items-center gap-3 border-b bg-background/95 px-3 backdrop-blur md:grid-cols-[1fr_minmax(0,24rem)_1fr] md:px-4">
+    <header className="sticky top-0 z-20 grid h-13 shrink-0 grid-cols-[1fr_auto] items-center gap-3 border-b bg-background/95 px-3 backdrop-blur baixa:h-11 md:px-4 lg:grid-cols-[1fr_minmax(0,18rem)_1fr] xl:grid-cols-[1fr_minmax(0,24rem)_1fr]">
       {/* Fio de luz azul sob a barra (toque futurista discreto). */}
       <span aria-hidden className="pointer-events-none absolute inset-x-0 -bottom-px h-px bg-[linear-gradient(90deg,transparent,var(--brand-500)_35%,var(--cyan-400)_55%,transparent_85%)] opacity-50" />
       <div className="flex min-w-0 items-center gap-2">
@@ -52,7 +53,7 @@ export function Topbar({ usuario }: { usuario: Usuario }) {
       <button
         type="button"
         onClick={abrirBusca}
-        className="hidden h-8 w-full items-center gap-2 rounded-lg border bg-background px-2.5 text-[0.8125rem] text-muted-foreground transition-[background-color,border-color,box-shadow] hover:border-primary/40 hover:bg-muted hover:shadow-[0_0_16px_-6px_var(--brand-500)] md:flex"
+        className="hidden h-8 w-full items-center gap-2 rounded-lg border bg-background px-2.5 text-[0.8125rem] text-muted-foreground transition-[background-color,border-color,box-shadow] hover:border-primary/40 hover:bg-muted hover:shadow-[0_0_16px_-6px_var(--brand-500)] lg:flex"
       >
         <Search className="size-4 shrink-0" />
         <span className="flex-1 truncate text-left">Pesquise tudo…</span>
@@ -61,7 +62,7 @@ export function Topbar({ usuario }: { usuario: Usuario }) {
       </button>
 
       <div className="flex items-center justify-end gap-1.5">
-        <Button variant="ghost" size="icon-sm" onClick={abrirBusca} aria-label="Pesquisar" className="text-muted-foreground md:hidden">
+        <Button variant="ghost" size="icon-sm" onClick={abrirBusca} aria-label="Pesquisar" className="text-muted-foreground lg:hidden">
           <Search />
         </Button>
         {chat && (

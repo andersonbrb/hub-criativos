@@ -30,11 +30,18 @@ import {
 
 import { Button } from "@/components/ui/button";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { useTelaCompacta } from "@/hooks/use-tela";
 import { cn } from "@/lib/utils";
 
 // Área de trabalho com abas redimensionáveis: arrastar a divisória, ocultar (vira uma faixa), maximizar
@@ -113,7 +120,8 @@ export function Workspace({
   className?: string;
   children: React.ReactNode;
 }) {
-  const isMobile = useIsMobile();
+  // Abaixo de 1024 px (celular e tablet em pé) as abas viram botões e só uma aparece por vez.
+  const isMobile = useTelaCompacta();
   const parentRegistry = useContext(RegistryContext);
   const [ownRegistry] = useState<Registry>(() => new Map());
   const registry = parentRegistry ?? ownRegistry;
@@ -229,7 +237,9 @@ export function Workspace({
     [orientation, register, maximize, maximized],
   );
 
-  // Versão celular: uma aba por vez, escolhida numa fileira de botões (áreas verticais continuam divididas).
+  // Celular e tablet em pé: uma aba por vez, escolhida numa fileira de botões (áreas verticais continuam divididas).
+  // No celular deitado (tela baixa) a barra e os botões das abas dividem uma linha só, para sobrar altura ao conteúdo;
+  // a barra rola para o lado se não couber.
   if (isMobile && orientation === "horizontal") {
     const tabList = items.map((child) => child.props as MobileTabProps);
     const current = tabList.some((t) => t.id === activeTab) ? activeTab! : defaultTab(tabList);
@@ -237,40 +247,42 @@ export function Workspace({
       <RegistryContext.Provider value={registry}>
         <WorkspaceContext.Provider value={{ ...ctx, tabs: { active: current, reveal: setActiveTab } }}>
           <div className={cn("flex min-h-0 min-w-0 flex-col overflow-hidden", className)}>
-            {toolbar && (
-              <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b bg-background px-3 py-2">
-                {toolbar}
-              </div>
-            )}
-            {tabList.length > 1 && (
-              <div role="tablist" aria-label="Abas da tela" className="flex shrink-0 gap-1 overflow-x-auto border-b bg-background px-2.5 py-2">
-                {tabList.map((t) => {
-                  const selected = t.id === current;
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={selected}
-                      onClick={() => setActiveTab(t.id)}
-                      className={cn(
-                        "flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-[0.8125rem] font-medium whitespace-nowrap transition-colors",
-                        selected
-                          ? "bg-muted text-foreground"
-                          : "text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      {t.title}
-                      {t.badge ? (
-                        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-rec px-1 font-mono text-[0.625rem] leading-none font-bold text-white tabular-nums">
-                          {t.badge > 99 ? "99+" : t.badge}
-                        </span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <div className="flex shrink-0 flex-col bg-background baixa:flex-row baixa:items-center baixa:border-b">
+              {toolbar && (
+                <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b bg-background px-3 py-2 [scrollbar-width:none] baixa:min-h-0 baixa:min-w-0 baixa:flex-1 baixa:flex-nowrap baixa:overflow-x-auto baixa:border-b-0 baixa:py-1.5">
+                  {toolbar}
+                </div>
+              )}
+              {tabList.length > 1 && (
+                <div role="tablist" aria-label="Abas da tela" className="flex shrink-0 gap-1 overflow-x-auto border-b bg-background px-2.5 py-2 [scrollbar-width:none] baixa:max-w-[60%] baixa:border-b-0 baixa:py-1.5">
+                  {tabList.map((t) => {
+                    const selected = t.id === current;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={selected}
+                        onClick={() => setActiveTab(t.id)}
+                        className={cn(
+                          "flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-[0.8125rem] font-medium whitespace-nowrap transition-colors pointer-coarse:h-9",
+                          selected
+                            ? "bg-muted text-foreground"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {t.title}
+                        {t.badge ? (
+                          <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-rec px-1 font-mono text-[0.625rem] leading-none font-bold text-white tabular-nums">
+                            {t.badge > 99 ? "99+" : t.badge}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
             <div className="relative min-h-0 flex-1">{items}</div>
           </div>
         </WorkspaceContext.Provider>
@@ -283,13 +295,40 @@ export function Workspace({
       <WorkspaceContext.Provider value={ctx}>
         <div className={cn("flex min-h-0 min-w-0 flex-col overflow-hidden", className)}>
           {(toolbar || presets.length > 0) && (
-            <div className="flex min-h-12 shrink-0 items-center gap-3 border-b bg-background px-4 py-2">
+            <div className="flex min-h-12 shrink-0 items-center gap-3 border-b bg-background px-4 py-2 baixa:min-h-10 baixa:py-1">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 {toolbar}
               </div>
+              {/* Abaixo de 1280 px os layouts prontos ficam num menu, para o título e as ações da tela caberem. */}
+              {presets.length > 0 && (
+                <DropdownMenu>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon-sm" aria-label="Layouts prontos" className="shrink-0 text-muted-foreground xl:hidden">
+                          <LayoutTemplate />
+                        </Button>
+                      </DropdownMenuTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>Layouts prontos</TooltipContent>
+                  </Tooltip>
+                  <DropdownMenuContent align="end" className="w-52">
+                    {presets.map((p) => (
+                      <DropdownMenuItem key={p.id} onSelect={() => applyPreset(p.layout)}>
+                        {p.label}
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={reset}>
+                      <RotateCcw />
+                      Restaurar tamanhos
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
               {presets.length > 0 && (
                 <div
-                  className="flex shrink-0 items-center gap-0.5 rounded-lg bg-muted p-0.5"
+                  className="hidden shrink-0 items-center gap-0.5 rounded-lg bg-muted p-0.5 xl:flex"
                   role="group"
                   aria-label="Layouts prontos"
                 >
@@ -411,7 +450,7 @@ export function WorkspacePanel({
   const startsCollapsed = defaultCollapsed && collapsible;
   // Já nasce no estado certo para não piscar o conteúdo antes de fechar.
   const [collapsed, setCollapsed] = useState(startsCollapsed);
-  const isMobile = useIsMobile();
+  const isMobile = useTelaCompacta();
 
   useEffect(() => {
     register(id, { ref: panelRef.current, defaultSize, collapsible, defaultCollapsed: startsCollapsed });
@@ -552,7 +591,8 @@ export function WorkspacePanel({
         </button>
       ) : (
         <>
-          {!bare && header}
+          {/* Celular e tablet em pé (ex.: prévia e timeline do editor): sem ações, a faixa do título só ocupa altura. */}
+          {!bare && (actions || !isMobile) && header}
           <div
             className={cn(
               "min-h-0 flex-1",

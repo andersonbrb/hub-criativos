@@ -25,21 +25,24 @@ const PRESETS: WorkspacePreset[] = [
 const HISTORY_LIMIT = 60;
 
 // Encaixa a prévia na área disponível mantendo a proporção do vídeo.
+// ref por função: a área da prévia é recriada quando o layout troca (painéis no computador, abas no celular e no
+// tablet em pé) e a medida tem de seguir a área nova. Desconta o espaçamento interno; aba escondida (0) não muda nada.
 function useFit(ratio: number) {
-  const ref = useRef<HTMLDivElement>(null);
+  const [el, setEl] = useState<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   useEffect(() => {
-    const el = ref.current;
     if (!el) return;
     const ro = new ResizeObserver(() => {
-      const w = el.clientWidth;
-      const h = el.clientHeight;
+      const css = getComputedStyle(el);
+      const w = el.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight);
+      const h = el.clientHeight - parseFloat(css.paddingTop) - parseFloat(css.paddingBottom);
+      if (w <= 0 || h <= 0) return;
       setSize(w / h > ratio ? { w: h * ratio, h } : { w, h: w / ratio });
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [ratio]);
-  return { ref, size };
+  }, [el, ratio]);
+  return { ref: setEl, size };
 }
 
 export function Editor({ initialProjectId, initialGenerationId }: { initialProjectId: string | null; initialGenerationId: string | null }) {
@@ -633,7 +636,7 @@ function Library({
             <button type="button" className="min-w-0 flex-1 truncate px-2 py-1.5 text-left" onClick={() => onOpenProject(p.id)}>
               {p.title}
             </button>
-            <Button variant="ghost" size="icon-xs" aria-label={`Apagar projeto ${p.title}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => onDeleteProject(p.id)}>
+            <Button variant="ghost" size="icon-xs" aria-label={`Apagar projeto ${p.title}`} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100" onClick={() => onDeleteProject(p.id)}>
               <Trash2 />
             </Button>
           </div>

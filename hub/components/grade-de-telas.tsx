@@ -7,12 +7,12 @@ export type CartaoDeTela = { href: string; nome: string; descricao?: string; mar
 
 export function PaginaDeGrupo({ titulo, descricao, cartoes }: { titulo: string; descricao: string; cartoes: CartaoDeTela[] }) {
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9">
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9 2xl:max-w-[96rem]">
       <header>
         <h1 className="font-heading text-2xl leading-tight text-balance md:text-[1.75rem]">{titulo}</h1>
         <p className="mt-1.5 max-w-[68ch] text-sm leading-relaxed text-muted-foreground">{descricao}</p>
       </header>
-      <section className="hub-stagger grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <section className="hub-stagger grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {cartoes.map((c) => (
           <Link
             key={c.href}

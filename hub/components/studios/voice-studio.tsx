@@ -112,8 +112,8 @@ export function VoiceStudio({ configured }: { configured: boolean }) {
         )}
         <label htmlFor="tts-text" className="sr-only">Texto da narração</label>
         {model.audioTags && (
-          <div className="flex flex-wrap items-center gap-1 border-b px-4 py-2">
-            <span className="mr-1 text-[0.6875rem] text-muted-foreground" title="Coloque a tag antes da frase. Use poucas: uma a cada uma ou duas frases.">
+          <div className="flex flex-wrap items-center gap-1 border-b px-4 py-2 [scrollbar-width:none] max-lg:flex-nowrap max-lg:overflow-x-auto">
+            <span className="mr-1 shrink-0 text-[0.6875rem] text-muted-foreground" title="Coloque a tag antes da frase. Use poucas: uma a cada uma ou duas frases.">
               Emoção:
             </span>
             {AUDIO_TAGS.map((t) => (
@@ -122,7 +122,7 @@ export function VoiceStudio({ configured }: { configured: boolean }) {
                 type="button"
                 title={`Insere ${t.tag} no cursor`}
                 onClick={() => insertTag(t.tag)}
-                className="border px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground transition-colors hover:border-rec hover:text-foreground"
+                className="shrink-0 border px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground transition-colors hover:border-rec hover:text-foreground pointer-coarse:px-2.5 pointer-coarse:py-1.5"
               >
                 {t.label}
               </button>

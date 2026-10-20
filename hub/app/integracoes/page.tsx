@@ -14,6 +14,9 @@ import { CardGoogleDrive } from "@/features/drive/tela/card-google-drive";
 import { problemaParaGravar, resumoDasChaves } from "@/features/integracoes/servicos/chaves";
 import { CampoDeChave, SeletorDeModelo } from "@/features/integracoes/tela/campo-de-chave";
 import { CaixaDeStatus, CartaoDeIntegracao, LinkDoRodape } from "@/features/integracoes/tela/cartao";
+import { podeUsar } from "@/features/acesso/contrato";
+import { oQueFaltaParaConectar as oQueFaltaNoYoutube, statusYoutube } from "@/features/youtube/servicos/conta";
+import { CardYoutube } from "@/features/youtube/tela/card-youtube";
 
 // Primeiro valor de um parâmetro da URL (?drive=...&motivo=..., a volta do login do Google).
 const primeiro = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? null;
@@ -75,7 +78,7 @@ async function CartaoMcp({
 }
 
 export default async function IntegrationsPage({ searchParams }: PageProps<"/integracoes">) {
-  await exigirPagina("integracoes");
+  const usuario = await exigirPagina("integracoes");
   await connection();
 
   // Chaves coladas aqui (no lugar das variáveis do servidor). Ler antes do Drive: o Drive usa o cliente do Google.
@@ -86,19 +89,22 @@ export default async function IntegrationsPage({ searchParams }: PageProps<"/int
   const drive = await statusDrive();
   const q = await searchParams;
   const retornoDoDrive = { drive: primeiro(q.drive), motivo: primeiro(q.motivo) };
+  // YouTube: canal da organização para os vídeos prontos (mesmo cliente do Google do Drive).
+  const youtube = await statusYoutube();
+  const retornoDoYoutube = { youtube: primeiro(q.youtube), motivo: primeiro(q.motivo) };
 
   // Sem o Claude Code instalado (o hub da nuvem), o chat responde pela API da Anthropic com a chave colada aqui.
   const pelaApi = usesApiBrain();
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9">
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9 2xl:max-w-[96rem]">
       <PageHeader
         eyebrow="Configurações"
         title="Integrações"
         description="Conecte aqui as ferramentas que o hub usa: com o login da conta ou colando a chave da API. As chaves ficam guardadas cifradas."
       />
       {semCofre && <p className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm text-warn">Este servidor ainda não consegue guardar chaves: {semCofre}</p>}
-      <section className="hub-stagger grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <section className="hub-stagger grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         <CardGoogleDrive
           status={drive}
           falta={await oQueFaltaParaConectar()}
@@ -106,6 +112,7 @@ export default async function IntegrationsPage({ searchParams }: PageProps<"/int
           cliente={{ id: chaves["google-client-id"], segredo: chaves["google-client-secret"] }}
           chaveDeApi={chaves["google-api-key"]}
         />
+        <CardYoutube status={youtube} falta={await oQueFaltaNoYoutube()} retorno={retornoDoYoutube} podeVerEnvios={podeUsar(usuario, "youtube")} />
         <CartaoMcp service="elevenlabs" app="elevenlabs" descricao="Voz, narração e transcrição com a sua conta." estudio={{ href: "/estudios/voz", label: "Voz" }} />
         <CartaoMcp service="heygen" app="heygen" descricao="Avatar falando, lipsync e tradução de vídeo." estudio={{ href: "/estudios/avatar", label: "Avatar" }} />
         <CartaoMcp service="flora" app="flora" descricao="Imagem e vídeo com os modelos da sua conta." estudio={{ href: "/estudios/geracao", label: "Geração" }} />

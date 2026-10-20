@@ -25,8 +25,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { COLUNA_DE_ACOES, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { apiFetch } from "@/lib/generations";
+import { cn } from "@/lib/utils";
 
 type PapelEditavel = Papel;
 type Mudancas = { papel?: PapelEditavel; chaves?: Chave[]; ativo?: boolean };
@@ -154,7 +155,7 @@ export function TelaDeMembros({ eu }: { eu: Usuario }) {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9">
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9 2xl:max-w-[96rem]">
       <PageHeader
         eyebrow={eu.organizacao?.nome ?? "Organização"}
         title="Equipe"
@@ -200,16 +201,18 @@ export function TelaDeMembros({ eu }: { eu: Usuario }) {
             <h2 className="font-heading text-lg font-bold">
               Equipe <span className="font-mono text-sm font-normal text-muted-foreground tabular-nums">{membros.length}</span>
             </h2>
-            <Table>
+            {/* No celular e no tablet em pé cada pessoa vira um cartão. No computador, até 1536 px, o e-mail vai para
+                baixo do nome e as ações ficam presas à direita, sempre à vista. */}
+            <Table empilhar>
               <TableHeader>
                 <TableRow>
                   <TableHead>Nome</TableHead>
-                  <TableHead>E-mail</TableHead>
+                  <TableHead className="hidden 2xl:table-cell">E-mail</TableHead>
                   <TableHead>Papel</TableHead>
                   <TableHead>Telas</TableHead>
                   <TableHead>Situação</TableHead>
                   <TableHead>Último acesso</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
+                  <TableHead className={COLUNA_DE_ACOES}>Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -218,14 +221,17 @@ export function TelaDeMembros({ eu }: { eu: Usuario }) {
                   // Só um dono muda papéis (inclusive o de outro dono); ninguém muda o próprio.
                   const trocaPapel = souDono && !proprio;
                   return (
-                    <TableRow key={m.id} className={m.ativo ? undefined : "text-muted-foreground"}>
+                    <TableRow key={m.id} className={cn("group/linha", !m.ativo && "text-muted-foreground")}>
                       <TableCell className="font-medium">
                         {m.nome}
                         {proprio && <span className="ml-1.5 text-xs text-muted-foreground">(você)</span>}
                         {!m.temSenha && <span className="ml-1.5 text-xs text-warn">sem senha</span>}
+                        <span className="hidden text-xs font-normal text-muted-foreground lg:block 2xl:hidden">{m.email}</span>
                       </TableCell>
-                      <TableCell>{m.email}</TableCell>
-                      <TableCell>
+                      <TableCell data-rotulo="E-mail" className="hidden 2xl:table-cell">
+                        {m.email}
+                      </TableCell>
+                      <TableCell data-rotulo="Papel">
                         {trocaPapel ? (
                           <Select value={m.papel} onValueChange={(v) => mudarPapel(m, v as PapelEditavel)} disabled={ocupado === m.id}>
                             <SelectTrigger size="sm" aria-label={`Papel de ${m.nome}`}>
@@ -241,16 +247,18 @@ export function TelaDeMembros({ eu }: { eu: Usuario }) {
                           <Badge variant={m.papel === "membro" ? "outline" : "secondary"}>{ROTULO_DO_PAPEL[m.papel]}</Badge>
                         )}
                       </TableCell>
-                      <TableCell className="font-mono text-xs tabular-nums">
+                      <TableCell data-rotulo="Telas" className="font-mono text-xs tabular-nums">
                         {m.papel === "membro" ? `${m.chaves.length} de ${TODAS_AS_CHAVES.length}` : "Todas"}
                       </TableCell>
-                      <TableCell>
+                      <TableCell data-rotulo="Situação">
                         <Badge variant="secondary" className={m.ativo ? "bg-ok/15 text-ok" : "bg-muted text-muted-foreground"}>
                           {m.ativo ? "Ativo" : "Desativado"}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-xs">{quando(m.ultimoAcessoEm)}</TableCell>
-                      <TableCell>
+                      <TableCell data-rotulo="Último acesso" className="text-xs">
+                        {quando(m.ultimoAcessoEm)}
+                      </TableCell>
+                      <TableCell className={COLUNA_DE_ACOES}>
                         <div className="flex justify-end gap-1.5">
                           {podeMexer(m) && m.papel === "membro" && (
                             <Button size="xs" variant="outline" onClick={() => setEditando(m)} disabled={ocupado === m.id}>
@@ -286,7 +294,7 @@ export function TelaDeMembros({ eu }: { eu: Usuario }) {
             {convites.length === 0 ? (
               <p className="border border-dashed py-8 text-center text-sm text-muted-foreground">Nenhum convite esperando resposta.</p>
             ) : (
-              <Table>
+              <Table empilhar>
                 <TableHeader>
                   <TableRow>
                     <TableHead>E-mail</TableHead>
@@ -294,22 +302,24 @@ export function TelaDeMembros({ eu }: { eu: Usuario }) {
                     <TableHead>Telas</TableHead>
                     <TableHead>Convidado por</TableHead>
                     <TableHead>Vence</TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
+                    <TableHead className={COLUNA_DE_ACOES}>Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {convites.map((c) => (
-                    <TableRow key={c.id}>
+                    <TableRow key={c.id} className="group/linha">
                       <TableCell>
                         {c.email}
                         {c.nome && <span className="ml-1.5 text-xs text-muted-foreground">{c.nome}</span>}
                       </TableCell>
-                      <TableCell>
+                      <TableCell data-rotulo="Papel">
                         <Badge variant={c.papel === "membro" ? "outline" : "secondary"}>{ROTULO_DO_PAPEL[c.papel]}</Badge>
                       </TableCell>
-                      <TableCell className="font-mono text-xs tabular-nums">{c.papel === "membro" ? `${c.chaves.length} de ${TODAS_AS_CHAVES.length}` : "Todas"}</TableCell>
-                      <TableCell>{c.criadoPor ?? "—"}</TableCell>
-                      <TableCell className="text-xs">
+                      <TableCell data-rotulo="Telas" className="font-mono text-xs tabular-nums">
+                        {c.papel === "membro" ? `${c.chaves.length} de ${TODAS_AS_CHAVES.length}` : "Todas"}
+                      </TableCell>
+                      <TableCell data-rotulo="Convidado por">{c.criadoPor ?? "—"}</TableCell>
+                      <TableCell data-rotulo="Vence" className="text-xs">
                         {c.vencido ? (
                           <Badge variant="secondary" className="bg-warn/15 text-warn">
                             Vencido
@@ -318,7 +328,7 @@ export function TelaDeMembros({ eu }: { eu: Usuario }) {
                           quando(c.expiraEm)
                         )}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className={COLUNA_DE_ACOES}>
                         <div className="flex justify-end">
                           {gestor && (
                             <Button size="xs" variant="outline" onClick={() => revogar(c)} disabled={ocupado === c.id}>

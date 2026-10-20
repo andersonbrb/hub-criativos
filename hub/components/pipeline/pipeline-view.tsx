@@ -10,6 +10,7 @@ import {
   PointerSensor,
   pointerWithin,
   rectIntersection,
+  TouchSensor,
   useSensor,
   useSensors,
   type Announcements,
@@ -49,6 +50,8 @@ const PRESETS: WorkspacePreset[] = [
 // da página (com os dois, o quadro ficava pequeno demais).
 const ZOOM_KEY = "hub:pipeline:zoom:v3";
 const ZOOM_DEFAULT = 0.8;
+// No celular (abaixo de 768 px) o quadro abre em 100%: uma coluna por vez, com o texto do tamanho normal.
+const zoomPadrao = () => (typeof window !== "undefined" && window.matchMedia("(max-width: 767.98px)").matches ? 1 : ZOOM_DEFAULT);
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 1.5;
 const clampZoom = (z: number) => Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z)) * 100) / 100;
@@ -56,6 +59,22 @@ const clampZoom = (z: number) => Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN
 const COLUMN_STEP = 288 + 12;
 
 const LABEL = "text-[0.6875rem] font-medium tracking-wider text-muted-foreground uppercase";
+
+// Mouse e caneta arrastam ao mover 6 px, como sempre. O dedo fica com o TouchSensor (segurar um instante): assim
+// deslizar o dedo rola o quadro em vez de pegar um card.
+class MouseOuCaneta extends PointerSensor {
+  static activators: typeof PointerSensor.activators = [
+    {
+      eventName: "onPointerDown",
+      handler: ({ nativeEvent }, { onActivation }) => {
+        const event = nativeEvent as PointerEvent;
+        if (!event.isPrimary || event.button !== 0 || event.pointerType === "touch") return false;
+        onActivation?.({ event });
+        return true;
+      },
+    },
+  ];
+}
 
 const columnOf = (board: Board, cardId: string) => board.columns.find((c) => c.cardIds.includes(cardId));
 
@@ -204,7 +223,7 @@ export function PipelineView({ initialBoard, initialGenerations }: { initialBoar
     try {
       const saved = Number(localStorage.getItem(ZOOM_KEY));
       // eslint-disable-next-line react-hooks/set-state-in-effect -- preferência salva só no navegador
-      if (saved) setZoomState(clampZoom(saved));
+      setZoomState(saved ? clampZoom(saved) : zoomPadrao());
     } catch {}
   }, []);
 
@@ -377,7 +396,8 @@ export function PipelineView({ initialBoard, initialGenerations }: { initialBoar
   // --- arrastar e soltar ---
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(MouseOuCaneta, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
       // Enter fica livre para selecionar o card; Espaço pega e solta.
@@ -547,8 +567,8 @@ export function PipelineView({ initialBoard, initialGenerations }: { initialBoar
               </Button>
               <button
                 type="button"
-                onClick={() => setZoom(ZOOM_DEFAULT)}
-                title={`Voltar para ${Math.round(ZOOM_DEFAULT * 100)}%`}
+                onClick={() => setZoom(zoomPadrao())}
+                title="Voltar ao tamanho padrão"
                 className="min-w-11 rounded px-1 text-center font-mono text-[0.6875rem] font-semibold tabular-nums hover:bg-muted"
               >
                 {Math.round(zoom * 100)}%

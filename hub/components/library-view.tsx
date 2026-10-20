@@ -56,7 +56,7 @@ export function LibraryView() {
   const shown = filter === "all" ? items : items.filter((g) => g.kind === filter);
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9">
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9 2xl:max-w-[96rem]">
       <PageHeader
         eyebrow="Produção"
         title="Biblioteca"
@@ -83,7 +83,7 @@ export function LibraryView() {
             : "Troque o filtro acima para ver o resto da Biblioteca."}
         </EmptyState>
       ) : (
-        <div className="hub-stagger grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <div className="hub-stagger grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
           {shown.map((g) => (
             <GenerationCard
               key={g.id}

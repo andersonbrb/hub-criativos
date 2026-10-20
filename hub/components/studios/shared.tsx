@@ -32,6 +32,7 @@ import {
 } from "@/lib/generations";
 import type { Status } from "@/lib/data";
 import { cn } from "@/lib/utils";
+import { BotaoEnviarParaOYoutube } from "@/features/youtube/tela/enviar-para-o-youtube";
 
 // HeyGen, FLORA e ElevenLabs vão pelo MCP: basta entrar na conta, sem chave de API.
 export function McpMissing({ service }: { service: McpService }) {
@@ -248,7 +249,8 @@ export function GenerationCard({
   }
 
   return (
-    <div className={cn("flex flex-col overflow-hidden rounded-lg border bg-card", className)}>
+    // @container: o card se ajusta à própria largura (grade de 2 colunas no celular, coluna fina num painel).
+    <div className={cn("@container flex flex-col overflow-hidden rounded-lg border bg-card", className)}>
       {g.kind !== "audio" && (
         <div className="relative flex aspect-[9/16] max-h-80 items-center justify-center bg-muted">
           {g.status === "done" && url ? (
@@ -299,7 +301,7 @@ export function GenerationCard({
         {g.kind === "audio" && g.status === "done" && url && <audio src={url} controls className="h-9 w-full" />}
         {g.kind === "audio" && g.status === "failed" && <p className="text-xs text-destructive">{g.error}</p>}
         {g.kind === "video" && g.status === "done" && url && (
-          <div className="grid grid-cols-2 gap-1.5">
+          <div className="grid grid-cols-1 gap-1.5 @[12rem]:grid-cols-2">
             <Button variant="outline" size="xs" asChild>
               <a href={`/ver/${g.id}`} target="_blank" rel="noreferrer">
                 <Eye />
@@ -314,9 +316,10 @@ export function GenerationCard({
             </Button>
           </div>
         )}
-        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-          <span className="truncate">{meta}</span>
-          <span className="flex shrink-0 gap-1">
+        {/* Card estreito: a descrição fica numa linha e os botões quebram para a de baixo, sem sumir nenhum. */}
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          <span className="max-w-full truncate">{meta}</span>
+          <span className="flex max-w-full flex-wrap gap-1">
             {url && g.status === "done" && (
               <Button
                 variant="ghost"
@@ -332,6 +335,7 @@ export function GenerationCard({
               </Button>
             )}
             {g.kind === "video" && g.status === "done" && url && <RemoveCaptionsButton g={g} />}
+            {g.kind === "video" && g.status === "done" && url && <BotaoEnviarParaOYoutube g={g} titulo={shownTitle} />}
             <Button variant="ghost" size="icon-xs" aria-label="Renomear" title="Renomear" onClick={() => setEditing(shownTitle)}>
               <Pencil />
             </Button>

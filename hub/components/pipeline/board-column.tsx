@@ -190,10 +190,15 @@ export function SortableColumn({
           if ((e.target as HTMLElement).closest("input, [data-no-dnd]")) return;
           listeners?.onPointerDown?.(e);
         }}
+        // No toque: segurar o cabeçalho um instante pega a coluna (pipeline-view.tsx).
+        onTouchStart={(e) => {
+          if ((e.target as HTMLElement).closest("input, [data-no-dnd]")) return;
+          listeners?.onTouchStart?.(e);
+        }}
         onKeyDown={(e) => {
           if (e.target === e.currentTarget) listeners?.onKeyDown?.(e);
         }}
-        className="flex h-12 shrink-0 cursor-grab items-center gap-1.5 border-b border-[color-mix(in_oklch,var(--col)_25%,transparent)] bg-[color-mix(in_oklch,var(--col)_14%,transparent)] px-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+        className="flex h-12 shrink-0 cursor-grab touch-manipulation items-center gap-1.5 border-b border-[color-mix(in_oklch,var(--col)_25%,transparent)] bg-[color-mix(in_oklch,var(--col)_14%,transparent)] px-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       >
         <ColumnTitle title={column.title} editing={editing} setEditing={setEditing} onRename={onRename} />
         {!editing && (

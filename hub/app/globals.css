@@ -5,6 +5,9 @@
 @import "./designs.css";
 
 @custom-variant dark (&:is(.dark *));
+/* Tela baixa (celular deitado): barras mais baixas para sobrar espaço ao conteúdo. Os outros pontos de troca são os
+   do Tailwind (sm, md, lg, xl, 2xl); o que muda em cada um está em hooks/use-tela.ts. */
+@custom-variant baixa (@media (max-height: 500px));
 
 /* Altura útil das telas com abas redimensionáveis: a tela menos a barra do topo (--hub-top, definida no fim deste
    arquivo). */
@@ -21,15 +24,6 @@
 }
 @utility shadow-hairline {
   box-shadow: var(--shadow-1);
-}
-
-/* Versão celular forçada pelo botão "Versão celular" numa tela larga: o hub vira uma coluna do tamanho de um celular. */
-html[data-mobile-frame] [data-slot="sidebar-inset"] {
-  max-width: 430px;
-  margin-inline: auto;
-  border-inline: 1px solid var(--border);
-  box-shadow: 0 0 0 100vmax color-mix(in oklab, var(--background) 60%, black);
-  overflow-x: clip;
 }
 
 /* Botão do Modo Black ativo: brilho vermelho pulsando. */
@@ -154,5 +148,74 @@ html[data-mobile-frame] [data-slot="sidebar-inset"] {
      Altura da barra do topo, que existe no computador e no celular. */
   :root {
     --hub-top: 3.25rem;
+  }
+}
+
+/* Celular deitado: a barra do topo fica mais baixa (baixa:h-11 em components/topbar.tsx). */
+@media (max-height: 500px) {
+  :root {
+    --hub-top: 2.75rem;
+  }
+}
+
+/* Tabelas com `empilhar` (Equipe, Plataforma, projetos da Memória) abaixo de 1024 px, no celular e no tablet em pé:
+   cada linha vira um cartão e o nome da coluna (data-rotulo na célula) aparece ao lado do valor. Célula sem
+   data-rotulo (o nome, as ações) ocupa a linha inteira. */
+@media (width < 64rem) {
+  [data-empilhar] {
+    overflow: visible;
+  }
+  [data-empilhar] :is(table, tbody) {
+    display: grid;
+    gap: 0.625rem;
+  }
+  [data-empilhar] thead {
+    display: none;
+  }
+  [data-empilhar] tbody tr {
+    display: grid;
+    gap: 0.5rem;
+    padding: 0.75rem 0.875rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+  }
+  [data-empilhar] tbody td {
+    display: flex;
+    min-height: 1.75rem;
+    max-width: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0;
+    white-space: normal;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+  [data-empilhar] tbody td[data-rotulo]::before {
+    content: attr(data-rotulo);
+    flex-shrink: 0;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    text-align: left;
+  }
+  [data-empilhar] tbody td:not([data-rotulo]) {
+    display: block;
+    text-align: left;
+  }
+  /* Sem nenhuma ação para aquela linha (ex.: a própria conta), a célula some. */
+  [data-empilhar] tbody td:not([data-rotulo]):has(> div:empty) {
+    display: none;
+  }
+  /* Ações: alinhadas à esquerda e quebrando linha se não couberem. */
+  [data-empilhar] tbody td:not([data-rotulo]) > div {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}
+
+/* Tablet em pé (768 a 1023 px): dois cartões por linha. */
+@media (48rem <= width < 64rem) {
+  [data-empilhar] tbody {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

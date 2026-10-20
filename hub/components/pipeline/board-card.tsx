@@ -103,7 +103,8 @@ export function SortableCard({
         listeners?.onKeyDown?.(e);
       }}
       className={cn(
-        "cursor-grab touch-manipulation rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+        // No toque, segurar o card pega ele: sem seleção de texto nem o menu do sistema no meio.
+        "cursor-grab touch-manipulation rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/60 pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]",
         isDragging && "opacity-40",
       )}
     >

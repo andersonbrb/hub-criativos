@@ -2,14 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, Bot, CornerDownLeft, LogOut, Monitor, Moon, Search, Smartphone, Sun, type LucideIcon } from "lucide-react";
+import { ArrowDown, ArrowUp, Bot, CornerDownLeft, LogOut, Moon, Search, Sun, type LucideIcon } from "lucide-react";
 
 import { useSair } from "@/components/account-menu";
 import { agentesDaPessoa, todasAsTelas } from "@/components/nav";
 import { setTheme, useTheme } from "@/components/theme";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import type { Usuario } from "@/features/acesso/contrato";
-import { useLayoutMode } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 type Item = { id: string; grupo: string; label: string; dica?: string; icon: LucideIcon; acao: () => void };
@@ -25,7 +24,6 @@ const normalizar = (s: string) =>
 export function CommandMenu({ usuario, semBanco = false }: { usuario: Usuario; semBanco?: boolean }) {
   const router = useRouter();
   const theme = useTheme();
-  const { isMobile, toggle } = useLayoutMode();
   const { form, sair } = useSair();
   const [aberto, setAberto] = useState(false);
   const [busca, setBusca] = useState("");
@@ -79,11 +77,10 @@ export function CommandMenu({ usuario, semBanco = false }: { usuario: Usuario; s
         icon: theme === "dark" ? Sun : Moon,
         acao: () => setTheme(theme === "dark" ? "light" : "dark"),
       },
-      { id: "versao", grupo: "Ações", label: isMobile ? "Versão computador" : "Versão celular", icon: isMobile ? Monitor : Smartphone, acao: toggle },
       { id: "sair", grupo: "Ações", label: "Sair da conta", icon: LogOut, acao: sair },
     ];
     return [...telas, ...agentes, ...acoes];
-  }, [usuario, semBanco, theme, isMobile, toggle, sair, router]);
+  }, [usuario, semBanco, theme, sair, router]);
 
   const filtrados = useMemo(() => {
     const termos = normalizar(busca).split(/\s+/).filter(Boolean);

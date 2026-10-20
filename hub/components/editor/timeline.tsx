@@ -234,7 +234,7 @@ export function Timeline({
                     </span>
                     <span
                       aria-hidden
-                      className="absolute inset-y-0 left-0 w-2 cursor-ew-resize bg-white/0 hover:bg-white/40"
+                      className="absolute inset-y-0 left-0 w-2 cursor-ew-resize touch-none bg-white/0 hover:bg-white/40 pointer-coarse:w-4 pointer-coarse:bg-white/15"
                       onPointerDown={(e) =>
                         startDrag(e, {
                           kind: "clip-in",
@@ -246,7 +246,7 @@ export function Timeline({
                     />
                     <span
                       aria-hidden
-                      className="absolute inset-y-0 right-0 w-2 cursor-ew-resize bg-white/0 hover:bg-white/40"
+                      className="absolute inset-y-0 right-0 w-2 cursor-ew-resize touch-none bg-white/0 hover:bg-white/40 pointer-coarse:w-4 pointer-coarse:bg-white/15"
                       onPointerDown={(e) =>
                         startDrag(e, {
                           kind: "clip-out",
@@ -306,7 +306,7 @@ export function Timeline({
                     </span>
                     <span
                       aria-hidden
-                      className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize hover:bg-black/30"
+                      className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize touch-none hover:bg-black/30 pointer-coarse:w-3.5 pointer-coarse:bg-black/15"
                       onPointerDown={(e) => {
                         onSelect({ type: "caption", id: c.captionId });
                         startDrag(e, {
@@ -320,7 +320,7 @@ export function Timeline({
                     />
                     <span
                       aria-hidden
-                      className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize hover:bg-black/30"
+                      className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize touch-none hover:bg-black/30 pointer-coarse:w-3.5 pointer-coarse:bg-black/15"
                       onPointerDown={(e) => {
                         onSelect({ type: "caption", id: c.captionId });
                         startDrag(e, {

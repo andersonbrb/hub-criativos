@@ -11,8 +11,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { COLUNA_DE_ACOES, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { apiFetch } from "@/lib/generations";
+import { cn } from "@/lib/utils";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const erroDe = (err: unknown, padrao: string) => (err instanceof Error ? err.message : padrao);
@@ -68,7 +69,7 @@ export function TelaDaPlataforma() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9">
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-8 md:py-9 2xl:max-w-[96rem]">
       <PageHeader
         eyebrow="Plataforma"
         title="Organizações"
@@ -83,7 +84,8 @@ export function TelaDaPlataforma() {
       {organizacoes === null ? (
         <Loader2 className="mx-auto my-10 size-5 animate-spin text-muted-foreground" />
       ) : (
-        <Table>
+        // No celular e no tablet em pé cada organização vira um cartão; no computador as ações ficam presas à direita.
+        <Table empilhar>
           <TableHeader>
             <TableRow>
               <TableHead>Organização</TableHead>
@@ -92,26 +94,34 @@ export function TelaDaPlataforma() {
               <TableHead>Donos</TableHead>
               <TableHead>Convites</TableHead>
               <TableHead>Criada em</TableHead>
-              <TableHead className="text-right">Ações</TableHead>
+              <TableHead className={COLUNA_DE_ACOES}>Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {organizacoes.map((o) => (
-              <TableRow key={o.id} className={o.situacao === "ativa" ? undefined : "text-muted-foreground"}>
+              <TableRow key={o.id} className={cn("group/linha", o.situacao !== "ativa" && "text-muted-foreground")}>
                 <TableCell className="font-medium">
                   {o.nome}
                   {o.padrao && <span className="ml-1.5 text-xs text-muted-foreground">(da plataforma)</span>}
                 </TableCell>
-                <TableCell>
+                <TableCell data-rotulo="Situação">
                   <Badge variant="secondary" className={o.situacao === "ativa" ? "bg-ok/15 text-ok" : "bg-warn/15 text-warn"}>
                     {ROTULO_DA_SITUACAO[o.situacao]}
                   </Badge>
                 </TableCell>
-                <TableCell className="font-mono text-xs tabular-nums">{o.membros}</TableCell>
-                <TableCell className="text-sm">{o.donos.length ? o.donos.join(", ") : <span className="text-warn">Sem dono</span>}</TableCell>
-                <TableCell className="font-mono text-xs tabular-nums">{o.convitesPendentes}</TableCell>
-                <TableCell className="text-xs">{dia(o.criadoEm)}</TableCell>
-                <TableCell>
+                <TableCell data-rotulo="Pessoas" className="font-mono text-xs tabular-nums">
+                  {o.membros}
+                </TableCell>
+                <TableCell data-rotulo="Donos" className="text-sm">
+                  {o.donos.length ? o.donos.join(", ") : <span className="text-warn">Sem dono</span>}
+                </TableCell>
+                <TableCell data-rotulo="Convites" className="font-mono text-xs tabular-nums">
+                  {o.convitesPendentes}
+                </TableCell>
+                <TableCell data-rotulo="Criada em" className="text-xs">
+                  {dia(o.criadoEm)}
+                </TableCell>
+                <TableCell className={COLUNA_DE_ACOES}>
                   <div className="flex justify-end gap-1.5">
                     <Button size="xs" variant="outline" onClick={() => setJanela({ tipo: "renomear", org: o })} disabled={ocupado === o.id}>
                       <Pencil />

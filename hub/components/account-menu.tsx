@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { LogOut, Monitor, Moon, Search, Smartphone, Sun } from "lucide-react";
+import { LogOut, Moon, Search, Sun } from "lucide-react";
 
 import { setTheme, useTheme } from "@/components/theme";
 import {
@@ -14,7 +14,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ROTULO_DO_PAPEL, type Usuario } from "@/features/acesso/contrato";
-import { useLayoutMode } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 export const iniciais = (nome: string) =>
@@ -44,11 +43,10 @@ export function useSair() {
   return { form, sair: () => ref.current?.submit() };
 }
 
-// Conta da pessoa, no canto da barra do topo (como no ElevenLabs): nome, e-mail e o menu com busca, tema,
-// versão celular/computador e sair.
+// Conta da pessoa, no canto da barra do topo (como no ElevenLabs): nome, e-mail e o menu com busca, tema e sair.
+// A versão celular ou computador não é escolha: segue a largura da tela (hooks/use-mobile.ts).
 export function AccountMenu({ usuario, side = "bottom" }: { usuario: Usuario; side?: "top" | "bottom" | "right" }) {
   const theme = useTheme();
-  const { isMobile, toggle } = useLayoutMode();
   const { form, sair } = useSair();
 
   return (
@@ -79,10 +77,6 @@ export function AccountMenu({ usuario, side = "bottom" }: { usuario: Usuario; si
           <DropdownMenuItem onSelect={() => setTheme(theme === "dark" ? "light" : "dark")}>
             {theme === "dark" ? <Sun /> : <Moon />}
             {theme === "dark" ? "Usar tema claro" : "Usar tema escuro"}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={toggle}>
-            {isMobile ? <Monitor /> : <Smartphone />}
-            {isMobile ? "Versão computador" : "Versão celular"}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={sair}>

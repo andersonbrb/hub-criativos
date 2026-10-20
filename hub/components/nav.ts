@@ -110,11 +110,16 @@ export function caminhoDaPagina(pathname: string): { nome: string; grupo?: { hre
     const id = pathname.split("/")[2];
     return { nome: agents.find((a) => a.id === id)?.name ?? "Agente", grupo: { href: "/agentes", label: "Agentes" } };
   }
+  // Documento da Memória: no celular a barra do topo é o único lugar que diz em que tela a pessoa está.
+  if (pathname.startsWith("/memoria/")) return { nome: "Documento", grupo: { href: "/memoria", label: "Memória" } };
   for (const item of [...BARRA, ITEM_CONFIGURACOES]) {
     if (item.href === pathname) return { nome: item.label };
     const tela = item.telas?.find((t) => dentro(pathname, t.href));
     if (tela) return { nome: tela.label, grupo: { href: item.href, label: item.label } };
   }
-  const extras: Record<string, string> = { "/sem-acesso": "Sem acesso", "/conectar-claude": "Conectar o Claude" };
+  const extras: Record<string, string> = {
+    "/sem-acesso": "Sem acesso",
+    "/conectar-claude": "Conectar o Claude",
+  };
   return extras[pathname] ? { nome: extras[pathname] } : null;
 }
