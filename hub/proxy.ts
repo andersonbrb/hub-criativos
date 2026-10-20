@@ -7,8 +7,8 @@ import { modoLocalSemBanco } from "@/features/acesso/modo-local";
 // banco) e manda quem não tem para /entrar. A conferência de verdade (sessão válida, conta ativa, chave da tela) fica
 // em exigirPagina() nas páginas e em route() nas APIs. As APIs nem passam por aqui (veja o matcher no fim).
 
-// Páginas que abrem sem login.
-const ABERTOS = [/^\/entrar\/?$/, /^\/aceitar-convite(\/|$)/, /^\/sem-acesso\/?$/];
+// Páginas que abrem sem login. A página inicial (/) também abre: sem sessão ela mostra a apresentação do hub.
+const ABERTOS = [/^\/entrar\/?$/, /^\/aceitar-convite(\/|$)/, /^\/sem-acesso\/?$/, /^\/privacidade\/?$/];
 
 export function proxy(request: NextRequest) {
   // PC sem banco: sem contas, tudo abre (features/acesso/modo-local.ts).
@@ -18,6 +18,7 @@ export function proxy(request: NextRequest) {
 
   const sessao = request.cookies.get(COOKIE_SESSAO)?.value;
   if (!sessao) {
+    if (pathname === "/") return NextResponse.next();
     const entrar = new URL("/entrar", request.url);
     entrar.searchParams.set("proximo", pathname + search);
     return NextResponse.redirect(entrar, 307);

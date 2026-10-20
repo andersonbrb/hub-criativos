@@ -125,6 +125,7 @@ export function caminhoDaPagina(pathname: string): { nome: string; grupo?: { hre
   const extras: Record<string, string> = {
     "/sem-acesso": "Sem acesso",
     "/conectar-claude": "Conectar o Claude",
+    "/privacidade": "Política de Privacidade",
   };
   return extras[pathname] ? { nome: extras[pathname] } : null;
 }

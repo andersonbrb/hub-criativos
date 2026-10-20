@@ -15,3 +15,6 @@ aqui o que já foi validado em produção.
   conversas, Fluxo, Memória, integrações e Google Drive, sem enxergar as outras. Tudo o que existia é da
   **Grupo Chegou**. Uma pessoa participa de várias e troca no topo do menu; a tela Equipe ganha o nome da
   organização, remover pessoa, dar o papel de dono e sair; a tela Plataforma cria e suspende organizações.
+- **[📄 Páginas públicas]** Quem abre o Hub sem estar logado vê uma apresentação do app, com o botão de entrar.
+  A Política de Privacidade (o que o Hub faz com a conta Google do Drive) abre para qualquer pessoa. O Google
+  pede as duas para liberar o login com Google.

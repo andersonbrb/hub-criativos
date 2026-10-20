@@ -5,6 +5,7 @@ import { Eye, EyeOff, TriangleAlert } from "lucide-react";
 
 import { HubLogo } from "@/components/hub-logo";
 import { ArteDoHub } from "@/features/acesso/tela/vitrine";
+import { RodapePublico } from "@/features/publico/tela/moldura";
 import { cn } from "@/lib/utils";
 
 // Moldura das telas fora do menu (entrar, aceitar convite), como no ElevenLabs: o formulário à esquerda, num fundo
@@ -29,7 +30,7 @@ export function CartaoDeAcesso({
           {descricao && <p className="mt-2 mb-7 text-sm leading-relaxed text-muted-foreground">{descricao}</p>}
           <div className="grid gap-4">{children}</div>
         </div>
-        <p className="text-xs text-muted-foreground">© {new Date().getFullYear()} Grupo Chegou</p>
+        <RodapePublico />
       </section>
       <ArteDoHub />
     </main>
