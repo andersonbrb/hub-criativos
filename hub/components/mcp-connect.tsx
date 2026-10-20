@@ -18,15 +18,26 @@ export function useLoginHref(service: McpService) {
   return `/api/integracoes/mcp/${service}/login?volta=${encodeURIComponent(pathname || "/integracoes")}`;
 }
 
-export function McpConnectButton({ service, size = "xs" }: { service: McpService; size?: "xs" | "sm" }) {
+// reconectar: o login venceu (ou é para trocar de conta); o caminho é o mesmo login da conta.
+export function McpConnectButton({ service, size = "xs", reconectar = false }: { service: McpService; size?: "xs" | "sm"; reconectar?: boolean }) {
   const href = useLoginHref(service);
   return (
     <Button size={size} asChild>
       <a href={href}>
         <Plug />
-        Conectar {MCP_LABEL[service]}
+        {reconectar ? "Reconectar" : "Conectar"} {MCP_LABEL[service]}
       </a>
     </Button>
+  );
+}
+
+// Link discreto para entrar de novo com uma conexão ativa (renovar o login ou trocar de conta).
+export function McpReconnectLink({ service }: { service: McpService }) {
+  const href = useLoginHref(service);
+  return (
+    <a href={href} className="inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline">
+      Reconectar
+    </a>
   );
 }
 

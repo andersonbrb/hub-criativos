@@ -76,7 +76,8 @@ Cada organização conecta o próprio canal (card YouTube em Integrações) e en
 ### Serviços externos: MCP remoto com OAuth, não API
 HeyGen, FLORA, ElevenLabs e Higgsfield são chamados pelos MCPs oficiais, com login OAuth da conta. O consumo sai dos créditos do plano de cada serviço, não do saldo de API.
 - O cliente genérico fica em `lib/server/mcp-client.ts`. Os adaptadores ficam em `lib/server/providers/*` e em `heygen-mcp.ts`.
-- O login é o botão "Conectar" da tela Integrações, feito direto no servidor que vai usar a sessão.
+- O login é o botão "Conectar" da tela Integrações, feito direto no servidor que vai usar a sessão. O cartão mostra a situação de verdade (`connectionStatus().situacao`: ativa, vencida ou desconectada; com o token vencido ele tenta renovar na hora) e sempre oferece conectar ou reconectar. Só a recusa do serviço vence o login; falha de rede não apaga nada.
+- A variável antiga `<SERVIÇO>_MCP_SESSION` só entra quando o arquivo da sessão ainda não existe. Se fosse relida, a lixeira não apagaria e um login vencido voltaria como "Ativa" (o defeito de 20/10/2026). Na produção elas foram apagadas em 20/10/2026.
 - O ElevenLabs lê os metadados OAuth do hub em `/oauth/<id>-client.json`. Por isso `HUB_PUBLIC_URL` precisa ser público e em HTTPS.
 - Higgsfield: as edições de IA foram removidas. Sobraram os créditos (rodapé do menu) e o status de jobs antigos.
 

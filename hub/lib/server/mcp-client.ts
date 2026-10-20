@@ -13,7 +13,10 @@ import { pastaDaOrganizacao } from "@/lib/server/pastas";
 // OAuth da conta de cada serviço (PKCE). Pelo MCP o consumo sai dos créditos do plano de cada serviço, não do saldo da API.
 // Sessão de cada serviço em hub/.data/<id>-mcp.json (fora do repositório; no Railway, no volume). O login é o botão
 // "Conectar" da tela Integrações, feito direto no servidor que vai usar a sessão. A variável <ID>_MCP_SESSION (base64
-// do JSON), de antes da tela, só é lida quando não há sessão salva: depois do primeiro uso ela pode ser apagada.
+// do JSON), de antes da tela, só é lida quando o arquivo da sessão ainda não existe: depois disso ela é ignorada (se
+// fosse relida, a lixeira não apagaria e um login vencido voltaria a parecer ativo).
+// Situação mostrada em Integrações: "ativa" (há login e o serviço aceita), "vencida" (o serviço recusou a renovação;
+// precisa conectar de novo) ou "desconectada".
 
 export type McpServiceId = "heygen" | "flora" | "elevenlabs" | "higgsfield";
 
@@ -87,13 +90,21 @@ type Saved = {
   account?: { email: string | null; name: string | null };
   // Arquivo do hub → id do arquivo no serviço, para não subir o mesmo arquivo duas vezes.
   assets?: Record<string, string>;
+  // Quando o serviço recusou o login (renovação negada ou token recusado). Some ao conectar de novo ou desconectar.
+  vencidoEm?: number;
 };
+
+export type SituacaoMcp = "ativa" | "vencida" | "desconectada";
 
 export class McpNotConnected extends InputError {
   constructor(label: string, detail = "") {
     super(`O ${label} (MCP) não está conectado neste servidor${detail ? ` (${detail})` : ""}. Conecte em Integrações → ${label}.`);
   }
 }
+
+// O serviço respondeu e negou o pedido de token (código inválido, renovação vencida ou revogada). Diferente de uma
+// falha de rede ou do serviço fora do ar, que não pode derrubar o login.
+class TokenRecusado extends Error {}
 
 type RpcResponse = { id?: number; result?: unknown; error?: { message?: string } };
 
@@ -109,11 +120,23 @@ export function createMcpClient(cfg: ServiceConfig, organizacaoId: string = ORGA
   const notConnected = (detail = "") => new McpNotConnected(cfg.label, detail);
 
   async function load(): Promise<Saved> {
-    let saved: Saved = {};
+    let texto: string;
     try {
-      saved = JSON.parse(await readFile(STORE, "utf8")) as Saved;
-    } catch {}
-    if (saved.tokens) return saved;
+      texto = await readFile(STORE, "utf8");
+    } catch (err) {
+      return (err as NodeJS.ErrnoException).code === "ENOENT" ? semente() : {};
+    }
+    try {
+      return JSON.parse(texto) as Saved;
+    } catch {
+      return {};
+    }
+  }
+
+  // Só quando o arquivo da sessão ainda não existe: a sessão da variável antiga vira o arquivo, uma vez. Depois disso
+  // quem manda é o arquivo (desconectar ou vencer não traz a variável de volta).
+  async function semente(): Promise<Saved> {
+    const saved: Saved = {};
     // Sem BOM nem espaços: o PowerShell coloca um BOM (U+FEFF) no começo ao enviar o valor por --stdin.
     const seed = ENV ? process.env[ENV]?.replace(/^﻿/, "").replace(/\s+/g, "") : undefined;
     if (!seed) return saved;
@@ -137,9 +160,24 @@ export function createMcpClient(cfg: ServiceConfig, organizacaoId: string = ORGA
 
   const b64url = (b: Buffer) => b.toString("base64url");
 
-  async function connectionStatus() {
-    const s = await load();
-    return { connected: Boolean(s.tokens), account: s.account ?? null };
+  // O serviço recusou o login: apaga os tokens e marca "vencida" (a conta continua no cartão para saber qual era).
+  async function vencer() {
+    session = null;
+    await save({ tokens: undefined, vencidoEm: Date.now() });
+  }
+
+  // Situação de verdade: com o token de acesso vencido, tenta renovar agora (é o que o próximo uso faria). Se o serviço
+  // recusar, fica "vencida"; se só não deu para falar com ele (rede, serviço fora do ar), continua "ativa".
+  async function connectionStatus(): Promise<{ connected: boolean; situacao: SituacaoMcp; account: Saved["account"] | null }> {
+    let s = await load();
+    if (s.tokens && s.tokens.expiresAt - Date.now() <= 60_000) {
+      try {
+        await accessToken();
+      } catch {}
+      s = await load();
+    }
+    const situacao: SituacaoMcp = s.tokens ? "ativa" : s.vencidoEm ? "vencida" : "desconectada";
+    return { connected: situacao === "ativa", situacao, account: s.account ?? null };
   }
 
   // 1º passo do login: registra o hub (registro dinâmico) ou usa o documento de metadados (CIMD) e devolve a URL de autorização.
@@ -187,10 +225,14 @@ export function createMcpClient(cfg: ServiceConfig, organizacaoId: string = ORGA
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
       body: new URLSearchParams(body),
+      signal: AbortSignal.timeout(20_000),
     });
     const data = (await res.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; expires_in?: number; error?: string; error_description?: string };
-    if (!res.ok || !data.access_token) throw new Error(data.error_description ?? data.error ?? `${cfg.label} respondeu ${res.status}`);
-    return data;
+    if (res.ok && data.access_token) return data;
+    const motivo = data.error_description ?? data.error ?? `${cfg.label} respondeu ${res.status}`;
+    // 4xx (fora 408 e 429) é o serviço dizendo não ao login; o resto é passageiro.
+    if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) throw new TokenRecusado(motivo);
+    throw new Error(motivo);
   }
 
   // 2º passo: o serviço volta para o callback com o código; troca por tokens. Devolve para onde voltar.
@@ -220,23 +262,24 @@ export function createMcpClient(cfg: ServiceConfig, organizacaoId: string = ORGA
       return s.pending.returnTo;
     }
     session = null;
-    await save({ tokens, account, pending: undefined, assets: {} });
+    await save({ tokens, account, pending: undefined, assets: {}, vencidoEm: undefined });
     return s.pending.returnTo;
   }
 
+  // A lixeira de Integrações: apaga a sessão deste servidor (não mexe na conta do serviço). Fica "desconectada".
   async function disconnect() {
     session = null;
-    await save({ tokens: undefined, account: undefined, assets: {} });
+    await save({ tokens: undefined, account: undefined, assets: {}, vencidoEm: undefined });
   }
 
   let refreshing: Promise<string> | null = null;
 
   async function accessToken(force = false): Promise<string> {
     const s = await load();
-    if (!s.tokens) throw notConnected();
+    if (!s.tokens) throw notConnected(s.vencidoEm ? "o login expirou" : "");
     if (!force && s.tokens.expiresAt - Date.now() > 60_000) return s.tokens.access;
     if (!s.tokens.refresh || !s.client) {
-      await save({ tokens: undefined });
+      await vencer();
       throw notConnected("o login expirou");
     }
     refreshing ??= (async () => {
@@ -245,9 +288,13 @@ export function createMcpClient(cfg: ServiceConfig, organizacaoId: string = ORGA
         const tokens = { access: data.access_token!, refresh: data.refresh_token ?? s.tokens!.refresh, expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000 };
         await save({ tokens });
         return tokens.access;
-      } catch {
-        await save({ tokens: undefined });
-        throw notConnected("o login expirou");
+      } catch (err) {
+        if (err instanceof TokenRecusado) {
+          await vencer();
+          throw notConnected("o login expirou");
+        }
+        // Rede ou serviço fora do ar: o login continua guardado e a próxima tentativa renova.
+        throw new Error(`Não deu para falar com o ${cfg.label} agora. Tente de novo em instantes.`);
       } finally {
         refreshing = null;
       }
@@ -329,6 +376,8 @@ export function createMcpClient(cfg: ServiceConfig, organizacaoId: string = ORGA
       if ((err as { unauthorized?: boolean }).unauthorized) {
         session = null;
         if (attempt === 0) return rpc(method, params, 1); // renova o token e tenta de novo
+        // Recusou até o token recém-renovado: só conectando de novo.
+        await vencer();
         throw notConnected("o serviço recusou o login");
       }
       throw err;

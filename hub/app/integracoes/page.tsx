@@ -2,7 +2,7 @@ import { Clapperboard } from "lucide-react";
 import Link from "next/link";
 import { connection } from "next/server";
 
-import { McpConnectButton, McpDisconnectButton, type McpService } from "@/components/mcp-connect";
+import { McpConnectButton, McpDisconnectButton, McpReconnectLink, type McpService } from "@/components/mcp-connect";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { APPS, type AppId } from "@/lib/apps";
@@ -43,8 +43,11 @@ async function CartaoMcp({
   descricao: string;
   estudio?: { href: string; label: string };
 }) {
-  const { connected, account } = await mcp(service).connectionStatus();
+  // ativa: caixa verde e "Reconectar" discreto (renovar ou trocar de conta); vencida: caixa amarela e o botão
+  // "Reconectar" em destaque; desconectada: só o "Conectar". A lixeira aparece sempre que há algo guardado.
+  const { situacao, account } = await mcp(service).connectionStatus();
   const nome = APPS[app].name;
+  const conta = account?.email ?? account?.name ?? `Conta do ${nome}`;
   return (
     <CartaoDeIntegracao
       logo={LOGOS[service]}
@@ -52,14 +55,18 @@ async function CartaoMcp({
       descricao={descricao}
       rodape={
         <>
-          {!connected && <McpConnectButton service={service} size="sm" />}
+          {situacao === "ativa" ? (
+            <McpReconnectLink service={service} />
+          ) : (
+            <McpConnectButton service={service} size="sm" reconectar={situacao === "vencida"} />
+          )}
           <LinkDoRodape href={APPS[app].url}>Abrir site</LinkDoRodape>
         </>
       }
     >
-      {connected && (
+      {situacao === "ativa" && (
         <CaixaDeStatus
-          titulo={account?.email ?? account?.name ?? `Conta do ${nome}`}
+          titulo={conta}
           detalhe="Login da conta"
           acoes={
             <>
@@ -71,6 +78,15 @@ async function CartaoMcp({
               <McpDisconnectButton service={service} compacto />
             </>
           }
+        />
+      )}
+      {situacao === "vencida" && (
+        <CaixaDeStatus
+          titulo={conta}
+          selo="Vencida"
+          tom="aviso"
+          detalhe="O login venceu. Conecte de novo."
+          acoes={<McpDisconnectButton service={service} compacto />}
         />
       )}
     </CartaoDeIntegracao>
