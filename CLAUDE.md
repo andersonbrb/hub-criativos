@@ -152,13 +152,13 @@ O `Dockerfile` da raiz monta uma imagem com Node 22, ffmpeg, Python (faster-whis
 - `HUB_CHAT` (opcional): `off` desliga o chat.
 - As chaves das integrações não são variáveis: ficam em Integrações (veja acima).
 
-Publicar é só commit + push na `main`: a produção implanta sozinha a partir dela.
+Publicar é só commit + push na `main`: a produção implanta a partir dela. Se a publicação do GitHub ficar esperando aprovação no Railway, aprove ou publique o commit pelo login (seção abaixo), sem subir a pasta local.
 
-### Acesso desta máquina à produção
-- O Railway logado no CLI e na MCP deste PC é outra conta e **não enxerga o hub**. O acesso à produção é um token de projeto que fica na Central de Projetos (regra do dono: todos os tokens num lugar só), em `C:/Users/Vinic/OneDrive/Documentos/Central de Projetos/tokens/railway-hub-criativos.txt` (o arquivo tem só o token). Leia de lá na hora de usar, direto para a variável do comando ou para o cabeçalho (ex.: `RAILWAY_TOKEN="$(cat "<arquivo>")" railway ...`). Nunca copie o token para a pasta do projeto (nem num `.env`), nem para commit, log, rascunho ou resposta.
-- Alcance: só o projeto "Hub de Criativos" (workspace "GC Pro Compartilhado's Projects"), ambiente `production`, com os serviços Hub Produção, Hub Teste, Postgres Produção e Postgres Teste. Não lista outros projetos nem a conta.
-- Uso: API GraphQL `https://backboard.railway.com/graphql/v2` com o cabeçalho `Project-Access-Token` (não `Authorization: Bearer`), ou `RAILWAY_TOKEN` no ambiente do CLI. Lê variáveis, publicações e os registros do servidor e da montagem. Ao ler variáveis, mostre só os nomes, nunca os valores.
-- Pelo tipo (token de projeto), ele também consegue mudar variáveis, publicar e reiniciar nesse ambiente. Só faça isso quando o dono pedir aquela mudança.
+### Acesso desta máquina à produção (desde 24/10/2026: pelo login, sem token)
+- Regra do dono: o acesso ao Railway é o login dele feito neste PC (conta viniciuschegouoperacional@gmail.com), que vale para a MCP do Railway e para a linha de comando (`railway`), já logados. Não use token de projeto e não peça token novo ao dono.
+- O login enxerga todos os projetos do workspace "Grupo Chegou". Deste projeto é só o **"Hub de Criativos"** (id `decc4e81-4032-4894-b887-d8d3bffd7e07`, ambiente `production`), com os serviços **Hub Produção**, **Hub Teste**, **Postgres Produção** e **Postgres Teste**. Os outros projetos da conta não são deste projeto: não leia, não mude e não publique nada neles.
+- Ler (serviços, publicações, registros, nomes de variáveis) pode sem pedido. Ao ler variáveis, mostre só os nomes, nunca os valores. Mudar variável, publicar, reiniciar ou mexer em disco e cópia de segurança, só quando o dono pedir aquela mudança. Nunca use a publicação da MCP que sobe a pasta local (`deploy`): a produção sai do GitHub.
+- Se o login cair, há um token de projeto antigo de reserva na Central de Projetos (`C:/Users/Vinic/OneDrive/Documentos/Central de Projetos/tokens/railway-hub-criativos.txt`). Em 23/10/2026 ele já não valia; nesse caso, peça à Central em vez de usar ou copiar token. Nunca copie token para a pasta do projeto, commit, log ou resposta.
 
 ## Outros arquivos da raiz
 - `prototipo-hub.html`: protótipo estático original. Não faz parte do app.
