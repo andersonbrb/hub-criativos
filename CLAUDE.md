@@ -152,7 +152,12 @@ O `Dockerfile` da raiz monta uma imagem com Node 22, ffmpeg, Python (faster-whis
 - `HUB_CHAT` (opcional): `off` desliga o chat.
 - As chaves das integrações não são variáveis: ficam em Integrações (veja acima).
 
-Publicar é só commit + push na `main`: a produção implanta a partir dela. Se a publicação do GitHub ficar esperando aprovação no Railway, aprove ou publique o commit pelo login (seção abaixo), sem subir a pasta local.
+### Aprovação antes de ir ao ar (regra do dono, 24/10/2026)
+Nenhuma mudança vai ao ar sem o Vinícius aprovar. O repositório é `Grupo-Chegou-2-0/hub-criativos` (mudou de organização em 24/10/2026). Commit + push na `main` só guarda a mudança no GitHub: no serviço **Hub Produção** a publicação automática fica **desligada**, e a produção só muda quando alguém aprova e publica o commit.
+- **Aprovar e publicar:** o Vinícius, no Railway: projeto "Hub de Criativos" → serviço "Hub Produção" → `Ctrl + K` → "Deploy Latest Commit". Ou ele diz "pode publicar" e o Claude publica aquele commit pelo login (seção abaixo), nunca subindo a pasta local.
+- **Por que mudou:** antes a aprovação vinha de graça: o projeto ficava num workspace do Railway em que a conta do GitHub dos envios (`vndarlan`) não era membro, e o Railway segurava cada envio em "esperando aprovação". Em 23/10/2026 o projeto passou para o workspace "Grupo Chegou", em que essa conta é membro, e o envio passou a ir ao ar sozinho. O GitHub não tem regra de aprovação (repositório privado no plano gratuito).
+- **Enquanto a publicação automática do Hub Produção estiver ligada** (confira com o login: gatilho de publicação do serviço), não dê push sem o ok do dono para ir ao ar.
+- O serviço Hub Teste não publica sozinho.
 
 ### Acesso desta máquina à produção (desde 24/10/2026: pelo login, sem token)
 - Regra do dono: o acesso ao Railway é o login dele feito neste PC (conta viniciuschegouoperacional@gmail.com), que vale para a MCP do Railway e para a linha de comando (`railway`), já logados. Não use token de projeto e não peça token novo ao dono.
