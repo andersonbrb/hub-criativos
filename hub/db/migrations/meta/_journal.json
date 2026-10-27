@@ -43,6 +43,13 @@
       "when": 1792502900156,
       "tag": "0005_youtube",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793071042944,
+      "tag": "0006_skala",
+      "breakpoints": true
     }
   ]
 }

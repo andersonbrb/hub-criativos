@@ -6,6 +6,9 @@ aqui o que já foi validado em produção.
 ## [Não publicado]
 
 ### 🚀 Novidades
+- **[💬 Chat]** Botão **Gerar ganchos** do Skala: na aba Criativos do Skala, escolha o criativo e clique. O chat
+  principal do Hub abre numa conversa nova, já com o vídeo, os números do criativo e o pedido de ganchos, e os ganchos
+  começam a sair. Sem login, o Hub pede para entrar e volta para a conversa.
 - **[🎬 Edição]** Como fazer vídeo segue só o contexto do Sávio: a legenda sai do roteiro, no estilo dele (palavra-chave
   em amarelo), a música fica bem baixa sob a fala, o vídeo sai em 720 quando a origem é fraca e até 30 MB, em 9:16,
   4:5 ou 1:1, com as setas vermelhas na palavra do CTA e o aviso no rodapé quando precisa. A transcrição passa a

@@ -116,6 +116,8 @@ export function ChatView({
   heading,
   startScreen,
   renderTop,
+  skala,
+  aviso,
 }: {
   initialId: string | null;
   initialDraft: string;
@@ -128,15 +130,21 @@ export function ChatView({
   startScreen?: (start: StartChat) => React.ReactNode;
   // Faixa acima das mensagens (ex.: etapas do Criativo automático).
   renderTop?: (items: ViewItem[], running: boolean) => React.ReactNode;
+  // Link do botão "Gerar ganchos" do Skala (app/chat/page.tsx): a primeira mensagem, com o criativo, vai sozinha.
+  skala?: { token: string; titulo: string };
+  // Aviso ao abrir a tela (ex.: link do Skala vencido).
+  aviso?: string;
 }) {
   const agent = getAgentProfile(agentId);
   const basePath = path ?? (agent ? `/agentes/${agent.id}` : "/chat");
   const suggestions = agent?.suggestions ?? SUGGESTIONS;
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [activeId, setActiveId] = useState<string | null>(initialId);
-  const [items, setItems] = useState<ViewItem[]>([]);
+  const [items, setItems] = useState<ViewItem[]>(aviso ? [{ kind: "error", text: aviso }] : []);
   const [loading, setLoading] = useState(Boolean(initialId));
   const [running, setRunning] = useState(false);
+  // Enquanto o hub baixa o criativo do Skala e a conversa ainda não nasceu.
+  const [trazendo, setTrazendo] = useState(Boolean(skala));
   const [draft, setDraft] = useState(initialDraft);
   const [files, setFiles] = useState<{ file: File; url: string; kind: AttachmentKind }[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -308,13 +316,15 @@ export function ChatView({
     setItems((prev) => [...prev, { kind: "error", text: "Parado por você." }]);
   }
 
-  async function send(text = draft, direct?: { files: File[]; lang: string }) {
+  async function send(text = draft, direct?: { files: File[]; lang: string; skala?: string }) {
     const message = text.trim();
     const outFiles = direct ? direct.files : files.map((f) => f.file);
     const outLang = direct?.lang ?? lang;
-    if ((!message && !outFiles.length) || running) return;
+    if ((!message && !outFiles.length && !direct?.skala) || running) return;
     const form = new FormData();
     form.set("text", message);
+    // O texto e os anexos da entrega do Skala vêm do servidor.
+    if (direct?.skala) form.set("skala", direct.skala);
     if (activeId) form.set("chatId", activeId);
     if (black) form.set("mode", "black");
     if (outLang !== "auto") form.set("lang", outLang);
@@ -353,6 +363,7 @@ export function ChatView({
             selectUrl(event.chat.id);
             setChats((prev) => [event.chat, ...prev.filter((c) => c.id !== event.chat.id)]);
           } else {
+            if (event.type === "user") setTrazendo(false);
             setItems((prev) => applyEvent(prev, event));
           }
         }
@@ -365,10 +376,20 @@ export function ChatView({
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
       setRunning(false);
+      setTrazendo(false);
     }
   }
 
-  const empty = !loading && items.length === 0;
+  // Link do Skala: manda a primeira mensagem uma vez, ao abrir a tela (o servidor também só aceita uma por link).
+  const skalaEnviado = useRef(false);
+  useEffect(() => {
+    if (!skala || skalaEnviado.current) return;
+    skalaEnviado.current = true;
+    void send("", { files: [], lang: "auto", skala: skala.token });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só ao abrir a tela
+  }, []);
+
+  const empty = !loading && items.length === 0 && !trazendo;
 
   // Mídia da conversa: gerações das ferramentas e anexos do usuário, mais recentes primeiro.
   const media = [...new Map(generations.map((g) => [g.id, g])).values()].reverse();
@@ -513,9 +534,9 @@ export function ChatView({
               {items.map((it, i) => (
                 <Item key={it.kind === "tool" ? it.id : i} item={it} onDelete={removeGeneration} />
               ))}
-              {running && items.at(-1)?.kind !== "assistant" && (
+              {(running || trazendo) && items.at(-1)?.kind !== "assistant" && (
                 <TextShimmer className="text-sm" duration={1.5}>
-                  Trabalhando…
+                  {trazendo && skala ? `Trazendo do Skala: ${skala.titulo}…` : "Trabalhando…"}
                 </TextShimmer>
               )}
             </div>

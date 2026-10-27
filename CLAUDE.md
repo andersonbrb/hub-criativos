@@ -73,6 +73,13 @@ Cada organização conecta o próprio canal (card YouTube em Integrações) e en
 
 `lib/server/actions.ts` concentra as ações dos estúdios. As rotas da interface e as ferramentas do chat usam esse mesmo arquivo, então mude a regra lá e não em um dos lados.
 
+### Skala (botão "Gerar ganchos", desde 27/10/2026)
+O Skala (painel de anúncios do grupo, repositório `Grupo-Chegou-2-0/skalaads`) manda criativos da aba Criativos do TikTok Ads para o chat principal, que já começa pedindo ganchos (`features/skala`; receita completa do lado do Skala em `docs/skala.md`).
+- **Porta:** o servidor do Skala chama `POST /api/skala/criativos` com `Authorization: Bearer <chave>` e recebe o link `/chat?skala=<token>` (uso único, 2 h; no banco, `skala_entregas`, só o hash). A chave fica na variável `HUB_CHAVE_DO_SKALA` do Railway, nas duas pontas: exceção à regra das chaves na tela, porque é uma senha combinada entre dois sistemas, não a chave de um serviço que alguém cola. Sem ela (ou com menos de 32 caracteres), 503.
+- **Link:** a página do chat pede login e volta, troca a sessão para a Grupo Chegou (`ORGANIZACAO_DO_SKALA`) se a pessoa participa, e a tela manda sozinha a 1ª mensagem. O POST do chat reserva a entrega, baixa a mídia e monta a mensagem (`servicos/primeira-mensagem.ts`): vídeo → Drive, como todo vídeo; "Ficha do Skala" em Markdown com copy, números e anúncios. Reabrir o link leva à mesma conversa.
+- **Download** (`servicos/midia.ts`): só https, só os domínios de `DOMINIOS_DA_MIDIA` (Skala e CDNs do TikTok, da Meta e do Cloudinary), conferidos em cada redirecionamento; vídeo até 300 MB, imagem até 25 MB; tipo pelos primeiros bytes. O que não vem (link vencido, sem Drive) vira aviso na bolha e a conversa segue com a capa.
+- Os anexos do chat ficam em `lib/server/chat/anexos.ts`, usados pela rota do chat e pelo Skala.
+
 ### Serviços externos: MCP remoto com OAuth, não API
 HeyGen, FLORA, ElevenLabs e Higgsfield são chamados pelos MCPs oficiais, com login OAuth da conta. O consumo sai dos créditos do plano de cada serviço, não do saldo de API.
 - O cliente genérico fica em `lib/server/mcp-client.ts`. Os adaptadores ficam em `lib/server/providers/*` e em `heygen-mcp.ts`.
@@ -86,7 +93,7 @@ Chaves de API (Claude, Venice), o cliente OAuth do Google (Drive) e o modelo do 
 - Leia sempre por `lerChave()` (`features/integracoes/servicos/chaves.ts`) ou `requireKey()` (`lib/server/env.ts`). Nunca por `process.env`.
 - Integração nova com chave: acrescente em `CHAVES` (`features/integracoes/contrato.ts`) e ponha o campo no card dela. Nada de variável nova.
 - As variáveis antigas (`ANTHROPIC_API_KEY`, `VENICE_API_KEY`, `HUB_API_MODEL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `<SERVIÇO>_MCP_SESSION`) só servem de ponto de partida: o valor entra no hub na primeira leitura.
-- Variáveis de verdade são só o que o servidor precisa antes de abrir uma tela: banco, `HUB_CHAVE_SEGREDOS`, `HUB_PUBLIC_URL`, `DONOS_DA_PLATAFORMA`, `PORT`.
+- Variáveis de verdade são só o que o servidor precisa antes de abrir uma tela: banco, `HUB_CHAVE_SEGREDOS`, `HUB_PUBLIC_URL`, `DONOS_DA_PLATAFORMA`, `PORT`. Exceção: `HUB_CHAVE_DO_SKALA`, a senha combinada com o Skala (seção Skala).
 
 ### Jeito padrão de trabalho: Claude Code no PC + Conector (regra do dono, 20/10/2026)
 Palavras do dono: "o intuito é criar tudo pelo PC na maioria do tempo, para usar o Claude Code e não ficar gastando assinatura, então é uso padrão via o MCP do hub de criativos." Cada pessoa usa o Claude Code do próprio PC ligado ao hub da nuvem pelo Conector do Claude (`features/conector`, `/mcp`, login OAuth na tela "Conector do Claude"). Pelo Conector o Claude Code lê a Memória (as regras do Sávio chegam pela ferramenta `instrucoes`), lista e baixa da Biblioteca, mexe no Fluxo e entrega arquivos pelo `link_de_envio` (curl). Vídeo entregue vai para o Drive da organização (pasta "Entregas do Claude"); a resposta do curl espera o Drive (até 2 min, `ajustesDoEnvio`) e diz se o vídeo já está na Biblioteca. A criação (FLORA, HeyGen, ElevenLabs, kit do Sávio) acontece no próprio Claude Code. Testado de ponta a ponta com um Claude Code real em 20/10/2026 (`features/drive/testes/videos.test.ts`, "ponta a ponta pelo Claude Code"). A cópia do hub que abre direto no PC (sem banco) não é necessária nesse jeito de trabalhar.
@@ -150,6 +157,7 @@ O `Dockerfile` da raiz monta uma imagem com Node 22, ffmpeg, Python (faster-whis
 - `HUB_CHAVE_SEGREDOS`: cifra as chaves das integrações e a autorização do Google guardadas no banco.
 - `HUB_PUBLIC_URL`: endereço público do hub.
 - `HUB_CHAT` (opcional): `off` desliga o chat.
+- `HUB_CHAVE_DO_SKALA`: a chave combinada com o servidor do Skala (botão "Gerar ganchos"). O Skala guarda o mesmo valor do lado dele. Vazia, a conexão fica desligada.
 - As chaves das integrações não são variáveis: ficam em Integrações (veja acima).
 
 ### Aprovação antes de ir ao ar (regra do dono, 24/10/2026)
