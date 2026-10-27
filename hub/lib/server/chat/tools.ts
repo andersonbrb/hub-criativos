@@ -2,7 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type Anthropic from "@anthropic-ai/sdk";
@@ -39,11 +39,14 @@ import {
 } from "@/lib/server/video";
 import { listVoices as listElevenVoices } from "@/lib/server/providers/elevenlabs";
 import { createProject, getProject, listProjects } from "@/lib/server/providers/flora";
+import { createAvatar, listCreations, type AvatarMode } from "@/lib/server/heygen-avatars";
 import { listLooks, listVoices as listHeyVoices } from "@/lib/server/providers/heygen";
 import { getGeneration, listGenerations } from "@/lib/server/store";
 // ---- Acesso (features/acesso) ----
 import { podeUsar, SemPermissao, type Chave, type Usuario } from "@/features/acesso/contrato";
 import { comOrganizacao } from "@/features/acesso/servicos/organizacao-atual";
+// ---- Drive (features/drive) ----
+import { arquivoLocal } from "@/features/drive/servicos/videos";
 // ---- Memória (features/memoria) ----
 import { FRENTE_ROTULO, FRENTES, TIPO_ROTULO, TIPOS, type DocResumo, type Frente, type TipoDoc } from "@/features/memoria/contrato";
 import { DocNaoEncontrado } from "@/features/memoria/erros";
@@ -710,6 +713,22 @@ const definitions: Anthropic.Beta.BetaTool[] = [
       },
       ["slug"],
     ),
+  },
+  // ---- Avatar novo no HeyGen (lib/server/heygen-avatars.ts, o mesmo do botão "Criar avatar" do estúdio) ----
+  {
+    name: "heygen_create_avatar",
+    description:
+      "Cria um avatar NOVO no HeyGen, como o botão \"Criar avatar\" do estúdio. Três modos: photo (foto da pessoa: photo_generation_id), prompt (avatar inventado a partir de uma descrição: idade, aparência, roupa, cenário; até 3 imagens de referência) e twin (gêmeo digital a partir de um vídeo da pessoa falando para a câmera: video_generation_id; a pessoa filmada precisa abrir o link de consentimento que volta). Fotos e vídeos vêm do hub: anexos do usuário no chat (tool=upload) ou gerações. O treino leva alguns minutos: acompanhe com action=status; pronto, o avatar aparece em heygen_list_avatars (private) e serve no heygen_create_video. Usa créditos do plano do HeyGen: confirme com o usuário antes de criar.",
+    input_schema: objectSchema({
+      action: { type: "string", enum: ["create", "status"], description: "create (padrão) cria; status lista as criações e em que pé está o treino." },
+      mode: { type: "string", enum: ["photo", "prompt", "twin"], description: "Padrão photo." },
+      name: { type: "string", description: "Nome do avatar (obrigatório para criar)." },
+      photo_generation_id: { type: "string", description: "Modo photo: imagem da pessoa (rosto visível, boa luz)." },
+      prompt: { type: "string", description: "Modo prompt: descrição da pessoa." },
+      reference_generation_ids: { type: "array", items: { type: "string" }, maxItems: 3, description: "Modo prompt: até 3 imagens de referência." },
+      aspect_ratio: { type: "string", enum: ["9:16", "1:1", "4:5", "16:9", "5:4", "auto"], description: "Modo prompt. Padrão 9:16." },
+      video_generation_id: { type: "string", description: "Modo twin: vídeo da pessoa falando para a câmera." },
+    }),
   },
 ];
 
@@ -1424,7 +1443,45 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
     const aviso = cortado ? `\n\n[Cortado: o documento tem ${d.conteudo.length.toLocaleString("pt-BR")} caracteres e só os primeiros ${TETO.toLocaleString("pt-BR")} vieram. Use memoria_buscar com palavras do trecho que falta.]` : "";
     return { content: `${cabecalho}\n\n${d.conteudo.slice(0, TETO)}${aviso}`, summary: `leu ${cut(d.slug, 40)}` };
   },
+
+  async heygen_create_avatar(input) {
+    if (str(input.action) === "status") {
+      const list = (await listCreations()).slice(0, 20);
+      return { content: json({ total: list.length, items: list }), summary: `${list.length} ${list.length === 1 ? "avatar criado" : "avatares criados"}` };
+    }
+    const mode = (["photo", "prompt", "twin"].includes(str(input.mode)) ? str(input.mode) : "photo") as AvatarMode;
+    const refs = (Array.isArray(input.reference_generation_ids) ? input.reference_generation_ids : []).map(str).filter(Boolean);
+    if (refs.length > 3) throw new InputError("No máximo 3 imagens de referência.");
+    const creation = await createAvatar({
+      mode,
+      name: str(input.name),
+      photo: mode === "photo" && input.photo_generation_id ? await arquivoDaGeracao(str(input.photo_generation_id), "image") : null,
+      video: mode === "twin" && input.video_generation_id ? await arquivoDaGeracao(str(input.video_generation_id), "video") : null,
+      prompt: str(input.prompt),
+      references: mode === "prompt" ? await Promise.all(refs.map((id) => arquivoDaGeracao(id, "image"))) : [],
+      aspectRatio: str(input.aspect_ratio) || "9:16",
+    });
+    const proximo = creation.consentUrl
+      ? `A pessoa filmada precisa abrir este link de consentimento (vale 24 h): ${creation.consentUrl}. Depois o treino começa; acompanhe com action=status.`
+      : "Treinando no HeyGen; acompanhe com action=status. Pronto, ele aparece em heygen_list_avatars (private).";
+    return { content: json({ ...creation, proximo }), summary: `avatar "${cut(creation.name, 30)}" criado` };
+  },
 };
+
+const MIME: Record<string, string> = {
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp",
+  mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm", m4v: "video/mp4",
+};
+
+// Arquivo de uma geração do hub (anexo do chat ou gerado) no formato que createAvatar recebe da tela.
+async function arquivoDaGeracao(id: string, kind: "image" | "video"): Promise<File> {
+  const g = await getGeneration(id);
+  if (!g) throw new InputError(`Geração ${id} não encontrada.`);
+  if (g.kind !== kind || g.status !== "done" || !g.file) throw new InputError(`A geração ${id} não é ${kind === "image" ? "uma imagem" : "um vídeo"} pronto.`);
+  const ext = path.extname(g.file).slice(1).toLowerCase();
+  const buffer = await readFile(await arquivoLocal(g.file));
+  return new File([buffer], path.basename(g.file), { type: MIME[ext] ?? (kind === "image" ? "image/jpeg" : "video/mp4") });
+}
 
 export const CLIENT_TOOLS = definitions;
 // Descontinuadas: só aparecem para conversas antigas que já as tinham (lista congelada, modo API).
@@ -1456,6 +1513,7 @@ const CHAVE_DA_FERRAMENTA: Record<string, RegraDeAcesso> = {
   elevenlabs_tts: { chave: "estudios" },
   heygen_create_video: { chave: "estudios" },
   heygen_translate_video: { chave: "estudios" },
+  heygen_create_avatar: { chave: "estudios", quando: (input) => str(input.action) !== "status" },
   flora_generate: { chave: "estudios" },
   higgsfield_edit: { chave: "estudios" },
   // As duas edições seguem a tela (app/api/montagem pede "estudios"); a edição final pode cair no Scribe de reserva.
