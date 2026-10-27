@@ -761,6 +761,24 @@ def cta_start(cta, ws2, jd):
     return max(0.0, jd - 3.5)
 
 
+# ---------- Camada visual do Remotion ----------
+def legenda_da_camada(groups, fx, y):
+    """Blocos de legenda para o Remotion (remotion/Camada.tsx), com as mesmas regras do ASS de caption_events."""
+    est = ESTILOS[fx["estilo"]]
+    blocos = []
+    for a, b, ws in groups:
+        words_txt = [clean_word(w) for w, _s, _e in ws]
+        key = keyword_index(ws)
+        chars = len(" ".join(words_txt))
+        bloco = {"ini": round(a, 3), "fim": round(b, 3),
+                 "palavras": [{"t": x, "s": round(ws[k][1], 3), **({"destaque": True} if k == key else {})} for k, x in enumerate(words_txt)]}
+        if chars > MAX_CHARS + 2:
+            bloco["escalaX"] = round(MAX_CHARS / chars, 3)
+        blocos.append(bloco)
+    return {"fonte": est["fonte"], "tamanho": est["px"], "peso": 700 if est["negrito"] else 400, "y": y, "cor": "#FFFFFF",
+            "destaque": AMARELO, "contorno": 6, "sombra": 2, "pop": "savio", "modo": fx["legenda"], "margem": 40, "blocos": blocos}
+
+
 # ---------- Entrega ----------
 def deliver(src, dst, largura, limite_mb):
     """Padrão de entrega do Sávio: H.264 high, yuv420p, 30 fps, AAC 48 kHz estéreo 128k (já vem pronto), +faststart,
@@ -975,7 +993,39 @@ def process(job):
     # Áudio final (voz, música, whoosh) e normalização em duas passadas.
     mix_path, loud = build_audio(jc, ws2, jd, fx, w, [t for _, t, _ in plan])
 
-    # Mestre: legenda + aviso + barra + setas do CTA + áudio final, no quadro base de 1080.
+    t_cta = cta_start(job.get("cta"), ws2, jd)
+    if job.get("camada_out"):
+        # Camada visual pelo Remotion (regra do dono, 27/10/2026): o mestre sai limpo e o hub desenha legenda, aviso,
+        # barra e setas por cima. O ASS vai junto: se o Remotion falhar, o hub queima a legenda com ele.
+        camada = {"duracao": round(jd, 3), "altura": h, "legenda": legenda_da_camada(groups, fx, LEGENDA_Y[formato][fx["estilo"]])}
+        if aviso:
+            camada["aviso"] = {"texto": aviso, "topo": aviso_topo, "px": aviso_px}
+        if fx["barra_progresso"]:
+            camada["barra"] = {"y": (aviso_topo if aviso else h) - 14, "cor": AMARELO}
+        if t_cta is not None:
+            y0, escala = SETAS[formato]
+            if aviso:
+                y0 = SETAS_COM_AVISO.get(formato, int(y0 - (h - aviso_topo) * 0.7))
+            camada["cta"] = {"inicio": round(t_cta, 3), "y": y0, "escala": escala, "centros": list(SETA_CENTROS)}
+            log(f"CTA: 2 setas vermelhas a partir de {t_cta:.1f}s")
+        with open(os.path.join(w, "s.ass"), encoding="utf-8") as f:
+            camada["ass"] = f.read()
+        with open(job["camada_out"], "w", encoding="utf-8") as f:
+            json.dump(camada, f, ensure_ascii=False)
+        run(["ffmpeg", "-y", "-v", "error", "-i", "vs.mov", *raw_in("mix.f32"), "-filter_complex", f"[0:v]format=yuv420p[vfin];[1:a]{loud}[aout]",
+             "-map", "[vfin]", "-map", "[aout]", "-c:v", "libx264", "-r", "30", "-fps_mode", "cfr", "-pix_fmt", "yuv420p",
+             "-preset", "ultrafast", "-crf", "16", "-c:a", "aac", "-b:a", f"{AUDIO_KBPS}k", "-ar", "48000", "-ac", "2",
+             "-t", f"{jd:.3f}", "mestre.mp4"], "finalização", cwd=w)
+        limite = float(job.get("limite_mb") or LIMITE_MB)
+        if job.get("entrega_out"):
+            with open(job["entrega_out"], "w", encoding="utf-8") as f:
+                json.dump({"largura": largura, "limite_mb": limite, "formato": formato}, f)
+        shutil.move(os.path.join(w, "mestre.mp4"), job["out"])
+        log(f"mestre pronto para a camada visual do Remotion ({os.path.getsize(job['out']) / 1e6:.1f} MB)")
+        log("DONE")
+        return
+
+    # Sem a camada do Remotion (antigo): legenda + aviso + barra + setas do CTA + áudio final, no quadro base de 1080.
     fonts = os.path.join(w, "fonts")
     shutil.copytree(job["fontsdir"], fonts, dirs_exist_ok=True)
     ins = ["-i", "vs.mov", *raw_in("mix.f32")]
@@ -994,7 +1044,6 @@ def process(job):
         vfs.append(f"{chain}[{n_in}:v]overlay=x='-W+W*t/{jd:.3f}':y={bar_y}:eof_action=pass[vbar]")
         n_in += 1
         chain = "[vbar]"
-    t_cta = cta_start(job.get("cta"), ws2, jd)
     if t_cta is not None:
         y0, escala = SETAS[formato]
         if aviso:

@@ -147,7 +147,9 @@ describe("ferramentas no padrão do Sávio", () => {
       limite_mb: 30,
       cta: { palavra: "pide" },
       aviso: "Solo con fines demostrativos. Algunas escenas están aceleradas.",
-      graficos_depois: false, // gráficos só no 9:16: o título fica de fora no 4:5
+      // A camada visual (legenda, aviso, setas) sai sempre pelo Remotion depois do Python; o título fica de fora no 4:5.
+      graficos_depois: true,
+      camada_out: path.join(DADOS, "montagem", `${g.id}.camada.json`),
       avatar_words: [[["hola", 0.1, 0.4]]],
     });
     // Volume livre da música e cor de destaque antigos não passam para o script.

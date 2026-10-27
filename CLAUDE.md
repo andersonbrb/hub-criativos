@@ -126,7 +126,7 @@ Regras que evitam quebrar conversas existentes:
 
 ### Vídeo local, sem custo
 - Scripts em `hub/scripts/`: edição final (`montage.ts` → `montagem.py`), edição na batida (`batida.py`), remover legenda com LaMa (`remover_legenda.py`) e Whisper (`transcrever.py`). Cada script recebe um `job.json`, roda em segundo plano e grava o log em `.data/montagem/<id>.log`.
-- Gráficos animados: o Remotion (`hub/remotion/`) desenha PNGs transparentes e o ffmpeg do sistema os sobrepõe ao vídeo (`lib/server/motion.ts`).
+- O Remotion é o motor visual de todas as edições (regra do dono, 27/10/2026): a composição `Camada` (`hub/remotion/Camada.tsx`) desenha legenda, palavras da batida, aviso, barra, setas do CTA e gráficos animados em PNGs transparentes, e o ffmpeg do sistema só corta, mistura o áudio e sobrepõe a camada (`aplicarCamada` em `lib/server/motion.ts`). Os scripts e o editor geram os dados da camada (`camada_out`) e um ASS de reserva: se o Remotion falhar, a legenda sai pelo ffmpeg; se nem isso, a edição falha (nunca sai sem legenda). As fontes vêm de `scripts/fonts` (`--public-dir`). Visual novo de edição entra na `Camada`, não em ASS nem em filtro do ffmpeg.
 - Editor (`lib/editor.ts` + `lib/server/editor.ts`): clipes e legendas guardam o tempo da mídia de origem. A prévia usa o Remotion Player e a exportação usa o ffmpeg.
 - Transcrição: Whisper local por padrão, um por vez na fila única (`naFilaDeCpu`), ElevenLabs Scribe de reserva (`lib/server/transcription.ts`).
 - "Assistir" vídeo para os agentes (`lib/server/video.ts`): quadros, cortes e fala, em cache em `.data/analysis/`.

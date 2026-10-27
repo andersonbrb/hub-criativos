@@ -1,7 +1,7 @@
 import "server-only";
 
 import { execFile, spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -9,7 +9,7 @@ import { segurarTemp, soltarTemp } from "@/features/drive/servicos/arquivos";
 import { apagarDaMidia, arquivoLocal, concluirComArquivo, exigirDriveParaVideo } from "@/features/drive/servicos/videos";
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
-import { applyGraphics, sanitizeGraphics, type GraphicRequest } from "@/lib/server/motion";
+import { aplicarCamada, posicionarGraficos, sanitizeGraphics, type CamadaDoVideo, type GraphicRequest } from "@/lib/server/motion";
 import { comOrganizacao, organizacaoDoContexto } from "@/features/acesso/servicos/organizacao-atual";
 import { DATA_DIR, pastaDeMidia } from "@/lib/server/pastas";
 import { createGeneration, getGeneration, updateGeneration } from "@/lib/server/store";
@@ -296,6 +296,7 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
   const jobFile = path.join(LOG_DIR, `${gen.id}.json`);
   const timelineFile = path.join(LOG_DIR, `${gen.id}.timeline.json`);
   const entregaFile = path.join(LOG_DIR, `${gen.id}.entrega.json`);
+  const camadaFile = path.join(LOG_DIR, `${gen.id}.camada.json`);
   // Em segundo plano: primeiro as palavras com tempo da fala ORIGINAL de cada vídeo do avatar (transcrição em cache ou
   // Whisper local, um por vez, como no contexto do Sávio), depois o Python. Sem elas, o script transcreve sozinho.
   running.add(gen.id);
@@ -342,8 +343,10 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
         limite_mb: limiteMb,
         cta,
         aviso,
-        // Com gráficos, o Python entrega um mestre de 1080 e a entrega do Sávio (720/1080, até 30 MB) vem depois deles.
-        graficos_depois: graphics.length > 0,
+        // O Python entrega um mestre limpo de 1080 e os dados da camada visual; o Remotion desenha a camada (legenda,
+        // aviso, barra, setas e gráficos) e a entrega do Sávio (720/1080, até 30 MB) vem depois.
+        graficos_depois: true,
+        camada_out: camadaFile,
         out: path.join(midia, outName),
         workdir,
         fontsdir: FONTS,
@@ -354,14 +357,18 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
 
     launch(gen.id, SCRIPT, jobFile, outName, "Montagem", copias, async (line) => {
       if (pedidos.length && !graphics.length) line(`gráficos animados ficaram de fora: eles são desenhados só para o 9:16 (este é ${formato})`);
-      // Gráficos animados (opcionais) depois da edição; se falharem, o vídeo sai sem eles e o log explica.
-      if (!graphics.length) return;
+      // Camada visual pelo Remotion: legenda, aviso, barra, setas e os gráficos animados (opcionais) num desenho só.
       try {
-        await applyGraphics({ video: path.join(midia, outName), timelineFile, graphics, workdir: path.join(DATA_DIR, "tmp", `${gen.id}-gfx`), log: line });
-      } catch (err) {
-        line(`gráficos animados falharam (${err instanceof Error ? err.message.slice(0, 200) : "erro"}); vídeo entregue sem eles`);
+        const camada = JSON.parse(await readFile(camadaFile, "utf8")) as CamadaDoVideo;
+        const elementos = await posicionarGraficos(graphics, timelineFile, line).catch((err) => {
+          line(`gráficos animados ficaram de fora (${err instanceof Error ? err.message.slice(0, 120) : "erro"})`);
+          return [];
+        });
+        await aplicarCamada({ video: path.join(midia, outName), camada: { ...camada, elementos }, workdir: path.join(DATA_DIR, "tmp", `${gen.id}-camada`), log: line });
+      } finally {
+        await rm(camadaFile, { force: true }).catch(() => undefined);
       }
-      // Entrega no padrão do Sávio depois dos gráficos (resolução e limite de 30 MB).
+      // Entrega no padrão do Sávio depois da camada (resolução e limite de 30 MB).
       await entregarDepoisDosGraficos(jobFile, line);
     });
   })().catch(async (err) => {
@@ -432,7 +439,17 @@ function launch(
     soltarCopias(copias);
     const text = log.join("");
     if (code === 0 && text.includes("DONE")) {
-      if (after) await after((m: string) => collect(Buffer.from(`[${new Date().toLocaleTimeString("pt-BR")}] ${m}\n`))).catch(() => undefined);
+      if (after) {
+        try {
+          await after((m: string) => collect(Buffer.from(`[${new Date().toLocaleTimeString("pt-BR")}] ${m}\n`)));
+        } catch (err) {
+          // A camada visual (legenda) não saiu nem pela reserva: o vídeo não é entregue sem ela.
+          running.delete(id);
+          await tirarSobras();
+          await updateGeneration(id, { status: "failed", error: `${label}: a legenda não saiu (${err instanceof Error ? err.message.slice(0, 250) : "erro"})` });
+          return;
+        }
+      }
       await tirarIntermediarios();
       running.delete(id);
       // Apagada durante a edição: o vídeo novo não tem dono e sai na hora.
@@ -512,6 +529,7 @@ export async function runBeatEdit(req: BeatRequest): Promise<Generation> {
   await mkdir(midia, { recursive: true });
   const outName = `${randomUUID()}.mp4`;
   const jobFile = path.join(LOG_DIR, `${gen.id}.json`);
+  const camadaFile = path.join(LOG_DIR, `${gen.id}.camada.json`);
   // Em segundo plano: uma cena que está só no Google Drive é baixada antes, e o pedido não espera o download.
   running.add(gen.id);
   void (async () => {
@@ -532,9 +550,18 @@ export async function runBeatEdit(req: BeatRequest): Promise<Generation> {
         out: path.join(midia, outName),
         workdir: path.join(DATA_DIR, "tmp", gen.id),
         fontsdir: FONTS,
+        camada_out: camadaFile,
       }),
     );
-    launch(gen.id, BEAT_SCRIPT, jobFile, outName, "Edição na batida", copias);
+    // As palavras gigantes saem pelo Remotion, por cima do vídeo já com os efeitos; até 30 MB (contexto do Sávio).
+    launch(gen.id, BEAT_SCRIPT, jobFile, outName, "Edição na batida", copias, async (line) => {
+      try {
+        const camada = JSON.parse(await readFile(camadaFile, "utf8")) as CamadaDoVideo;
+        await aplicarCamada({ video: path.join(midia, outName), camada, workdir: path.join(DATA_DIR, "tmp", `${gen.id}-camada`), log: line, limiteMb: 30 });
+      } finally {
+        await rm(camadaFile, { force: true }).catch(() => undefined);
+      }
+    });
   })().catch(async (err) => {
     running.delete(gen.id);
     soltarCopias(copias);

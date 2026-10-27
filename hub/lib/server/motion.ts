@@ -1,12 +1,16 @@
 import "server-only";
 
 import { spawn } from "node:child_process";
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-// Gráficos animados da edição final (motion graphics), feitos com Remotion (remotion/Graficos.tsx).
+import type { CamadaProps } from "@/remotion/Camada";
+
+// Camada visual de TODAS as edições de criativo (regra do dono, 27/10/2026: o Remotion é o motor visual principal):
+// legenda, palavras da batida, aviso, barra, setas do CTA e gráficos animados (remotion/Camada.tsx).
 // O Remotion desenha os quadros em PNG com fundo transparente e o ffmpeg do sistema sobrepõe ao vídeo editado
 // (o ffmpeg embutido do Remotion é bloqueado pelo Controle de Aplicativo do Windows desta máquina).
+// Se o Remotion falhar, a legenda sai pelo ASS de reserva (o desenho antigo do ffmpeg): nenhum vídeo fica sem legenda.
 // Licença do Remotion: grátis para pessoa física e empresas de até 3 pessoas (remotion.pro/license).
 
 export const GRAPHIC_TYPES = ["titulo", "destaque", "lista", "contador", "cta"] as const;
@@ -30,6 +34,9 @@ export const GRAPHIC_POSITIONS = ["topo", "meio", "baixo"] as const;
 export type GraphicPosition = (typeof GRAPHIC_POSITIONS)[number];
 
 type Timeline = { duration: number; words: { w: string; s: number; e: number }[] };
+
+// Fontes da camada (Poppins, Anton, Montserrat): o render roda com --public-dir apontando para cá.
+const FONTS = path.join(process.cwd(), "scripts", "fonts");
 
 const DURACAO: Record<GraphicType, number> = { titulo: 2.6, destaque: 2.4, lista: 4, contador: 4, cta: 3.5 };
 const FFMPEG = process.env.FFMPEG_BIN || "ffmpeg";
@@ -144,49 +151,115 @@ function exec(bin: string, args: string[], cwd: string, timeoutMs: number): Prom
   });
 }
 
-// Desenha os gráficos e sobrepõe ao vídeo (substitui o arquivo). Lança erro se falhar; quem chama decide o que fazer.
-export async function applyGraphics(opts: { video: string; timelineFile: string; graphics: GraphicRequest[]; workdir: string; log: (m: string) => void }) {
-  const tl = JSON.parse(await readFile(opts.timelineFile, "utf8")) as Timeline;
-  const elementos = place(opts.graphics, tl, opts.log);
-  if (!elementos.length) {
-    opts.log("gráficos: nenhum coube no tempo do vídeo");
-    return;
-  }
+// Gráficos pedidos no momento certo da linha do tempo final (palavras depois dos cortes, timeline_out do script).
+export async function posicionarGraficos(graphics: GraphicRequest[], timelineFile: string, log: (m: string) => void) {
+  if (!graphics.length) return [];
+  const tl = JSON.parse(await readFile(timelineFile, "utf8")) as Timeline;
+  const elementos = place(graphics, tl, log);
+  if (!elementos.length) log("gráficos: nenhum coube no tempo do vídeo");
+  return elementos;
+}
+
+// Camada com o ASS de reserva (gerado pelo script junto com os dados da camada).
+export type CamadaDoVideo = CamadaProps & { ass?: string };
+
+const temDesenho = (c: CamadaProps) => Boolean(c.legenda?.blocos.length || c.slams?.length || c.aviso || c.barra || c.cta || c.elementos?.length);
+
+// Desenha a camada com o Remotion e sobrepõe ao vídeo (substitui o arquivo). limiteMb: teto de bitrate da saída
+// (edição na batida, que entrega direto); sem ele, sai um mestre de alta qualidade para a entrega vir depois.
+// Se o Remotion falhar, queima o ASS de reserva com o ffmpeg; sem ASS, lança o erro.
+export async function aplicarCamada(opts: { video: string; camada: CamadaDoVideo; workdir: string; log: (m: string) => void; limiteMb?: number; crf?: number }) {
+  const { ass, ...props } = opts.camada;
+  if (!temDesenho(props)) return;
   await mkdir(opts.workdir, { recursive: true });
-  const seq = path.join(opts.workdir, "graficos");
-  const props = path.join(opts.workdir, "graficos.json");
   const tmp = `${opts.video}.gfx.mp4`;
+  const root = process.cwd();
+  const saida = await qualidade(opts.video, opts.limiteMb, opts.crf);
   // Os quadros e o vídeo intermediário saem sempre, com sucesso ou com erro (regra do dono: sobra de vídeo não fica).
   try {
-    await writeFile(props, JSON.stringify({ duracao: tl.duration, elementos }));
-    opts.log(`gráficos animados: ${elementos.map((e) => `${e.tipo} em ${e.inicio}s`).join(", ")} (renderizando com Remotion)`);
-
-    const root = process.cwd();
-    const cli = path.join(root, "node_modules", "@remotion", "cli", "remotion-cli.js");
-    await exec(process.execPath, [cli, "render", "remotion/index.ts", "Graficos", seq, `--props=${props}`, "--sequence", "--image-format=png", "--log=error"], root, 15 * 60_000);
-
-    const frames = (await readdir(seq)).filter((f) => f.endsWith(".png")).sort();
-    if (!frames.length) throw new Error("o Remotion não gerou quadros");
-    const digits = frames[0].match(/(\d+)\.png$/)?.[1].length ?? 3;
-    await exec(
-      FFMPEG,
-      [
-        "-y", "-v", "error",
-        "-i", opts.video,
-        "-framerate", "30", "-i", path.join(seq, `element-%0${digits}d.png`),
-        "-filter_complex", "[0:v][1:v]overlay=0:0:eof_action=pass[v]",
-        "-map", "[v]", "-map", "0:a?",
-        "-c:v", "libx264", "-r", "30", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "21",
-        "-c:a", "copy", "-movflags", "+faststart",
-        tmp,
-      ],
-      root,
-      10 * 60_000,
-    );
+    try {
+      const seq = path.join(opts.workdir, "camada");
+      const arquivoProps = path.join(opts.workdir, "camada.json");
+      await writeFile(arquivoProps, JSON.stringify(props));
+      const partes = [
+        props.legenda?.blocos.length ? `legenda (${props.legenda.blocos.length} blocos)` : "",
+        props.slams?.length ? `${props.slams.length} palavras da batida` : "",
+        props.aviso ? "aviso" : "",
+        props.barra ? "barra" : "",
+        props.cta ? "setas do CTA" : "",
+        props.elementos?.length ? `gráficos: ${props.elementos.map((e) => `${e.tipo} em ${e.inicio}s`).join(", ")}` : "",
+      ].filter(Boolean);
+      opts.log(`camada visual no Remotion: ${partes.join(", ")}`);
+      const cli = path.join(root, "node_modules", "@remotion", "cli", "remotion-cli.js");
+      await exec(
+        process.execPath,
+        [cli, "render", "remotion/index.ts", "Camada", seq, `--props=${arquivoProps}`, "--sequence", "--image-format=png", `--public-dir=${FONTS}`, "--log=error"],
+        root,
+        30 * 60_000,
+      );
+      const frames = (await readdir(seq)).filter((f) => f.endsWith(".png")).sort();
+      if (!frames.length) throw new Error("o Remotion não gerou quadros");
+      const digits = frames[0].match(/(\d+)\.png$/)?.[1].length ?? 3;
+      await exec(
+        FFMPEG,
+        [
+          "-y", "-v", "error",
+          "-i", opts.video,
+          "-framerate", "30", "-i", path.join(seq, `element-%0${digits}d.png`),
+          "-filter_complex", "[0:v][1:v]overlay=0:0:eof_action=pass,format=yuv420p[v]",
+          "-map", "[v]", "-map", "0:a?",
+          "-c:v", "libx264", "-r", "30", "-pix_fmt", "yuv420p", ...saida,
+          "-c:a", "copy", "-movflags", "+faststart",
+          tmp,
+        ],
+        root,
+        15 * 60_000,
+      );
+      opts.log("camada visual aplicada");
+    } catch (err) {
+      if (!ass || !(props.legenda?.blocos.length || props.slams?.length)) throw err;
+      opts.log(`o Remotion falhou (${err instanceof Error ? err.message.slice(0, 200) : "erro"}); legenda pelo desenho antigo do ffmpeg`);
+      await queimarAss(opts.video, tmp, ass, props, opts.workdir, saida);
+      opts.log("legenda aplicada pelo ffmpeg (sem setas, barra e gráficos animados)");
+    }
     await rename(tmp, opts.video);
-    opts.log("gráficos animados aplicados");
   } finally {
     await rm(tmp, { force: true }).catch(() => undefined);
     await rm(opts.workdir, { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+// Reserva: a legenda (e a faixa do aviso) pelo filtro ass do ffmpeg, como antes do Remotion.
+async function queimarAss(video: string, destino: string, ass: string, props: CamadaProps, workdir: string, saida: string[]) {
+  const pasta = path.join(workdir, "ass");
+  await mkdir(pasta, { recursive: true });
+  await writeFile(path.join(pasta, "s.ass"), ass, "utf8");
+  await cp(FONTS, path.join(pasta, "fonts"), { recursive: true });
+  const faixa = props.aviso ? `drawbox=x=0:y=${props.aviso.topo}:w=iw:h=ih-${props.aviso.topo}:color=black@0.985:t=fill,` : "";
+  // Caminhos relativos (cwd = pasta do ASS): o filtro ass não lida bem com "C:\" do Windows.
+  await exec(
+    FFMPEG,
+    ["-y", "-v", "error", "-i", video, "-vf", `${faixa}ass=s.ass:fontsdir=fonts,format=yuv420p`, "-map", "0:v", "-map", "0:a?",
+      "-c:v", "libx264", "-r", "30", "-pix_fmt", "yuv420p", ...saida, "-c:a", "copy", "-movflags", "+faststart", destino],
+    pasta,
+    15 * 60_000,
+  );
+}
+
+// Qualidade da saída: mestre (a entrega do Sávio vem depois) ou já com o teto de tamanho (piso de 900 kbps).
+async function qualidade(video: string, limiteMb?: number, crf = 16): Promise<string[]> {
+  if (!limiteMb) return ["-preset", "veryfast", "-crf", String(crf)];
+  const dur = await duracaoDe(video);
+  const teto = Math.max(900, Math.min(12000, Math.floor((limiteMb * 1e6 * 8 * 0.96) / Math.max(1, dur) / 1000) - 128));
+  return ["-preset", "medium", "-crf", "20", "-maxrate", `${teto}k`, "-bufsize", `${2 * teto}k`, "-profile:v", "high"];
+}
+
+function duracaoDe(file: string): Promise<number> {
+  return new Promise((resolve) => {
+    const child = spawn(process.env.FFPROBE_BIN || "ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file], { windowsHide: true });
+    let out = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.on("error", () => resolve(0));
+    child.on("close", () => resolve(Number(out.trim()) || 0));
+  });
 }

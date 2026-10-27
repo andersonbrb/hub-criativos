@@ -21,9 +21,11 @@ import {
 } from "@/lib/editor";
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
+import { aplicarCamada, type CamadaDoVideo } from "@/lib/server/motion";
 import { pastaDeDados, pastaDeMidia } from "@/lib/server/pastas";
 import { palavrasDaFala } from "@/lib/server/video";
 import { createGeneration, getGeneration, listGenerations, updateGeneration } from "@/lib/server/store";
+import type { Legenda, Palavra } from "@/remotion/Camada";
 
 // Projetos do editor em editor/<id>.json, na pasta da organização (lib/server/pastas.ts); exportação com ffmpeg
 // (precisa estar instalado, ou FFMPEG_BIN).
@@ -288,6 +290,38 @@ export function buildAss(project: EditorProject): string {
   return [...header, ...events, ""].join("\n");
 }
 
+// Legenda do editor no formato da camada do Remotion (remotion/Camada.tsx): *palavra* em destaque, \n quebra a linha.
+function legendaDoEditor(project: EditorProject): Legenda {
+  const { width: W, height: H, style } = project;
+  const scale = Math.min(W, H) / 1080;
+  const blocos = placeCaptions(project).map((c) => {
+    const palavras: Palavra[] = [];
+    const linhas = c.text.split("\n");
+    linhas.forEach((linha, li) => {
+      for (const parte of linha.split(/(\*[^*]+\*)/g).filter(Boolean)) {
+        const destaque = parte.startsWith("*") && parte.endsWith("*") && parte.length > 2;
+        for (const t of (destaque ? parte.slice(1, -1) : parte).split(/\s+/).filter(Boolean)) palavras.push({ t, s: c.start, ...(destaque ? { destaque } : {}) });
+      }
+      if (li < linhas.length - 1 && palavras.length) palavras[palavras.length - 1].quebra = true;
+    });
+    return { ini: c.start, fim: c.end, palavras };
+  });
+  return {
+    fonte: style.font,
+    tamanho: style.size * scale,
+    peso: 900,
+    y: (H * style.position) / 100,
+    cor: style.color,
+    destaque: style.highlight,
+    contorno: style.outline * scale,
+    caixa: style.box,
+    pop: style.pop ? "suave" : "nenhum",
+    modo: "bloco",
+    margem: W * 0.08,
+    blocos,
+  };
+}
+
 export async function renderProject(projectId: string): Promise<Generation> {
   // Regra do dono: o vídeo exportado vai só para o Drive. Sem Drive conectado, nem começa.
   await exigirDriveParaVideo();
@@ -351,13 +385,9 @@ async function encode(project: EditorProject, generationId: string) {
     });
     filters.push(`${concatInputs.join("")}concat=n=${clips.length}:v=1:a=1[vc][ac]`);
 
-    let videoOut = "[vc]";
-    if (project.captionsEnabled && placeCaptions(project).length) {
-      // Caminho relativo (cwd = pasta temporária): o filtro subtitles não lida bem com "C:\" do Windows.
-      await writeFile(path.join(tmp, "legendas.ass"), buildAss(project), "utf8");
-      filters.push("[vc]subtitles=legendas.ass[vs]");
-      videoOut = "[vs]";
-    }
+    // A legenda sai pelo Remotion depois do corte (regra do dono, 27/10/2026), como na prévia do editor.
+    const videoOut = "[vc]";
+    const comLegenda = project.captionsEnabled && placeCaptions(project).length > 0;
 
     const midia = await pastaDeMidia();
     await mkdir(midia, { recursive: true });
@@ -365,7 +395,7 @@ async function encode(project: EditorProject, generationId: string) {
     args.push(
       "-filter_complex", filters.join(";"),
       "-map", videoOut, "-map", "[ac]",
-      "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", comLegenda ? "16" : "20",
       // Áudio no padrão de entrega do Sávio: AAC 48 kHz estéreo 128k.
       "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
       "-movflags", "+faststart",
@@ -378,6 +408,11 @@ async function encode(project: EditorProject, generationId: string) {
       child.on("error", (e) => reject((e as NodeJS.ErrnoException).code === "ENOENT" ? new Error("ffmpeg não encontrado. Instale o ffmpeg ou defina FFMPEG_BIN.") : e));
       child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg: ${stderr.trim().split("\n").slice(-3).join(" ")}`))));
     });
+    if (comLegenda) {
+      // Se o Remotion falhar, a legenda sai pelo ASS de antes (buildAss).
+      const camada: CamadaDoVideo = { duracao: placeClips(project).total, altura: H, largura: W, legenda: legendaDoEditor(project), ass: buildAss(project) };
+      await aplicarCamada({ video: path.join(midia, outName), camada, workdir: path.join(tmp, "camada"), log: (m) => console.log(`[editor] ${m}`), crf: 20 });
+    }
     // Pronta, a exportação segue para o Google Drive em segundo plano (features/drive). Apagada durante a exportação,
     // o vídeo novo não tem dono e sai na hora.
     const pronto = outName;

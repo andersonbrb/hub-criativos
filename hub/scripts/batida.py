@@ -22,6 +22,7 @@ Entrega no padrão do Sávio: H.264 high, 30 fps, AAC 48 kHz estéreo 128k, +fas
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -316,6 +317,27 @@ def captions(shots, hits, accent, path):
     return len(ev)
 
 
+def slams_da_camada(shots, hits, accent):
+    """As mesmas palavras gigantes de captions(), como dados para o Remotion (remotion/Camada.tsx)."""
+    cor = accent if re.match(r"^#[0-9a-fA-F]{6}$", accent or "") else "#FFB627"
+    out = []
+    for s in shots:
+        if not s.get("words"):
+            continue
+        top, bot = [(x or "").upper() for x in (s["words"] + ["", ""])[:2]]
+        a, b = s["t"], s["t"] + s["d"] - 0.01
+        pulsos = [round(h, 3) for h in hits if a + .15 < h < b] if s["kind"] == "cta" else []
+        ft, fb = size_for(top), size_for(bot)
+        if top and bot:
+            linhas = [{"texto": top, "px": ft, "y": round(960 - ft * .52), "cor": "#FFFFFF"},
+                      {"texto": bot, "px": fb, "y": round(960 + fb * .5), "cor": cor}]
+        else:
+            txt, fs = (top, ft) if top else (bot, fb)
+            linhas = [{"texto": txt, "px": fs, "y": 960, "cor": "#FFFFFF" if top else cor}]
+        out.append({"ini": round(a, 3), "fim": round(b, 3), "linhas": linhas, **({"pulsos": pulsos} if pulsos else {})})
+    return out
+
+
 def process(job):
     w = job["workdir"]
     os.makedirs(w, exist_ok=True)
@@ -362,13 +384,21 @@ def process(job):
     vf = (f"eq=brightness='{bright}':eval=frame,"
           f"rgbashift=rh=16:bh=-16:gv=6:enable='{glitch}',"
           "vignette=PI/4.5,noise=alls=10:allf=t,"
-          "ass=p.ass:fontsdir=fonts,format=yuv420p")
+          + ("format=yuv420p" if job.get("camada_out") else "ass=p.ass:fontsdir=fonts,format=yuv420p"))
+    if job.get("camada_out"):
+        # Palavras pelo Remotion (regra do dono, 27/10/2026); o ASS vai junto como reserva.
+        with open(os.path.join(w, "p.ass"), encoding="utf-8") as f:
+            ass = f.read()
+        with open(job["camada_out"], "w", encoding="utf-8") as f:
+            json.dump({"duracao": round(dur, 3), "altura": 1920, "slams": slams_da_camada(shots, hits, job.get("accent")), "ass": ass}, f, ensure_ascii=False)
     # Até 30 MB (contexto do Sávio): teto de bitrate pela duração, com folga para o áudio e o contêiner; piso de 900 kbps.
     teto = max(900, min(12000, int(30e6 * 8 * 0.96 / dur / 1000) - 128))
     run(["ffmpeg", "-y", "-v", "error", "-i", "base.mp4", "-i", "musica.wav", "-vf", vf,
          "-af", "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000",
-         "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-profile:v", "high", "-preset", "medium", "-crf", "20",
-         "-maxrate", f"{teto}k", "-bufsize", f"{2 * teto}k", "-pix_fmt", "yuv420p", "-r", "30",
+         "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-profile:v", "high",
+         # Com a camada do Remotion, sai um mestre de alta qualidade; o teto de 30 MB vem na sobreposição.
+         *(["-preset", "veryfast", "-crf", "18"] if job.get("camada_out") else
+           ["-preset", "medium", "-crf", "20", "-maxrate", f"{teto}k", "-bufsize", f"{2 * teto}k"]), "-pix_fmt", "yuv420p", "-r", "30",
          "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-t", f"{dur:.3f}", "-movflags", "+faststart", "out.mp4"],
         "acabamento", cwd=w)
     shutil.move(os.path.join(w, "out.mp4"), job["out"])
