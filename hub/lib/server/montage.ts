@@ -84,6 +84,9 @@ export type MontageFx = {
 export const FORMATOS = ["9:16", "4:5", "1:1"] as const;
 export const RESOLUCOES = ["auto", "720", "1080"] as const;
 export type MontageRequest = {
+  // Sem avatar: a narração (áudio do hub) vira a fala e os b-rolls cobrem o vídeo inteiro (montarBaseDaNarracao).
+  // Um áudio em avatarId/avatarIds também conta como narração.
+  narracaoId?: string;
   avatarId?: string;
   avatarIds?: string[];
   brollIds?: string[];
@@ -128,6 +131,77 @@ async function cleanFx(fx: MontageFx | undefined, copias: string[]) {
 // Tags de emoção do ElevenLabs ([excited]…) não são faladas: saem do roteiro da legenda.
 const semTags = (t: string) => t.replace(/\[[^\]\n]{1,40}\]/g, " ").replace(/\s+/g, " ").trim();
 
+// Áudio pronto do hub (narração da edição sem avatar).
+async function audioFile(id: string) {
+  const g = await getGeneration(id);
+  if (!g || g.kind !== "audio" || g.status !== "done" || !g.file) throw new InputError("A narração precisa ser um áudio pronto do hub.");
+  return { g, file: g.file };
+}
+
+const normal = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
+
+// Segundo em que a deixa é falada (a partir de `depois`), ou null.
+function tempoDaDeixa(deixa: string, words: { text: string; start: number }[], depois: number): number | null {
+  const alvo = normal(deixa);
+  if (!alvo.length) return null;
+  const ws = words.flatMap((w) => normal(w.text).map((t) => ({ t, s: w.start })));
+  for (let i = 0; i < ws.length; i++) {
+    if (ws[i].s < depois) continue;
+    if (alvo.every((a, k) => ws[i + k]?.t.startsWith(a))) return ws[i].s;
+  }
+  return null;
+}
+
+// Edição sem avatar: monta um vídeo-base 1080x1920 com os b-rolls cobrindo a narração inteira, e ele entra no lugar
+// do avatar (cortes de silêncio, legenda, música e entrega seguem iguais). Com deixas, cada b-roll entra na palavra
+// dele e fica até o próximo; sem deixas, os b-rolls se revezam em trechos de até 3,5 s.
+async function montarBaseDaNarracao(opts: { audio: string; brolls: string[]; cues: string[]; words: { text: string; start: number }[]; out: string }) {
+  const D = await seconds(opts.audio);
+  if (!D) throw new Error("não consegui ler a duração da narração");
+  const durs = await Promise.all(opts.brolls.map((b) => seconds(b)));
+  const n = opts.brolls.length;
+  type Trecho = { b: number; ini: number; dur: number; off: number };
+  const trechos: Trecho[] = [];
+  const comDeixa: { t: number; b: number }[] = [];
+  if (opts.cues.some(Boolean)) {
+    let depois = 0;
+    for (let b = 0; b < n; b++) {
+      const t = b === 0 ? 0 : opts.cues[b] ? tempoDaDeixa(opts.cues[b], opts.words, depois) : null;
+      if (t === null || t >= D) continue;
+      comDeixa.push({ t, b });
+      depois = t + 0.5;
+    }
+  }
+  if (comDeixa.length > 1) {
+    comDeixa.forEach((x, k) => trechos.push({ b: x.b, ini: x.t, dur: (comDeixa[k + 1]?.t ?? D) - x.t, off: 0 }));
+  } else {
+    const k = Math.max(n, Math.ceil(D / 3.5));
+    const len = D / k;
+    for (let j = 0; j < k; j++) {
+      const b = j % n;
+      const volta = Math.floor(j / n);
+      trechos.push({ b, ini: j * len, dur: len, off: durs[b] > len ? (volta * len) % Math.max(0.01, durs[b] - len) : 0 });
+    }
+  }
+  const args = ["-y", "-v", "error"];
+  for (const t of trechos) args.push("-stream_loop", "-1", "-i", opts.brolls[t.b]);
+  args.push("-i", opts.audio);
+  const filtros = trechos.map(
+    (t, i) =>
+      `[${i}:v]trim=start=${t.off.toFixed(3)}:duration=${t.dur.toFixed(3)},setpts=PTS-STARTPTS,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30,setsar=1[v${i}]`,
+  );
+  const grafo = `${filtros.join(";")};${trechos.map((_, i) => `[v${i}]`).join("")}concat=n=${trechos.length}:v=1:a=0[v]`;
+  args.push("-filter_complex", grafo, "-map", "[v]", "-map", `${trechos.length}:a`, "-t", D.toFixed(3));
+  args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", opts.out);
+  await mkdir(path.dirname(opts.out), { recursive: true });
+  await new Promise<void>((resolve, reject) => {
+    execFile(process.env.FFMPEG_BIN || "ffmpeg", args, { windowsHide: true, timeout: 20 * 60_000, maxBuffer: 10 * 1024 * 1024 }, (err, _o, stderr) =>
+      err ? reject(new Error(String(stderr || err.message).trim().split("\n").slice(-3).join(" "))) : resolve(),
+    );
+  });
+  return trechos.length;
+}
+
 // Roteiro da legenda: o pedido manda; sem ele, o texto da narração ou do roteiro que gerou cada vídeo do avatar no
 // HeyGen (todos precisam ter, senão a legenda sai da fala).
 function roteiroDosAvatares(avatars: { g: Generation }[]): string | null {
@@ -150,10 +224,15 @@ async function videoFile(id: string, label: string) {
 export async function runMontage(req: MontageRequest): Promise<Generation> {
   // Regra do dono: o vídeo pronto vai só para o Drive. Sem Drive conectado, nem começa.
   await exigirDriveParaVideo();
-  const avatarIds = [...new Set((req.avatarIds?.length ? req.avatarIds : [req.avatarId ?? ""]).map(String).filter(Boolean))].slice(0, MAX_AVATARS);
-  if (!avatarIds.length) throw new InputError("Escolha pelo menos um vídeo do avatar.");
+  const pedidosDeAvatar = [...new Set((req.avatarIds?.length ? req.avatarIds : [req.avatarId ?? ""]).map(String).filter(Boolean))].slice(0, MAX_AVATARS);
+  // Um áudio no lugar do avatar é a narração (edição sem avatar).
+  const primeiro = !req.narracaoId && pedidosDeAvatar.length === 1 ? await getGeneration(pedidosDeAvatar[0]) : null;
+  const narracaoId = String(req.narracaoId ?? "").trim() || (primeiro?.kind === "audio" ? primeiro.id : "");
+  const narracao = narracaoId ? await audioFile(narracaoId) : null;
+  const avatarIds = narracao ? [] : pedidosDeAvatar;
+  if (!narracao && !avatarIds.length) throw new InputError("Escolha pelo menos um vídeo do avatar ou uma narração (áudio) com b-rolls.");
   const avatars = await Promise.all(avatarIds.map((id, i) => videoFile(id, avatarIds.length > 1 ? `O avatar ${i + 1}` : "O avatar")));
-  const avatar = avatars[0];
+  const fala = narracao ?? avatars[0];
   const pairs = (req.brollIds ?? [])
     .map((id, i) => ({ id: String(id ?? ""), cue: String(req.brollCues?.[i] ?? "").trim().slice(0, 60) }))
     .filter((p) => p.id)
@@ -161,6 +240,7 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
   const brollIds = pairs.map((p) => p.id);
   const brollCues = pairs.map((p) => p.cue);
   const brolls = await Promise.all(brollIds.map((id, i) => videoFile(id, `O b-roll ${i + 1}`)));
+  if (narracao && !brolls.length) throw new InputError("Sem avatar, a narração entra sobre os b-rolls: escolha pelo menos um b-roll.");
   const lang = LANGS.includes(req.lang as (typeof LANGS)[number]) ? (req.lang as string) : "es";
   // Nome no padrão do Sávio ("AD 01 - OFERTA-FORMATO-VOZ/IDIOMA-VARIAÇÃO"): vira o nome do arquivo e do anúncio.
   const nomeDado = String(req.name ?? "").trim().replace(/[^\w\- ]+/g, "_").replace(/\s+/g, " ").slice(0, 80);
@@ -171,7 +251,7 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
   const resolucao = RESOLUCOES.includes(String(req.resolucao) as (typeof RESOLUCOES)[number]) ? String(req.resolucao) : "auto";
   const limiteMb = Math.min(500, Math.max(5, Number(req.limiteMb) || 30));
   const roteiroPedido = semTags(String(req.roteiro ?? "")).slice(0, 20_000);
-  const roteiro = roteiroPedido || roteiroDosAvatares(avatars);
+  const roteiro = roteiroPedido || (narracao ? (narracao.g.tool === "elevenlabs" ? semTags(narracao.g.prompt) || null : null) : roteiroDosAvatares(avatars));
   const aviso = String(req.aviso ?? "").replace(/[{}\\\n]/g, " ").trim().slice(0, 160) || null;
   // O CTA do Sávio são as 2 setas vermelhas (sem botão): o gráfico "cta" vira as setas da própria edição.
   const todos = sanitizeGraphics(req.graphics);
@@ -188,12 +268,13 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
     kind: "video",
     status: "running",
     ...(nomeDado ? { name } : {}),
-    prompt: `Edição ${name}: ${avatar.g.prompt}${avatars.length > 1 ? ` (+${avatars.length - 1})` : ""}`,
+    prompt: `Edição ${name}: ${fala.g.prompt}${avatars.length > 1 ? ` (+${avatars.length - 1})` : ""}${narracao ? " (narração sobre b-rolls, sem avatar)" : ""}`,
     params: {
       name,
       lang,
-      avatarId: avatar.g.id,
+      avatarId: avatars[0]?.g.id ?? null,
       avatarIds: avatarIds.join(","),
+      narracaoId: narracao?.g.id ?? null,
       avatars: avatars.length,
       brolls: brolls.length,
       brollIds: brollIds.join(","),
@@ -219,8 +300,9 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
   // Whisper local, um por vez, como no contexto do Sávio), depois o Python. Sem elas, o script transcreve sozinho.
   running.add(gen.id);
   void (async () => {
+    const falaIds = narracao ? [narracao.g.id] : avatarIds;
     const avatarWords = await Promise.all(
-      avatarIds.map(async (id) => {
+      falaIds.map(async (id) => {
         const words = await palavrasDaFala(id);
         return words.map((w) => [w.text, w.start, w.end] as const);
       }),
@@ -229,8 +311,19 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
       return null;
     });
     // Caminhos no disco para o Python (vídeo que está só no Drive vira uma cópia temporária, segura até o fim).
-    const avatarFiles = await Promise.all(avatars.map((a) => copiaSegura(a.file, copias)));
-    const brollFiles = await Promise.all(brolls.map((b) => copiaSegura(b.file, copias)));
+    let avatarFiles = await Promise.all(avatars.map((a) => copiaSegura(a.file, copias)));
+    let brollFiles = await Promise.all(brolls.map((b) => copiaSegura(b.file, copias)));
+    let cuesDoJob = brollCues;
+    const workdir = path.join(DATA_DIR, "tmp", gen.id);
+    if (narracao) {
+      // A base fica na pasta de trabalho, que o script apaga no fim (e a faxina, se sobrar).
+      const base = path.join(workdir, "base-narracao.mp4");
+      const words = (avatarWords?.[0] ?? []).map(([text, start]) => ({ text, start }));
+      await montarBaseDaNarracao({ audio: await copiaSegura(narracao.file, copias), brolls: brollFiles, cues: brollCues, words, out: base });
+      avatarFiles = [base];
+      brollFiles = [];
+      cuesDoJob = [];
+    }
 
     await writeFile(
       jobFile,
@@ -240,7 +333,7 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
         avatar: avatarFiles[0],
         avatars: avatarFiles,
         brolls: brollFiles,
-        broll_cues: brollCues,
+        broll_cues: cuesDoJob,
         lang,
         fx,
         roteiro,
@@ -252,7 +345,7 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
         // Com gráficos, o Python entrega um mestre de 1080 e a entrega do Sávio (720/1080, até 30 MB) vem depois deles.
         graficos_depois: graphics.length > 0,
         out: path.join(midia, outName),
-        workdir: path.join(DATA_DIR, "tmp", gen.id),
+        workdir,
         fontsdir: FONTS,
         timeline_out: timelineFile,
         entrega_out: entregaFile,

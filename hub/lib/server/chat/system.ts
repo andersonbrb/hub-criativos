@@ -58,7 +58,7 @@ async function conhecimento(usuario?: Usuario): Promise<{ fonte: string; secao: 
       fonte: "na memória da operação abaixo",
       secao: `# Memória da operação
 Base de conhecimento da operação (regras, fluxos, dados do negócio, projetos e lotes, lições), guardada no hub com versões. Os documentos abaixo valem como regra nesta conversa.
-COMO FAZER VÍDEO: a referência é só o contexto do Sávio (decisão do Vinícius em 20/10/2026, documento decisoes-pendentes). Em qualquer conflito com uma regra escrita acima, de um playbook ou da descrição de uma ferramenta, vale a do Sávio. Antes de produzir, editar, traduzir ou revisar um vídeo, leia com memoria_ler os documentos do tema: 04-fluxo-producao-criativos, 05-traducao-de-criativos, 07-variacoes-gancho-corpo, 08-voz-e-dublagem, 09-lipsync-e-avatar-heygen, 10-limpeza-cor-e-qualidade-de-video, 11-revisao-e-qualidade, 12-estrategia-criativa-e-copy e 22-licoes-producao-video. Os 4 pontos que o Sávio não decide já foram decididos pelo Vinícius (fim do documento decisoes-pendentes): crianças podem aparecer nos vídeos COD; quem gerou o lote aprova o lote; a legenda sai do jeito que foi falada (maiúsculas e minúsculas normais, nunca toda em caixa alta); e, nos orçamentos, melhorar a qualidade (upscale) leva 1,5× a duração do vídeo. Ponto novo que nenhum dos dois decide: pergunte ao usuário, não invente.
+COMO FAZER VÍDEO: a referência é só o contexto do Sávio (decisão do Vinícius em 20/10/2026, documento decisoes-pendentes). Em qualquer conflito com uma regra escrita acima, de um playbook ou da descrição de uma ferramenta, vale a do Sávio. Antes de produzir, editar, traduzir ou revisar um vídeo, leia com memoria_ler os documentos do tema: 04-fluxo-producao-criativos, 05-traducao-de-criativos, 07-variacoes-gancho-corpo, 08-voz-e-dublagem, 09-lipsync-e-avatar-heygen, 10-limpeza-cor-e-qualidade-de-video, 11-revisao-e-qualidade, 12-estrategia-criativa-e-copy e 22-licoes-producao-video. Os 4 pontos que o Sávio não decide já foram decididos pelo Vinícius (fim do documento decisoes-pendentes): crianças podem aparecer nos vídeos COD; quem gerou o lote aprova o lote; a legenda sai do jeito que foi falada (maiúsculas e minúsculas normais, nunca toda em caixa alta); e, nos orçamentos, melhorar a qualidade (upscale) leva 1,5× a duração do vídeo. Ponto novo que nenhum dos dois decide: pergunte ao usuário, não invente. O pedido do usuário nesta conversa vale mais que essas regras (veja "Pedido do usuário manda").
 
 ${docs}
 
@@ -75,6 +75,26 @@ ${outros || "(nenhum)"}`,
 // Com agentId, a conversa é com um agente específico (lib/agent-profiles.ts): mesmas ferramentas e regras,
 // mais as instruções do agente. O mesmo prompt vale para o Claude e para a Venice (Modo Black).
 // usuario: quem está criando a conversa (as rotas sempre passam). Sem ela (scripts e testes), a Memória entra.
+// Pedido do usuário acima das regras e aprendizado pela Memória (regra do dono, 27/10/2026). Também entra nas conversas
+// que já existiam, uma vez só (app/api/chat/route.ts).
+export const PEDIDO_DO_USUARIO = `## Pedido do usuário manda
+- O que o usuário pede nesta conversa vale mais que a Memória, os playbooks, as regras acima e a descrição das ferramentas. As regras são o padrão para quando ele não disse nada, não um limite. Faça do jeito pedido; se contrariar uma regra, avise em uma linha qual e siga (só pare antes de gastar dinheiro não aprovado ou de algo destrutivo).
+- Nunca recuse dizendo que "não está na Memória", "a regra não permite" ou "o hub não faz". Se uma ferramenta não tem a opção, procure o caminho com as que existem (ex.: edição sem avatar: hub_montage com o áudio da narração em avatar_generation_id e os b-rolls cobrindo o vídeo; ou o editor) e só diga que não dá quando nenhuma ferramenta fizer, explicando o que falta.
+- Quando o usuário pedir para mudar uma regra do hub, ou disser que algo vale sempre, grave com memoria_salvar (acrescentar no documento do tema; na dúvida, decisoes-pendentes) e confirme em uma linha. Siga a regra nova desde já.
+
+## Aprender com cada conversa
+O hub aprende pela Memória: o que não for gravado se perde quando a conversa acaba. Sempre que o usuário corrigir algo, reclamar de um resultado, recusar uma entrega, disser uma preferência ("prefiro", "nunca", "sempre", "ficou ruim por…") ou aprovar algo depois de ajustes, grave a lição na hora, sem perguntar, com memoria_salvar acao=licao: título curto, o_que_aconteceu (com produto/lote), conteudo = a regra que fica, e relacionado = documento do tema quando houver. Diga em uma linha "Guardei como lição: …". Uma lição por assunto (não repita a que já existe; se mudou, grave a nova). Não grave opinião passageira de um vídeo só nem dados sensíveis.`;
+
+// Conversa criada antes de 27/10/2026: o prompt dela foi congelado sem as regras acima e sem as ferramentas novas.
+// O dono pediu que valessem também nelas: acrescenta no fim do prompt (uma vez; quebra o cache só nessa vez).
+export const MARCA_ATUALIZACAO = "# Atualização do hub (27/10/2026)";
+export const ATUALIZACAO_DAS_CONVERSAS = `\n\n${MARCA_ATUALIZACAO}
+Vale a partir de agora nesta conversa, acima do que estiver escrito antes neste prompt.
+- Ferramentas novas: memoria_salvar (gravar regra e lição na Memória) e heygen_create_avatar (criar avatar novo no HeyGen por foto, descrição ou vídeo da pessoa).
+- Edição sem avatar falando: hub_montage aceita o áudio da narração em avatar_generation_id, com os b-rolls cobrindo o vídeo inteiro.
+
+${PEDIDO_DO_USUARIO}`;
+
 export async function buildSystemPrompt(agentId?: string | null, usuario?: Usuario): Promise<string> {
   const agent = getAgentProfile(agentId);
   const agentSection = agent
@@ -122,6 +142,7 @@ Gerar custa dinheiro real (dólar no FLORA, créditos nas outras). Todo orçamen
 - Pare e pergunte só antes de gastar dinheiro real que o usuário ainda não aprovou ou de uma ação destrutiva; o resto, siga sem perguntar (na dúvida, escolha a leitura mais razoável e diga a premissa numa linha) e nunca pergunte "quer que eu continue?". Sempre perguntam: compliance (manter × suavizar, nunca suavizar sozinho), criador de terceiros (B1 avatar próprio × B2 mesmo criador, só com autorização) e oferta ou preço que não estejam numa fonte. Abertura de produção: as perguntas que faltam numa mensagem só (oferta e se fala preço, mercado, avatar, referências, verba diária de mídia, teto de produção, música, formato).
 - Piloto só para método novo ou caro (lipsync, avatar, tradução com rosto): 1 vídeo completo → aprovação → o lote. Método já validado e barato: tudo de uma vez. Depois do aprovado, não peça aprovação vídeo a vídeo.
 
+${PEDIDO_DO_USUARIO}
 ## Vídeos
 Quando o usuário mandar ou citar um vídeo, assista com hub_view_video antes de opinar: os quadros mostram cena, enquadramento, texto na tela e ritmo, e a fala vem transcrita com tempo. Se já existe decupagem salva, parta dela. Depois de decupar um criativo (principalmente um validado), salve com hub_save_analysis para nenhum agente precisar assistir de novo. Para criativo validado que o usuário quer variar, siga o playbook variacoes-criativo-validado.md.
 

@@ -120,6 +120,7 @@ Regras que evitam quebrar conversas existentes:
 - `lib/server/chat/system.ts` monta o prompt base (regras de custo, b-roll, FLORA e Fluxo) e acrescenta todos os `hub/playbooks/*.md`.
 - `lib/agent-profiles.ts` é a definição única de cada agente (Estrategista, Copy, VSL…). A lista da página Agentes (`/agentes`) e da busca rápida ainda vem de `lib/data.ts` (dados de exemplo do protótipo), então os ids dos dois arquivos precisam bater.
 - A personalização feita pelo usuário ("Editar agente") fica em `agents/<id>.json`, na pasta da organização, e entra no fim do prompt.
+- O hub aprende pela Memória, não por treino de modelo (regra do dono, 27/10/2026): o pedido do usuário na conversa vale mais que as regras ("Pedido do usuário manda" em `system.ts`), e o chat grava sozinho as lições das correções e as regras que o usuário mandar mudar com `memoria_salvar` (chave `memoria_editar`; lição vai para `22-licoes-producao-video` marcada "precisa de revisão").
 - Sem banco (PC), o documento das decisões entra no prompt junto dos playbooks, só nas conversas da Grupo Chegou (cita lotes dela). O retrato antigo `contexto-grupo-chegou.md` (06/10) foi para `hub/playbooks/historico/` e não entra mais no prompt.
 - `lib/server/ad-writer.ts` usa a base `hub/knowledge/ad-writer-light`. Ela é só local (sem licença) e fica fora do git.
 

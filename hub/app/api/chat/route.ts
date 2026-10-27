@@ -13,7 +13,7 @@ import { runChatTurn } from "@/lib/server/chat/run";
 import { runVeniceTurn } from "@/lib/server/chat/venice";
 import { endTurn, startTurn } from "@/lib/server/chat/running";
 import { getChat, listChats, newChat, saveChat, summary } from "@/lib/server/chat/store";
-import { buildSystemPrompt } from "@/lib/server/chat/system";
+import { ATUALIZACAO_DAS_CONVERSAS, buildSystemPrompt, MARCA_ATUALIZACAO, PEDIDO_DO_USUARIO } from "@/lib/server/chat/system";
 import { ferramentasDaPessoa } from "@/lib/server/chat/tools";
 import { hasKey } from "@/lib/server/env";
 import { getAgentProfile } from "@/lib/agent-profiles";
@@ -87,9 +87,17 @@ export const POST = route(async (request: Request) => {
     // agentId (só na criação): conversa com um agente; o prompt dele fica congelado na conversa.
     const agentId = doSkala ? undefined : getAgentProfile(String(form.get("agentId") ?? ""))?.id;
     chat = newChat(titleFrom.replace(/\s+/g, " ").slice(0, 60), sistemaDoSkala ?? (await buildSystemPrompt(agentId, usuario)), ferramentasDaPessoa(usuario), agentId);
-  } else if (chat.messages.length === 0 && !chat.titleRenamedAt) {
-    // Conversa criada pelo botão "Nova conversa": ganha o título da primeira mensagem.
-    chat.title = titleFrom.replace(/\s+/g, " ").slice(0, 60);
+  } else {
+    if (chat.messages.length === 0 && !chat.titleRenamedAt) {
+      // Conversa criada pelo botão "Nova conversa": ganha o título da primeira mensagem.
+      chat.title = titleFrom.replace(/\s+/g, " ").slice(0, 60);
+    }
+    // Conversa de antes de 27/10/2026: recebe as regras e as ferramentas novas (pedido do dono). Só acrescenta, no fim.
+    if (!chat.system.includes(MARCA_ATUALIZACAO) && !chat.system.includes(PEDIDO_DO_USUARIO)) chat.system += ATUALIZACAO_DAS_CONVERSAS;
+    if (chat.toolNames) {
+      const novas = ferramentasDaPessoa(usuario, ["heygen_create_avatar", "memoria_salvar"]).filter((n) => !chat!.toolNames!.includes(n));
+      if (novas.length) chat.toolNames = [...chat.toolNames, ...novas];
+    }
   }
 
   // Regra do dono: vídeo só com o Google Drive conectado (ele vai para lá logo depois). Confere antes de gravar qualquer anexo.

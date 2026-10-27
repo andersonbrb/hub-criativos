@@ -43,14 +43,22 @@ import { createAvatar, listCreations, type AvatarMode } from "@/lib/server/heyge
 import { listLooks, listVoices as listHeyVoices } from "@/lib/server/providers/heygen";
 import { getGeneration, listGenerations } from "@/lib/server/store";
 // ---- Acesso (features/acesso) ----
-import { podeUsar, SemPermissao, type Chave, type Usuario } from "@/features/acesso/contrato";
+import { ehAdmin, podeUsar, SemPermissao, type Chave, type Usuario } from "@/features/acesso/contrato";
 import { comOrganizacao } from "@/features/acesso/servicos/organizacao-atual";
 // ---- Drive (features/drive) ----
 import { arquivoLocal } from "@/features/drive/servicos/videos";
 // ---- Memória (features/memoria) ----
 import { FRENTE_ROTULO, FRENTES, TIPO_ROTULO, TIPOS, type DocResumo, type Frente, type TipoDoc } from "@/features/memoria/contrato";
 import { DocNaoEncontrado } from "@/features/memoria/erros";
-import { buscar as buscarNaMemoria, ler as lerDaMemoria, listarIndice as indiceDaMemoria, resolverSlug } from "@/features/memoria/servicos/memoria";
+import {
+  acrescentarSecao,
+  registrarLicao,
+  buscar as buscarNaMemoria,
+  ler as lerDaMemoria,
+  listarIndice as indiceDaMemoria,
+  resolverSlug,
+  salvar as salvarNaMemoria,
+} from "@/features/memoria/servicos/memoria";
 
 // PC sem banco: a Memória só existe no hub da nuvem. Resposta para o agente seguir com os playbooks do prompt.
 const MEMORIA_FORA = { content: "A Memória fica no hub da nuvem; neste PC ela não está ligada. Siga os playbooks do prompt.", summary: "memória indisponível" };
@@ -729,6 +737,27 @@ const definitions: Anthropic.Beta.BetaTool[] = [
       aspect_ratio: { type: "string", enum: ["9:16", "1:1", "4:5", "16:9", "5:4", "auto"], description: "Modo prompt. Padrão 9:16." },
       video_generation_id: { type: "string", description: "Modo twin: vídeo da pessoa falando para a câmera." },
     }),
+  },
+  // ---- Mudar regras pela conversa (features/memoria, chave "memoria_editar", como a tela da Memória) ----
+  {
+    name: "memoria_salvar",
+    description:
+      "Grava na Memória da operação o que o hub aprendeu: regra que o usuário mandou mudar, criar ou tirar, e lições das correções dele. licao = o jeito de aprender sozinho: registre, sem perguntar, toda correção, reclamação, preferência ou acerto confirmado do usuário (o que aconteceu + a regra que fica), na tabela de lições (22-licoes-producao-video) e, com relacionado, também no documento do tema; fica marcada para alguém revisar na tela da Memória. acrescentar = seção nova datada no fim de um documento (para regra que o usuário mandou; não apaga nada); reescrever = troca o texto inteiro de um documento (leia antes com memoria_ler e mande o texto completo); criar = documento novo. Cada gravação vira versão nova (dá para voltar na tela da Memória). no_prompt=true põe o documento no prompt de todos os agentes (só admin ou dono). Vale para as conversas novas; nesta conversa, siga a regra nova desde já.",
+    input_schema: objectSchema(
+      {
+        acao: { type: "string", enum: ["licao", "acrescentar", "reescrever", "criar"], description: "Padrão acrescentar." },
+        slug: { type: "string", description: "Documento (ex.: decisoes-pendentes, 22-licoes-producao-video). Para criar: slug novo, minúsculas e hífens. Na lição: não precisa (use relacionado)." },
+        titulo: { type: "string", description: "acrescentar: título da seção. criar: título do documento. licao: título curto da lição." },
+        conteudo: { type: "string", description: "Texto em markdown (a regra com as palavras do usuário). Na lição: a regra que fica." },
+        o_que_aconteceu: { type: "string", description: "Só na lição: o que deu errado ou o que o usuário corrigiu/aprovou, com o produto ou lote." },
+        relacionado: { type: "string", description: "Só na lição: slug do documento do tema, que também recebe a lição (opcional)." },
+        tipo: { type: "string", enum: [...TIPOS], description: "Só para criar. Regras: regra." },
+        frente: { type: "string", enum: [...FRENTES], description: "Só para criar. Padrão geral." },
+        no_prompt: { type: "boolean", description: "Só para criar: entra no prompt de todos os agentes. Só admin ou dono." },
+        nota: { type: "string", description: "O que mudou, em uma linha (fica no histórico)." },
+      },
+      ["conteudo"],
+    ),
   },
 ];
 
@@ -1466,6 +1495,52 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
       : "Treinando no HeyGen; acompanhe com action=status. Pronto, ele aparece em heygen_list_avatars (private).";
     return { content: json({ ...creation, proximo }), summary: `avatar "${cut(creation.name, 30)}" criado` };
   },
+
+  async memoria_salvar(input, { usuario }) {
+    if (!process.env.DATABASE_URL?.trim()) return MEMORIA_FORA;
+    if (!usuario) throw new InputError("Só uma pessoa logada grava na Memória.");
+    const autor = { id: usuario.id, nome: usuario.nome };
+    const acao = ["licao", "reescrever", "criar"].includes(str(input.acao)) ? str(input.acao) : "acrescentar";
+    const conteudo = str(input.conteudo).trim();
+    const nota = str(input.nota).trim().slice(0, 200) || undefined;
+    if (acao === "licao") {
+      const relacionado = str(input.relacionado).trim() ? ((await resolverSlug(str(input.relacionado))) ?? str(input.relacionado).trim()) : undefined;
+      const licoes = await registrarLicao(
+        { titulo: str(input.titulo), data: new Date().toISOString().slice(0, 10), oQueAconteceu: str(input.o_que_aconteceu), regra: conteudo, relacionado },
+        autor,
+      );
+      // Aprendida sozinha pelo chat: entra na fila "precisa de revisão" da Memória para uma pessoa conferir.
+      await salvarNaMemoria({ slug: licoes.slug, conteudo: licoes.conteudo, versaoEsperada: licoes.versao, precisaRevisao: true }, autor).catch(() => undefined);
+      return { content: `Lição guardada em ${licoes.slug}${relacionado ? ` e em ${relacionado}` : ""}. Vale nas conversas novas; nesta, siga desde já.`, summary: `lição: ${cut(str(input.titulo), 40)}` };
+    }
+    if (!str(input.slug).trim()) throw new InputError("Diga o documento (slug).");
+    if (acao === "criar") {
+      if (input.no_prompt !== undefined && !ehAdmin(usuario)) throw new InputError("Só admin ou dono decide o que entra no prompt dos agentes. Crie sem no_prompt.");
+      const d = await salvarNaMemoria(
+        {
+          slug: str(input.slug).trim(),
+          conteudo,
+          versaoEsperada: null,
+          titulo: str(input.titulo).trim() || undefined,
+          tipo: (str(input.tipo) || "regra") as TipoDoc,
+          frente: (str(input.frente) || "geral") as Frente,
+          ...(input.no_prompt !== undefined ? { noPrompt: input.no_prompt === true } : {}),
+          nota: nota ?? "criado pelo chat",
+        },
+        autor,
+      );
+      return { content: `Documento ${d.slug} criado (versão ${d.versao}${d.noPrompt ? ", no prompt de todos os agentes" : ""}).`, summary: `criou ${cut(d.slug, 40)}` };
+    }
+    const slug = (await resolverSlug(str(input.slug))) ?? str(input.slug).trim();
+    if (acao === "reescrever") {
+      const atual = await lerDaMemoria(slug);
+      if (!atual) throw new DocNaoEncontrado(slug);
+      const d = await salvarNaMemoria({ slug, conteudo, versaoEsperada: atual.versao, nota: nota ?? "reescrito pelo chat" }, autor);
+      return { content: `Documento ${d.slug} reescrito (versão ${d.versao}).`, summary: `reescreveu ${cut(d.slug, 40)}` };
+    }
+    const d = await acrescentarSecao(slug, { titulo: str(input.titulo) || "Regra nova", conteudo }, autor, nota);
+    return { content: `Seção acrescentada em ${d.slug} (versão ${d.versao}).`, summary: `gravou em ${cut(d.slug, 40)}` };
+  },
 };
 
 const MIME: Record<string, string> = {
@@ -1509,6 +1584,7 @@ const CHAVE_DA_FERRAMENTA: Record<string, RegraDeAcesso> = {
   // Memória: dados do negócio.
   memoria_buscar: { chave: "memoria" },
   memoria_ler: { chave: "memoria" },
+  memoria_salvar: { chave: "memoria_editar" },
   // Estúdios: gera ou gasta crédito (FLORA, HeyGen, ElevenLabs; a transcrição usa o Scribe só de reserva do Whisper).
   elevenlabs_tts: { chave: "estudios" },
   heygen_create_video: { chave: "estudios" },

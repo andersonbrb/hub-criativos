@@ -72,7 +72,7 @@ const conta = (chaves: Chave[], papel: Usuario["papel"] = "membro"): Usuario => 
 // Com DATABASE_URL (o hub da nuvem), o que roda fora de uma rota precisa dizer a organização.
 const naPadrao = <T,>(fn: () => Promise<T>) => comOrganizacao(ORGANIZACAO_PADRAO.id, fn);
 const soChat = conta(["chat"]);
-const comTudo = conta(["chat", "memoria", "estudios", "fluxo", "editor"]);
+const comTudo = conta(["chat", "memoria", "memoria_editar", "estudios", "fluxo", "editor"]);
 const ctx = (usuario: Usuario) => ({ signal: new AbortController().signal, usuario });
 const SEM_MEMORIA = 'Sua conta não tem acesso a "Memória (ler)". Peça a um admin.';
 const SEM_ESTUDIOS = 'Sua conta não tem acesso a "Estúdios (gera no FLORA, ElevenLabs e HeyGen, gasta créditos)". Peça a um admin.';
@@ -170,7 +170,7 @@ describe("ferramentas do chat: chave de cada uma", () => {
     // As que exigem a chave só em parte das chamadas ficam na lista (a trava é na chamada).
     expect(lista).toContain("flora_projects");
     expect(lista).toContain("hub_view_video");
-    for (const fora of ["memoria_buscar", "memoria_ler", "flora_generate", "elevenlabs_tts", "heygen_create_video", "heygen_translate_video", "hub_montage", "hub_beat_edit", "hub_transcribe", "hub_transcript_read", "pipeline_get", "pipeline_save_card", "editor_open", "editor_render", "editor_join"]) {
+    for (const fora of ["memoria_buscar", "memoria_ler", "memoria_salvar", "flora_generate", "elevenlabs_tts", "heygen_create_video", "heygen_translate_video", "hub_montage", "hub_beat_edit", "hub_transcribe", "hub_transcript_read", "pipeline_get", "pipeline_save_card", "editor_open", "editor_render", "editor_join"]) {
       expect(lista).not.toContain(fora);
     }
     // Só filtra: a ordem das definições não muda (prefixo cacheado).
@@ -207,7 +207,7 @@ describe("ferramentas do chat: chave de cada uma", () => {
     expect(c1.toolNames).not.toContain("flora_generate");
     expect(c1.system).not.toContain(SEGREDO);
 
-    await entrarCom(["chat", "memoria", "estudios", "fluxo", "editor"]);
+    await entrarCom(["chat", "memoria", "memoria_editar", "estudios", "fluxo", "editor"]);
     const r2 = await criar();
     const id2 = ((await r2.json()) as { chat: { id: string } }).chat.id;
     const c2 = (await naPadrao(() => getChat(id2)))!;

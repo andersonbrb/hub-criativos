@@ -60,7 +60,7 @@ describe("memória no chat interno", () => {
   }));
 
   it("memoria_buscar e memoria_ler respondem para o agente", () => naPadrao(async () => {
-    expect(TOOL_NAMES.slice(-2)).toEqual(["memoria_buscar", "memoria_ler"]);
+    expect(TOOL_NAMES.slice(-4)).toEqual(["memoria_buscar", "memoria_ler", "heygen_create_avatar", "memoria_salvar"]);
     await salvar({ slug: "05-traducao", conteudo: "# Tradução de criativos\n\nComo traduzir um AD.", versaoEsperada: null, tipo: "fluxo" }, ana);
     await salvar({ slug: "longo", conteudo: `# Longo\n\n${"x".repeat(45_000)}`, versaoEsperada: null, tipo: "fato" }, ana);
 
@@ -84,5 +84,36 @@ describe("memória no chat interno", () => {
     await salvar({ slug: "projeto-dewalt-ads-cl", conteudo: "# DeWalt\n\nx", versaoEsperada: null, tipo: "projeto" }, ana);
     expect(await runTool("memoria_ler", { slug: "projetos/dewalt-ads-cl.md" }, ctx)).toMatchObject({ error: false, summary: "leu projeto-dewalt-ads-cl" });
     expect(String((await runTool("memoria_ler", { slug: "05-traducao", versao: 4 }, ctx)).content)).toContain("não tem a versão 4");
+  }));
+
+  it("memoria_salvar: o chat grava regra e lição (a lição fica para revisão)", () => naPadrao(async () => {
+    const dono = { id: "u1", nome: "Anderson", papel: "dono", ativo: true, chaves: [], organizacao: { id: ORGANIZACAO_PADRAO.id, nome: "Grupo Chegou", situacao: "ativa" } };
+    const comDono = { ...ctx, usuario: dono } as unknown as Parameters<typeof runTool>[2];
+    await salvar({ slug: "decisoes-pendentes", conteudo: "# Decisões\n\nTexto.", versaoEsperada: null, tipo: "decisao" }, ana);
+
+    // Regra nova: seção no fim, sem apagar nada.
+    const regra = await runTool("memoria_salvar", { slug: "decisoes-pendentes", titulo: "Edição sem avatar", conteudo: "Pode editar só com narração e b-roll." }, comDono);
+    expect(regra).toMatchObject({ error: false });
+    const doc = await naPadrao(async () => (await runTool("memoria_ler", { slug: "decisoes-pendentes" }, ctx)).content);
+    expect(String(doc)).toContain("Texto.");
+    expect(String(doc)).toContain("## Edição sem avatar");
+    expect(String(doc)).toContain("Versão 2, de Anderson");
+
+    // Lição aprendida sozinha: vai para a tabela de lições, no documento do tema e na fila de revisão.
+    const licao = await runTool(
+      "memoria_salvar",
+      { acao: "licao", titulo: "Sem som na transição", o_que_aconteceu: "Usuário reclamou do whoosh no lote X.", conteudo: "Nunca efeito sonoro em transição.", relacionado: "decisoes-pendentes" },
+      comDono,
+    );
+    expect(licao).toMatchObject({ error: false });
+    const licoes = String((await runTool("memoria_ler", { slug: "22-licoes-producao-video" }, ctx)).content);
+    expect(licoes).toContain("Nunca efeito sonoro em transição.");
+    expect(licoes).toContain("Precisa de revisão");
+    expect(String((await runTool("memoria_ler", { slug: "decisoes-pendentes" }, ctx)).content)).toContain("Lição: Sem som na transição");
+
+    // Sem pessoa logada não grava; e quem não é admin não põe documento no prompt.
+    expect(await runTool("memoria_salvar", { slug: "x", conteudo: "y" }, ctx)).toMatchObject({ error: true });
+    const membro = { ...comDono, usuario: { ...dono, papel: "membro" } } as unknown as Parameters<typeof runTool>[2];
+    expect(await runTool("memoria_salvar", { acao: "criar", slug: "nova", conteudo: "# Nova\n\nx", no_prompt: true }, membro)).toMatchObject({ error: true });
   }));
 });
