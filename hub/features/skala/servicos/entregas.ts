@@ -14,12 +14,19 @@ export type Entrega = typeof skalaEntregas.$inferSelect;
 
 const tokenComFormato = (token: unknown): token is string => typeof token === "string" && token.startsWith(PREFIXO_DO_LINK) && token.length <= 200;
 
-export async function registrarEntrega(entrega: EntregaDoSkala, ip: string | null, agora = new Date()) {
+// organizacaoId: a de quem mandou (a da chave de API; com a chave fixa do Skala, a Grupo Chegou).
+export async function registrarEntrega(
+  entrega: EntregaDoSkala,
+  ip: string | null,
+  organizacaoId: string = ORGANIZACAO_DO_SKALA,
+  chaveApiId: string | null = null,
+  agora = new Date(),
+) {
   const token = novo(PREFIXO_DO_LINK);
   const expiraEm = new Date(agora.getTime() + VALIDADE_DO_LINK_MS);
   await banco()
     .insert(skalaEntregas)
-    .values({ tokenHash: hashDe(token), organizacaoId: ORGANIZACAO_DO_SKALA, criativos: entrega.criativos, pedido: entrega.pedido, expiraEm, ip });
+    .values({ tokenHash: hashDe(token), organizacaoId, criativos: entrega.criativos, pedido: entrega.pedido, expiraEm, ip, chaveApiId });
   return { token, expiraEm };
 }
 

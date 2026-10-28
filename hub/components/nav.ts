@@ -3,7 +3,10 @@ import {
   Bot,
   Building2,
   Cable,
+  Code,
+  FileCode,
   Film,
+  KeyRound,
   Languages,
   LayoutGrid,
   Library,
@@ -19,13 +22,14 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { podeUsar, type Chave, type Usuario } from "@/features/acesso/contrato";
+import { ehAdmin, podeUsar, type Chave, type Usuario } from "@/features/acesso/contrato";
 import { agents } from "@/lib/data";
 
 // Telas do hub. Uma lista só para o menu lateral, as páginas que agrupam telas (Agentes, Estúdios), a busca rápida
 // (Ctrl K) e o nome da página na barra do topo.
 
 // soOperador: a tela não depende de chave da organização, só de operar a plataforma (tela Plataforma).
+// soAdmin: só o dono ou um admin da organização abre (Chaves de API), como no Skala.
 // descricao: uma linha no cartão da página que agrupa a tela.
 export type ItemDoMenu = {
   href: string;
@@ -34,6 +38,7 @@ export type ItemDoMenu = {
   chave: Chave;
   tool?: string;
   soOperador?: boolean;
+  soAdmin?: boolean;
   descricao?: string;
 };
 
@@ -44,6 +49,13 @@ export const ESTUDIOS: ItemDoMenu[] = [
   { href: "/estudios/avatar", label: "Avatar", tool: "HeyGen", icon: UserRound, chave: "estudios", descricao: "Uma pessoa falando o roteiro, com a boca sincronizada." },
   { href: "/estudios/traducao", label: "Tradução", tool: "HeyGen", icon: Languages, chave: "estudios", descricao: "O mesmo vídeo em outro idioma, com a voz da pessoa." },
   { href: "/estudios/edicao", label: "Edição", tool: "No hub", icon: Scissors, chave: "estudios", descricao: "Edição final: cortes, cenas extras e legenda, sem gastar créditos." },
+];
+
+// API do hub (como a seção API do Skala): um item só no menu, que abre /api-do-hub com as duas telas. A documentação
+// é para quem liga contas (Integrações); as chaves, só para dono e admin.
+export const API: ItemDoMenu[] = [
+  { href: "/documentacao-da-api", label: "Documentação da API", icon: FileCode, chave: "integracoes", descricao: "O que outro sistema faz pela API do hub, como mandar a chave e um exemplo de cada chamada." },
+  { href: "/chaves-de-api", label: "Chaves de API", icon: KeyRound, chave: "integracoes", soAdmin: true, descricao: "Crie a chave que outro sistema (o Skala) usa para falar com o hub, veja o último uso e revogue." },
 ];
 
 // Itens do menu lateral, na ordem. `telas`: o item abre uma página que agrupa estas telas (e fica marcado nelas).
@@ -65,6 +77,7 @@ export const BARRA: ItemDaBarra[] = [
 export const RODAPE: ItemDaBarra[] = [
   { href: "/integracoes", label: "Integrações", icon: Plug, chave: "integracoes" },
   { href: "/conector", label: "Conector do Claude", icon: Cable, chave: "conector_claude" },
+  { href: "/api-do-hub", label: "API", icon: Code, chave: "integracoes", telas: API },
 ];
 
 // Equipe e Plataforma não entram no menu lateral: abrem pelo menu da organização, no pé dele
@@ -75,10 +88,10 @@ const DA_ORGANIZACAO: ItemDaBarra[] = [
 ];
 
 // Telas que só existem com o banco (no PC sem banco ficam fora do menu).
-const SO_COM_BANCO = new Set<string>(["/memoria", "/conector", "/membros", "/plataforma"]);
+const SO_COM_BANCO = new Set<string>(["/memoria", "/conector", "/membros", "/plataforma", "/api-do-hub", "/documentacao-da-api", "/chaves-de-api"]);
 
 const podeAbrir = (usuario: Usuario, semBanco: boolean) => (i: ItemDoMenu) =>
-  (i.soOperador ? usuario.operaPlataforma : podeUsar(usuario, i.chave)) && !(semBanco && SO_COM_BANCO.has(i.href));
+  (i.soOperador ? usuario.operaPlataforma : podeUsar(usuario, i.chave) && (!i.soAdmin || ehAdmin(usuario))) && !(semBanco && SO_COM_BANCO.has(i.href));
 
 // Telas de um grupo que a pessoa pode abrir (a página também confere no servidor).
 export const telasDaPessoa = (telas: ItemDoMenu[], usuario: Usuario, semBanco: boolean) => telas.filter(podeAbrir(usuario, semBanco));

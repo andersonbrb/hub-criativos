@@ -1,6 +1,7 @@
 import { index, json, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 import { organizacoes, usuarios } from "../acesso/tabelas";
+import { chavesApi } from "../api/tabelas";
 import type { CriativoDoSkala } from "./contrato";
 
 // Criativos que chegam do Skala pelo botão "Gerar ganchos" (features/skala). O ciclo de uma linha:
@@ -16,7 +17,8 @@ export const skalaEntregas = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     tokenHash: text("token_hash").notNull().unique(),
-    // O Skala é da Grupo Chegou: a conversa nasce nela (features/skala/contrato.ts).
+    // A organização de quem mandou: a da chave de API (features/api) ou, com a chave fixa do Skala, a Grupo Chegou.
+    // A conversa nasce nela.
     organizacaoId: uuid("organizacao_id")
       .notNull()
       .references(() => organizacoes.id, { onDelete: "cascade" }),
@@ -32,6 +34,8 @@ export const skalaEntregas = pgTable(
     // A conversa do chat principal que nasceu da entrega (reabrir o link leva a ela).
     chatId: text("chat_id"),
     ip: text("ip"),
+    // A chave de API que mandou (vazio: a chave fixa do Skala, da variável do servidor).
+    chaveApiId: uuid("chave_api_id").references(() => chavesApi.id, { onDelete: "set null" }),
   },
   (t) => [index("skala_entregas_organizacao_idx").on(t.organizacaoId)],
 );

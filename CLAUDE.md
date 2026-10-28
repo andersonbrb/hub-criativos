@@ -75,10 +75,16 @@ Cada organização conecta o próprio canal (card YouTube em Integrações) e en
 
 ### Skala (botão "Gerar ganchos", desde 27/10/2026)
 O Skala (painel de anúncios do grupo, repositório `Grupo-Chegou-2-0/skalaads`) manda criativos da aba Criativos do TikTok Ads para o chat principal, que já começa pedindo ganchos (`features/skala`; receita completa do lado do Skala em `docs/skala.md`).
-- **Porta:** o servidor do Skala chama `POST /api/skala/criativos` com `Authorization: Bearer <chave>` e recebe o link `/chat?skala=<token>` (uso único, 2 h; no banco, `skala_entregas`, só o hash). A chave fica na variável `HUB_CHAVE_DO_SKALA` do Railway, nas duas pontas: exceção à regra das chaves na tela, porque é uma senha combinada entre dois sistemas, não a chave de um serviço que alguém cola. Sem ela (ou com menos de 32 caracteres), 503.
+- **Porta:** o servidor do Skala chama `POST /api/skala/criativos` com `Authorization: Bearer <chave>` e recebe o link `/chat?skala=<token>` (uso único, 2 h; no banco, `skala_entregas`, só o hash, com a organização e a chave de quem mandou). Vale uma chave da tela Chaves de API (seção "API do hub"; o criativo entra na organização dela) ou a chave fixa da variável `HUB_CHAVE_DO_SKALA` do Railway (Grupo Chegou), que continua valendo até ser tirada de lá. Sem chave válida, 401.
 - **Link:** a página do chat pede login e volta, troca a sessão para a Grupo Chegou (`ORGANIZACAO_DO_SKALA`) se a pessoa participa, e a tela manda sozinha a 1ª mensagem. O POST do chat reserva a entrega, baixa a mídia e monta a mensagem (`servicos/primeira-mensagem.ts`): vídeo → Drive, como todo vídeo; "Ficha do Skala" em Markdown com copy, números e anúncios. Reabrir o link leva à mesma conversa.
 - **Download** (`servicos/midia.ts`): só https, só os domínios de `DOMINIOS_DA_MIDIA` (Skala e CDNs do TikTok, da Meta e do Cloudinary), conferidos em cada redirecionamento; vídeo até 300 MB, imagem até 25 MB; tipo pelos primeiros bytes. O que não vem (link vencido, sem Drive) vira aviso na bolha e a conversa segue com a capa.
 - Os anexos do chat ficam em `lib/server/chat/anexos.ts`, usados pela rota do chat e pelo Skala.
+
+### API do hub (seção "API" do menu, pedido do dono, 28/10/2026)
+Como a seção API do Skala: item "API" no pé do menu (página `/api-do-hub`), com **Documentação da API** (`/documentacao-da-api`, chave `integracoes`; texto em `features/api/documentacao.ts`, com os limites lidos do contrato do Skala) e **Chaves de API** (`/chaves-de-api`, só dono e admin: `soAdmin` em `components/nav.ts`).
+- **Chaves** (`features/api`, tabela `chaves_api`): nome, começo (`hub_api_xxxx`), criada por, último uso, revogada. A chave inteira só volta na resposta de criar; no banco fica o SHA-256. Revogar vale na hora e não apaga a linha. Cada chave é de uma organização: o que ela manda entra lá.
+- **Quem chama** (`quemChama` em `features/api/servicos/quem-chama.ts`): `Authorization: Bearer <chave>` vale com uma chave de API ou com a chave fixa `HUB_CHAVE_DO_SKALA` (sempre Grupo Chegou). Sem chave válida, 401.
+- **Chamadas:** "Gerar ganchos" (`POST /api/skala/criativos`, a mesma que o Skala já usa) e "Conferir a chave" (`GET /api/chave-de-api`, devolve organização e nome da chave). Chamada nova: rota que usa `quemChama` e uma seção na documentação.
 
 ### Serviços externos: MCP remoto com OAuth, não API
 HeyGen, FLORA, ElevenLabs e Higgsfield são chamados pelos MCPs oficiais, com login OAuth da conta. O consumo sai dos créditos do plano de cada serviço, não do saldo de API.

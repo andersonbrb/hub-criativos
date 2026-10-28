@@ -3,8 +3,9 @@
 // Arquivo puro (sem código de servidor): a tela importa. Serviços em features/skala/servicos.
 //
 // O caminho, de ponta a ponta (receita completa para o lado do Skala em docs/skala.md):
-//   1. o SERVIDOR do Skala manda os criativos com a chave combinada: POST /api/skala/criativos,
-//      "Authorization: Bearer <chave>". Navegador nenhum vê a chave;
+//   1. o SERVIDOR do Skala manda os criativos com uma chave: POST /api/skala/criativos,
+//      "Authorization: Bearer <chave>". Vale uma chave de API da tela "Chaves de API" (features/api) ou a chave fixa
+//      da variável do servidor. Navegador nenhum vê a chave;
 //   2. o hub confere, guarda e responde com um link de uso único (/chat?skala=<token>, 2 horas);
 //   3. o Skala abre o link numa aba nova. Sem login, o hub pede para entrar e volta para o link;
 //   4. a tela do chat manda a primeira mensagem sozinha: o hub baixa o vídeo (ou a imagem) do CDN, que vai para o
@@ -12,12 +13,12 @@
 
 import { ORGANIZACAO_PADRAO } from "@/features/acesso/contrato";
 
-// A variável do serviço no Railway com a chave combinada (as duas pontas leem de lá). Sem ela, a conexão fica
-// desligada (503).
+// A variável do serviço no Railway com a chave fixa combinada com o Skala (as duas pontas leem de lá), de antes das
+// chaves de API. Sem ela, só as chaves de API valem.
 export const VARIAVEL_DA_CHAVE = "HUB_CHAVE_DO_SKALA";
 
-// O Skala é da Grupo Chegou: os criativos entram na conversa dela, mesmo que a pessoa esteja com outra organização
-// aberta (a tela troca, se ela participa da Grupo Chegou).
+// A chave fixa é da Grupo Chegou: o que ela manda entra na conversa dela. Com uma chave de API, entra na organização
+// da chave. Se a pessoa estiver com outra organização aberta, a tela troca (se ela participa da organização certa).
 export const ORGANIZACAO_DO_SKALA = ORGANIZACAO_PADRAO.id;
 
 export const VALIDADE_DO_LINK_MS = 2 * 60 * 60_000;

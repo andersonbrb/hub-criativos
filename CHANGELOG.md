@@ -6,6 +6,9 @@ aqui o que já foi validado em produção.
 ## [Não publicado]
 
 ### 🚀 Novidades
+- **[🔑 API]** Seção **API** no menu, como no Skala: **Documentação da API** (o que outro sistema faz pelo Hub, com
+  exemplos) e **Chaves de API** (dono e admin criam uma chave com nome, veem o último uso e revogam na hora). A chave
+  aparece inteira só uma vez. O Skala pode usar uma dessas chaves no botão "Gerar ganchos"; a chave antiga continua valendo.
 - **[💬 Chat]** Botão **Gerar ganchos** do Skala: na aba Criativos do Skala, escolha o criativo e clique. O chat
   principal do Hub abre numa conversa nova, já com o vídeo, os números do criativo e o pedido de ganchos, e os ganchos
   começam a sair. Sem login, o Hub pede para entrar e volta para a conversa.

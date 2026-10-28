@@ -148,13 +148,13 @@ describe("conexão com o Skala", () => {
     await rm(DATA_DIR, { recursive: true, force: true });
   });
 
-  it("sem a chave certa não grava nada; sem a variável a conexão fica desligada", async () => {
+  it("sem a chave certa não grava nada; chave fixa curta ou sem a variável não vale", async () => {
     expect((await pedidoDoSkala({ criativos: [criativo()] }, null)).status).toBe(401);
     expect((await pedidoDoSkala({ criativos: [criativo()] }, "chave-errada-mas-comprida-o-bastante-123")).status).toBe(401);
     process.env[VARIAVEL_DA_CHAVE] = "curta";
-    expect((await pedidoDoSkala({ criativos: [criativo()] }, "curta")).status).toBe(503);
+    expect((await pedidoDoSkala({ criativos: [criativo()] }, "curta")).status).toBe(401);
     delete process.env[VARIAVEL_DA_CHAVE];
-    expect((await pedidoDoSkala({ criativos: [criativo()] })).status).toBe(503);
+    expect((await pedidoDoSkala({ criativos: [criativo()] })).status).toBe(401);
     expect(await banco().select().from(skalaEntregas)).toHaveLength(0);
   });
 

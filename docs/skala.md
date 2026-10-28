@@ -27,6 +27,10 @@ A chamada sai **do servidor do Skala**, nunca do navegador: a chave não pode ir
 
 ## 2. A chave
 
+**Desde 28/10/2026, o jeito novo:** um dono ou admin do hub cria uma chave em **API → Chaves de API** (no hub, `/chaves-de-api`) e cola no Skala. Ela vale no mesmo endereço e do mesmo jeito (`Authorization: Bearer <chave>`), e o criativo entra na organização da chave. Para testar a chave colada: `GET https://hubdecriativos.up.railway.app/api/chave-de-api` com o mesmo cabeçalho (200 com a organização e o nome da chave; 401 se não vale). A documentação completa fica no hub, em **API → Documentação da API**.
+
+A chave fixa abaixo continua valendo até ser tirada do Railway:
+
 - O hub guarda a chave na variável **`HUB_CHAVE_DO_SKALA`** do serviço **Hub Produção**, no projeto **Hub de
   Criativos** do Railway (área "Grupo Chegou", ambiente `production`). Ids: projeto
   `decc4e81-4032-4894-b887-d8d3bffd7e07`, ambiente `a90be87a-0084-493d-9fbf-74ffd2b6c874`, serviço

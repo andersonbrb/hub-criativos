@@ -50,6 +50,13 @@
       "when": 1793071042944,
       "tag": "0006_skala",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793207190226,
+      "tag": "0007_chaves_de_api",
+      "breakpoints": true
     }
   ]
 }
