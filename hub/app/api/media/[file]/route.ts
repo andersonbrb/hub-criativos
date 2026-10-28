@@ -4,7 +4,7 @@ import path from "node:path";
 import { abrirTrecho, ArquivoForaDoDrive } from "@/features/drive/servicos/arquivos";
 import { midiaDoArquivo, sincronizarComDrive } from "@/features/drive/servicos/videos";
 import { route } from "@/lib/server/http";
-import { CHAVES_DE_PRODUCAO, CONTENT_TYPES, trechoDoArquivo } from "@/lib/server/media";
+import { CHAVES_DE_PRODUCAO, CONTENT_TYPES, faixaComTeto, trechoDoArquivo } from "@/lib/server/media";
 import { pastaDeMidia } from "@/lib/server/pastas";
 
 // O vídeo foi apagado (ou mandado para a lixeira) direto no Drive: o hub não tem outra cópia.
@@ -73,7 +73,7 @@ export const GET = route(async (request: Request, { params }: { params: Promise<
       if (request.signal.aborted) desistiu();
       else request.signal.addEventListener("abort", desistiu, { once: true });
       try {
-        trecho = await abrirTrecho(midia.drive.id, request.headers.get("range"), ateResponder.signal);
+        trecho = await abrirTrecho(midia.drive.id, faixaComTeto(request.headers.get("range")), ateResponder.signal);
       } catch (err) {
         if (err instanceof ArquivoForaDoDrive) {
           // Não marca na hora (pode ser outra conta conectada): o espelho confere a lista do Drive e marca se confirmar.

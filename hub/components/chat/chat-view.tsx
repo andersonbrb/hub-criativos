@@ -71,6 +71,15 @@ function KindIcon({ kind, className }: { kind: AttachmentKind; className?: strin
   return <Icon className={className} aria-hidden />;
 }
 
+// Situação atual de uma geração em andamento. Cada ferramenta tem o seu endereço: a edição final responde em
+// /api/montagem/<id> e a tradução pelo do HeyGen (antes o chat pedia /api/montagem/jobs/<id>, que não existe, e o
+// card da edição só ficava pronto ao recarregar a página).
+async function consultarGeracao(tool: string, id: string): Promise<Generation> {
+  if (tool === "montagem") return (await apiFetch<{ generation: Generation }>(`/api/montagem/${id}`)).generation;
+  const rota = tool === "heygen-traducao" ? "heygen" : tool;
+  return (await apiFetch<{ generation: Generation }>(`/api/${rota}/jobs/${id}`, { method: "POST" })).generation;
+}
+
 const sizeLabel = (bytes: number) => (bytes > 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`);
 
 // Atualiza a mesma geração onde quer que ela apareça na conversa.
@@ -209,16 +218,28 @@ export function ChatView({
   // Acompanha as gerações assíncronas que aparecem na conversa até ficarem prontas.
   const generations = items.flatMap((it) => (it.kind === "tool" ? it.generations : []));
   const pending = generations.filter((g) => g.status === "pending" || g.status === "running");
-  const pendingKey = [...new Set(pending.map((g) => `${g.tool}:${g.id}`))].join(",");
+  // Geração que falhou na consulta várias vezes seguidas (apagada, por exemplo) sai da lista: antes ela era consultada
+  // a cada 6 segundos enquanto a conversa ficasse aberta.
+  const falhasRef = useRef(new Map<string, number>());
+  const [desistidas, setDesistidas] = useState<string[]>([]);
+  const pendingKey = [...new Set(pending.filter((g) => !desistidas.includes(g.id)).map((g) => `${g.tool}:${g.id}`))].join(",");
   useEffect(() => {
     if (!pendingKey) return;
     const timer = setInterval(async () => {
       const results = await Promise.all(
         pendingKey.split(",").map(async (key) => {
           const [tool, id] = key.split(":");
-          return apiFetch<{ generation: Generation }>(`/api/${tool}/jobs/${id}`, { method: "POST" })
-            .then((r) => r.generation)
-            .catch(() => null);
+          return consultarGeracao(tool, id)
+            .then((g) => {
+              falhasRef.current.delete(id);
+              return g;
+            })
+            .catch(() => {
+              const falhas = (falhasRef.current.get(id) ?? 0) + 1;
+              falhasRef.current.set(id, falhas);
+              if (falhas >= 5) setDesistidas((prev) => [...prev, id]);
+              return null;
+            });
         }),
       );
       const changed = results.filter((g): g is Generation => Boolean(g) && g!.status !== "running" && g!.status !== "pending");

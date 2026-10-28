@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Workspace, WorkspacePanel } from "@/components/workspace";
+import { VideoNaTela } from "@/components/video-na-tela";
 import { apiFetch, mediaUrl, type Generation } from "@/lib/generations";
 import { cn } from "@/lib/utils";
 
@@ -352,7 +353,7 @@ export function TranslateStudio() {
                   onClick={() => setSourceId(v.id)}
                   className={cn("relative flex flex-col overflow-hidden rounded-lg border text-left hover:border-foreground/40", active && "border-rec ring-2 ring-rec/40")}
                 >
-                  <video src={mediaUrl(v)} muted playsInline preload="metadata" className="aspect-[9/16] w-full bg-muted object-cover" />
+                  <VideoNaTela src={mediaUrl(v)} muted playsInline className="aspect-[9/16] w-full bg-muted object-cover" />
                   <span className="flex items-center justify-between gap-1 px-2 py-1.5 text-[0.6875rem]">
                     <span className="truncate">{v.name || v.prompt}</span>
                     <span className="shrink-0 font-mono text-muted-foreground">{SOURCE[v.tool] ?? v.tool}</span>

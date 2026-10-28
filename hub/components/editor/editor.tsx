@@ -11,6 +11,7 @@ import { Timeline, type Selection } from "@/components/editor/timeline";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Workspace, WorkspacePanel, type WorkspacePreset } from "@/components/workspace";
+import { VideoNaTela } from "@/components/video-na-tela";
 import { formatTime, placeClips, splitAt, type EditorProject, type EditorProjectSummary } from "@/lib/editor";
 import { apiFetch, mediaUrl, subindoParaODrive, videoForaDoDrive, type Generation } from "@/lib/generations";
 import { cn } from "@/lib/utils";
@@ -656,7 +657,7 @@ function Library({
         <div className="grid grid-cols-[repeat(auto-fill,minmax(6rem,1fr))] gap-2">
           {videos.map((v) => (
             <div key={v.id} className="flex flex-col overflow-hidden rounded-md border bg-card">
-              <video src={mediaUrl(v)} preload="metadata" muted playsInline className="aspect-[3/4] w-full bg-black object-contain" />
+              <VideoNaTela src={mediaUrl(v)} muted playsInline className="aspect-[3/4] w-full bg-black object-contain" />
               <p className="line-clamp-2 px-1.5 pt-1 text-[0.6875rem]" title={v.prompt}>
                 {v.name || v.prompt}
               </p>

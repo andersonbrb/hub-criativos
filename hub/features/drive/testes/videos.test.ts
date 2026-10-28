@@ -393,6 +393,25 @@ describe("vídeos no Google Drive", () => {
       expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array(100).fill(7));
     });
 
+    it("vídeo no Drive: o player que pede até o fim recebe um pedaço de 2 MB; o download inteiro continua inteiro", async () => {
+      await entrarCom(["biblioteca"]);
+      const gen = await novoVideo({ drive: { id: "drv-8", pasta: "broll" } }, { local: false });
+      const resposta = () => ({ status: 206 as const, cabecalhos: { "Content-Range": "bytes 0-9/1000" }, corpo: new Response(new Uint8Array(10)).body });
+      vi.mocked(abrirTrecho).mockImplementation(async () => resposta());
+
+      await (await pedirMidia(gen.file!, { range: "bytes=0-" })).arrayBuffer();
+      expect(abrirTrecho).toHaveBeenLastCalledWith("drv-8", "bytes=0-2097151", expect.any(AbortSignal));
+      await (await pedirMidia(gen.file!, { range: "bytes=5000000-" })).arrayBuffer();
+      expect(abrirTrecho).toHaveBeenLastCalledWith("drv-8", "bytes=5000000-7097151", expect.any(AbortSignal));
+      // Faixa fechada, últimos bytes e sem Range (baixar): vão como vieram.
+      await (await pedirMidia(gen.file!, { range: "bytes=10-19" })).arrayBuffer();
+      expect(abrirTrecho).toHaveBeenLastCalledWith("drv-8", "bytes=10-19", expect.any(AbortSignal));
+      await (await pedirMidia(gen.file!, { range: "bytes=-500" })).arrayBuffer();
+      expect(abrirTrecho).toHaveBeenLastCalledWith("drv-8", "bytes=-500", expect.any(AbortSignal));
+      await (await pedirMidia(gen.file!)).arrayBuffer();
+      expect(abrirTrecho).toHaveBeenLastCalledWith("drv-8", null, expect.any(AbortSignal));
+    });
+
     it("sem tela de produção: 403, e o Drive nem é consultado", async () => {
       await entrarCom(["memoria"]);
       const gen = await novoVideo({ drive: { id: "drv-7", pasta: "broll" } }, { local: false });

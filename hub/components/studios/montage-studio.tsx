@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Workspace, WorkspacePanel } from "@/components/workspace";
+import { VideoNaTela } from "@/components/video-na-tela";
 import { apiFetch, mediaUrl, type Generation } from "@/lib/generations";
 import { CREATIVE_LANGUAGES } from "@/lib/languages";
 import { cn } from "@/lib/utils";
@@ -391,7 +392,7 @@ function VideoTile({ g, active, badge, onClick }: { g: Generation; active: boole
         active && "border-rec ring-2 ring-rec/40",
       )}
     >
-      <video src={mediaUrl(g)} muted playsInline preload="metadata" className="aspect-[9/16] w-full bg-muted object-cover" />
+      <VideoNaTela src={mediaUrl(g)} muted playsInline className="aspect-[9/16] w-full bg-muted object-cover" />
       <span className="flex items-center justify-between gap-1 px-2 py-1.5 text-[0.6875rem]">
         <span className="truncate">{g.name || g.prompt}</span>
         <span className="shrink-0 font-mono text-muted-foreground">{SOURCE[g.tool] ?? g.tool}</span>

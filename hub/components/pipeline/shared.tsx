@@ -6,6 +6,7 @@ import { AlertTriangle, AudioLines, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { VideoNaTela } from "@/components/video-na-tela";
 import { operationLabel, type Operation } from "@/lib/board";
 import { mediaUrl, type Generation, type GenerationTool } from "@/lib/generations";
 import { cn } from "@/lib/utils";
@@ -70,7 +71,7 @@ export function GenerationThumb({ g, className }: { g: Generation; className?: s
   return (
     <span className={box} title={g.prompt}>
       {g.kind === "video" ? (
-        <video src={url} preload="metadata" muted playsInline className="pointer-events-none size-full object-cover" />
+        <VideoNaTela src={url} muted playsInline className="pointer-events-none size-full object-cover" />
       ) : (
         // eslint-disable-next-line @next/next/no-img-element -- mídia local gerada
         <img src={url} alt="" loading="lazy" draggable={false} className="pointer-events-none size-full object-cover" />

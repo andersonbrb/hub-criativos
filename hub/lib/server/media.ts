@@ -37,6 +37,20 @@ export const CONTENT_TYPES: Record<string, string> = {
   pdf: "application/pdf",
 };
 
+// Vídeo do Drive para o player (rota /api/media) em pedaços de no máximo 2 MB. O player pede "bytes=N-" (do ponto
+// até o fim) e só lê o começo: para mostrar o primeiro quadro, ou até o próximo salto. Sem o teto, o servidor puxava do Drive o vídeo inteiro a
+// cada pedido, e uma tela com 100 vídeos ocupava o servidor (rede, memória e processador) para todo mundo. Com o teto,
+// o Drive responde só o pedaço, e o player pede o seguinte quando precisa (o HTTP permite responder menos que o pedido).
+// Download sem Range (botão de baixar) continua vindo inteiro.
+export const PEDACO_DO_VIDEO = 2 * 1024 * 1024;
+
+export function faixaComTeto(range: string | null): string | null {
+  const aberta = /^bytes=(\d+)-$/.exec(range?.trim() ?? "");
+  if (!aberta) return range;
+  const inicio = Number(aberta[1]);
+  return Number.isSafeInteger(inicio) ? `bytes=${inicio}-${inicio + PEDACO_DO_VIDEO - 1}` : range;
+}
+
 // Tamanho de cada leitura do disco ao servir um arquivo.
 const PEDACO_DA_LEITURA = 256 * 1024;
 

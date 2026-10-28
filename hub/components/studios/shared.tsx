@@ -20,6 +20,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Slider } from "@/components/ui/slider";
+import { VideoNaTela } from "@/components/video-na-tela";
 import {
   apiFetch,
   downloadName,
@@ -287,7 +288,7 @@ export function GenerationCard({
         <div className="relative flex aspect-[9/16] max-h-80 items-center justify-center bg-muted">
           {pronto ? (
             g.kind === "video" ? (
-              <video src={url} controls playsInline className="size-full object-contain" />
+              <VideoNaTela src={url} controls playsInline className="size-full object-contain" />
             ) : (
               // eslint-disable-next-line @next/next/no-img-element -- mídia local gerada
               <img src={url} alt={g.prompt} className="size-full object-contain" />
