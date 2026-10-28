@@ -86,9 +86,9 @@ O mesmo Hub Edições pode atender o Hub Teste e o Hub Produção: ele não guar
   byte.
 - No ar (28/10/2026): no Hub Teste, a transcrição pelo chat rodou no Hub Edições (17 s); as edições de vídeo não deram
   para testar lá porque o Hub Teste não tem Google Drive conectado. Na produção: edição final (69 s), batida (58 s),
-  exportação do editor (491 s) e remover legenda (42 min, antes do ajuste das linhas de trabalho), todas no Drive e
-  abrindo. Durante as edições, o Hub Produção ficou abaixo de 0,2 vCPU e as telas Fluxo, Biblioteca e Edição abriram
-  em 0,8 a 1,1 s.
+  exportação do editor (491 s) e remover legenda (42 min antes do ajuste das linhas de trabalho, 37 s depois, com o
+  mesmo vídeo de saída), todas no Drive e abrindo. Durante as edições, o Hub Produção ficou abaixo de 0,2 vCPU e as
+  telas Fluxo, Biblioteca e Edição abriram em 0,75 a 1 s (o servidor respondendo em 0,25 a 0,3 s), como sem edição.
 
 ## Custo
 
