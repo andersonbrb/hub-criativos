@@ -41,7 +41,10 @@ código desta mudança chegar à `main`.
 - Fonte: repositório `Grupo-Chegou-2-0/hub-criativos`, ramo `main`, `Dockerfile` da raiz. Sem publicação automática
   (como o Hub Produção): ligar a fonte cria um gatilho de publicação; apague-o (`deploymentTriggerDelete`) e confira
   que `deploymentTriggers` do serviço volta vazio.
-- Limite: 8 vCPU e 16 GB (a cobrança é pelo que usa; o limite só impede um pico sem fim).
+- Limite: 8 vCPU e 16 GB (a cobrança é pelo que usa; o limite só impede um pico sem fim). O contêiner enxerga os 48
+  processadores da máquina, então os scripts recebem `OMP_NUM_THREADS` = limite do serviço ÷ `HUB_EDICOES_SIMULTANEAS`
+  (`executar.ts`, lê `/sys/fs/cgroup/cpu.max`). Sem isso o LaMa abria 48 linhas de trabalho e cada quadro de remover
+  legenda levava ~85 s em vez de menos de 1 s.
 - Variáveis: `HUB_SERVIDOR=edicoes`, `PORT=8080`, `HUB_CHAVE_DAS_EDICOES` (48 caracteres aleatórios, a mesma do site),
   `HUB_EDICOES_SIMULTANEAS=2`.
 - Volume em `/app/.data`: guarda os modelos (Whisper em `/app/.data/hf`, LaMa em `/app/.data/models`), para não
@@ -81,6 +84,11 @@ O mesmo Hub Edições pode atender o Hub Teste e o Hub Produção: ele não guar
   edição final com b-rolls, título, setas do CTA e aviso (37 s), edição na batida com palavras (41 s) e exportação do
   editor com legenda (84 s), todas pelo servidor de edições. A mesma edição final feita no site saiu idêntica, byte a
   byte.
+- No ar (28/10/2026): no Hub Teste, a transcrição pelo chat rodou no Hub Edições (17 s); as edições de vídeo não deram
+  para testar lá porque o Hub Teste não tem Google Drive conectado. Na produção: edição final (69 s), batida (58 s),
+  exportação do editor (491 s) e remover legenda (42 min, antes do ajuste das linhas de trabalho), todas no Drive e
+  abrindo. Durante as edições, o Hub Produção ficou abaixo de 0,2 vCPU e as telas Fluxo, Biblioteca e Edição abriram
+  em 0,8 a 1,1 s.
 
 ## Custo
 

@@ -1,7 +1,9 @@
 import "server-only";
 
 import { execFile, spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { availableParallelism } from "node:os";
 import path from "node:path";
 
 import { MARCA_DA_ENTRADA, MARCA_DA_PASTA, MARCA_DA_SAIDA, NOME_VALIDO, type Trabalho } from "@/features/edicoes/contrato";
@@ -83,11 +85,28 @@ const tirarSobras = (saida: string) => Promise.all([rm(saida, { force: true }).c
 
 // ---------- Python ----------
 
+// Processadores que este serviço pode usar de verdade. No Railway o contêiner enxerga todos os da máquina (48), mas só
+// pode usar o limite do serviço (8 no servidor de edições).
+function processadoresDoServico(): number {
+  try {
+    const [cota, periodo] = readFileSync("/sys/fs/cgroup/cpu.max", "utf8").trim().split(/\s+/);
+    if (cota !== "max" && Number(cota) > 0 && Number(periodo) > 0) return Math.max(1, Math.floor(Number(cota) / Number(periodo)));
+  } catch {
+    // Fora de contêiner (o PC): vale o que a máquina tem.
+  }
+  return availableParallelism();
+}
+
+// O PyTorch do LaMa (remover legenda) abre uma linha de trabalho por processador da máquina: com 48 num serviço de 8,
+// cada quadro levava ~85 s em vez de menos de 1 s (medido em 28/10/2026). Cada edição fica com a sua parte.
+const LINHAS_POR_EDICAO = String(Math.max(1, Math.floor(processadoresDoServico() / (Number(process.env.HUB_EDICOES_SIMULTANEAS) || 2))));
+
 // Roda um script da edição: a saída vai para o registro; termina bem só com código 0 e "DONE" no registro.
 function rodarPython(script: string, jobFile: string, log: Registro): Promise<void> {
   return new Promise((resolve, reject) => {
     let texto = "";
-    const child = spawn(PYTHON(), ["-W", "ignore", script, jobFile], { windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
+    const env = { ...process.env, PYTHONIOENCODING: "utf-8", OMP_NUM_THREADS: LINHAS_POR_EDICAO, MKL_NUM_THREADS: LINHAS_POR_EDICAO };
+    const child = spawn(PYTHON(), ["-W", "ignore", script, jobFile], { windowsHide: true, env });
     child.stdin.end();
     const collect = (chunk: Buffer) => {
       const parte = chunk.toString("utf8");
