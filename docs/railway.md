@@ -58,7 +58,8 @@ e `FLORA_WEBHOOK_SECRET` não são lidas por nada.
 |---|---|
 | `DATABASE_URL` | Endereço interno do Postgres. É a referência `${{Postgres.DATABASE_URL}}`: muda sozinha se a senha do banco mudar. |
 | `HUB_PUBLIC_URL` | Endereço público do hub, em HTTPS. Usado pelo login das integrações (ElevenLabs lê `/oauth/<id>-client.json`) e pelo conector do Claude. Troque junto com o domínio. |
-| `DONOS_DA_PLATAFORMA` | E-mails de quem opera a plataforma (cria e suspende organizações), separados por vírgula. |
+| `DONOS_DA_PLATAFORMA` | E-mails de quem opera a plataforma (cria e suspende organizações), separados por vírgula. O primeiro é o login de administrador do site. |
+| `SENHA_DO_DONO_DA_PLATAFORMA` | Senha de administrador do site, do primeiro e-mail de `DONOS_DA_PLATAFORMA`. A cada subida o hub faz ela valer para essa conta (cria a conta, se faltar; outra senha deixa de valer e as sessões dela caem). Trocar aqui e publicar troca a senha. Mínimo de 10 caracteres. |
 | `HUB_CHAVE_SEGREDOS` | Cifra o que fica guardado no banco (chaves das integrações, autorização do Google). 32 bytes em base64. Não troque: com outra, as chaves e o Drive precisam ser refeitos em Integrações. |
 | `NEXT_TELEMETRY_DISABLED` | `1`: o Next não envia telemetria. |
 | `PORT` | `3000`: porta do servidor e da checagem de saúde. |
