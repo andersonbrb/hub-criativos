@@ -1,4 +1,5 @@
 // Roda uma vez quando o servidor do hub sobe (convenção do Next.js: instrumentation.ts na raiz do app).
+// - Continua as edições de vídeo que o reinício interrompeu.
 // - Liga o relógio da fila do YouTube: os envios agendados saem na hora mesmo que ninguém esteja com o hub aberto, e
 //   um envio que o reinício interrompeu continua de onde parou.
 // - Liga a faxina dos vídeos (regra do dono: vídeo só fica guardado no Google Drive): leva ao Drive o que ficou no
@@ -6,6 +7,14 @@
 // Uma falha aqui nunca impede o servidor de subir.
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  // Edições que estavam em andamento quando o servidor parou (publicação nova, queda): continuam sozinhas, no servidor
+  // de edições ou aqui (features/edicoes/servicos/rodar.ts). Antes da faxina, para ela não apagar a pasta delas.
+  try {
+    const { retomarEdicoes } = await import("@/features/edicoes/servicos/rodar");
+    await retomarEdicoes();
+  } catch (err) {
+    console.error("[hub] não deu para continuar as edições em andamento:", err instanceof Error ? err.message : err);
+  }
   try {
     const { iniciarFilaDoYoutube } = await import("@/features/youtube/servicos/envios");
     iniciarFilaDoYoutube();

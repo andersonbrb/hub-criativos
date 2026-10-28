@@ -146,13 +146,13 @@ async function inicioDaRegra(agora: number): Promise<number> {
   return agora;
 }
 
-// Pastas .data/tmp/<id da geração> (Python) e <id>-gfx (gráficos animados) de edições que não estão rodando: o
+// Pastas .data/tmp/<id da geração> (Python), <id>-gfx e <id>-camada (Remotion) de edições que não estão rodando: o
 // servidor reiniciou no meio, e o Python não chegou a apagar.
 async function limparPastasDeTrabalho(naSubida: boolean, agora: number): Promise<void> {
   // A raiz dos dados é a pasta da organização padrão (.data/, a mesma do lib/server/montage.ts).
   const raiz = path.join(pastaDaOrganizacao(ORGANIZACAO_PADRAO.id), "tmp");
   for (const nome of await readdir(raiz).catch(() => [] as string[])) {
-    const id = nome.replace(/-gfx$/, "");
+    const id = nome.replace(/-(gfx|camada)$/, "");
     if (!UUID.test(id) || montagemRodando(id)) continue;
     const caminho = path.join(raiz, nome);
     const info = await stat(caminho).catch(() => null);

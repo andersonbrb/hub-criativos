@@ -1,57 +1,31 @@
 import "server-only";
 
-import { execFile, spawn } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
-import { segurarTemp, soltarTemp } from "@/features/drive/servicos/arquivos";
-import { apagarDaMidia, arquivoLocal, concluirComArquivo, exigirDriveParaVideo } from "@/features/drive/servicos/videos";
+import { exigirDriveParaVideo } from "@/features/drive/servicos/videos";
+import { entrada, MARCA_DA_SAIDA, pasta } from "@/features/edicoes/contrato";
+import { edicaoRodando, iniciarEdicao, logPath } from "@/features/edicoes/servicos/rodar";
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
-import { aplicarCamada, posicionarGraficos, sanitizeGraphics, type CamadaDoVideo, type GraphicRequest } from "@/lib/server/motion";
-import { comOrganizacao, organizacaoDoContexto } from "@/features/acesso/servicos/organizacao-atual";
-import { DATA_DIR, pastaDeMidia } from "@/lib/server/pastas";
+import { sanitizeGraphics, type GraphicRequest } from "@/lib/server/motion";
 import { createGeneration, getGeneration, updateGeneration } from "@/lib/server/store";
-import { palavrasDaFala } from "@/lib/server/video";
 
-// Edição final (playbook infoproduto-edicao-video e contexto do Sávio), rodando nesta máquina:
-// Python + faster-whisper + ffmpeg (scripts/montagem.py). Não gasta créditos de nenhuma ferramenta.
+// Edição final (playbook infoproduto-edicao-video e contexto do Sávio): Python + faster-whisper + ffmpeg
+// (scripts/montagem.py) e a camada do Remotion. Não gasta créditos de nenhuma ferramenta. Aqui o pedido vira um
+// trabalho; quem roda é o servidor de edições (features/edicoes, pedido do dono de 28/10/2026: o site não fica lento
+// enquanto alguém edita), ou o próprio site quando ele não está configurado (o PC, por exemplo).
 
-const SCRIPT = path.join(process.cwd(), "scripts", "montagem.py");
-const BEAT_SCRIPT = path.join(process.cwd(), "scripts", "batida.py");
-const CAPTION_SCRIPT = path.join(process.cwd(), "scripts", "remover_legenda.py");
-// Modelo e temporários são de todas as organizações (raiz de .data/). O vídeo pronto vai para as mídias da organização.
-const LAMA_MODEL = path.join(DATA_DIR, "models", "big-lama.pt");
-const FONTS = path.join(process.cwd(), "scripts", "fonts");
-// Logs por id da geração (uuid): só são lidos depois de a rota achar a geração na organização de quem pede.
-const LOG_DIR = path.join(DATA_DIR, "montagem");
 export const LANGS = ["es", "pt", "fr", "en"] as const;
 
-export const logPath = (id: string) => path.join(LOG_DIR, `${id}.log`);
+export { logPath };
 
-// Montagens rodando neste processo do servidor (sobrevive ao hot reload do dev).
-const running: Set<string> = ((globalThis as { __montagens?: Set<string> }).__montagens ??= new Set());
+// A edição desta geração está em andamento neste processo (a faxina não apaga a pasta de trabalho dela).
+export const montagemRodando = edicaoRodando;
 
-// A edição desta geração está rodando neste processo (a faxina não apaga a pasta de trabalho dela).
-export const montagemRodando = (id: string) => running.has(id);
-
-// Cópias temporárias do Drive (arquivoLocal) ficam seguras da limpeza enquanto o Python trabalha: um trabalho longo
-// passa horas sem tocar no arquivo. Soltas no fim, com sucesso ou com erro. Se algo impedir de soltar, a trava vence
-// sozinha depois de 12 h.
-const SEGURA_COPIAS_MS = 12 * 60 * 60 * 1000;
-
-async function copiaSegura(file: string, copias: string[]): Promise<string> {
-  const caminho = await arquivoLocal(file);
-  segurarTemp(caminho, SEGURA_COPIAS_MS);
-  copias.push(caminho);
-  return caminho;
-}
-
-// Esvazia a lista: chamar duas vezes (erro e fim do processo) solta cada cópia uma vez só.
-function soltarCopias(copias: string[]) {
-  for (const caminho of copias.splice(0)) soltarTemp(caminho);
-}
+// Nome do arquivo de entrada no trabalho: o mesmo tipo do arquivo do hub (o script e o ffmpeg olham a extensão).
+const nomeDaEntrada = (prefixo: string, file: string) => `${prefixo}${path.extname(file).toLowerCase() || ".mp4"}`;
 
 // avatarIds: vários vídeos do avatar, juntados na ordem antes dos cortes (gancho + body, várias tomadas).
 // avatarId continua valendo (um só), para o chat e chamadas antigas.
@@ -103,9 +77,10 @@ export type MontageRequest = {
   aviso?: string;
 };
 
-// Só o que é válido e diferente do padrão do script. A música entra em `copias` (soltas no fim do trabalho).
-async function cleanFx(fx: MontageFx | undefined, copias: string[]) {
-  if (!fx || typeof fx !== "object") return { fx: {}, labels: [] as string[] };
+// Só o que é válido e diferente do padrão do script. A música volta à parte (`musica`: o arquivo do hub), porque vai
+// junto com o trabalho como entrada.
+async function cleanFx(fx: MontageFx | undefined) {
+  if (!fx || typeof fx !== "object") return { fx: {} as Record<string, unknown>, labels: [] as string[], musica: null as string | null };
   const out: Record<string, unknown> = {};
   const labels: string[] = [];
   const set = (key: string, value: unknown, label: string) => {
@@ -119,13 +94,14 @@ async function cleanFx(fx: MontageFx | undefined, copias: string[]) {
   if (fx.whoosh === true) set("whoosh", true, "whoosh nas entradas de b-roll");
   if (fx.cor === "quente" || fx.cor === "fria" || fx.cor === "vivo") set("cor", fx.cor, `cor ${fx.cor}`);
   if (fx.barra_progresso === true) set("barra_progresso", true, "barra de progresso");
+  let musica: string | null = null;
   if (fx.musicId) {
     const m = await getGeneration(String(fx.musicId));
     if (!m?.file || m.kind !== "audio") throw new InputError("A música precisa ser um áudio pronto do hub.");
-    out.musica = await copiaSegura(m.file, copias);
+    musica = m.file;
     labels.push("música de fundo (-32 LUFS sob a fala)");
   }
-  return { fx: out, labels };
+  return { fx: out, labels, musica };
 }
 
 // Tags de emoção do ElevenLabs ([excited]…) não são faladas: saem do roteiro da legenda.
@@ -136,70 +112,6 @@ async function audioFile(id: string) {
   const g = await getGeneration(id);
   if (!g || g.kind !== "audio" || g.status !== "done" || !g.file) throw new InputError("A narração precisa ser um áudio pronto do hub.");
   return { g, file: g.file };
-}
-
-const normal = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
-
-// Segundo em que a deixa é falada (a partir de `depois`), ou null.
-function tempoDaDeixa(deixa: string, words: { text: string; start: number }[], depois: number): number | null {
-  const alvo = normal(deixa);
-  if (!alvo.length) return null;
-  const ws = words.flatMap((w) => normal(w.text).map((t) => ({ t, s: w.start })));
-  for (let i = 0; i < ws.length; i++) {
-    if (ws[i].s < depois) continue;
-    if (alvo.every((a, k) => ws[i + k]?.t.startsWith(a))) return ws[i].s;
-  }
-  return null;
-}
-
-// Edição sem avatar: monta um vídeo-base 1080x1920 com os b-rolls cobrindo a narração inteira, e ele entra no lugar
-// do avatar (cortes de silêncio, legenda, música e entrega seguem iguais). Com deixas, cada b-roll entra na palavra
-// dele e fica até o próximo; sem deixas, os b-rolls se revezam em trechos de até 3,5 s.
-async function montarBaseDaNarracao(opts: { audio: string; brolls: string[]; cues: string[]; words: { text: string; start: number }[]; out: string }) {
-  const D = await seconds(opts.audio);
-  if (!D) throw new Error("não consegui ler a duração da narração");
-  const durs = await Promise.all(opts.brolls.map((b) => seconds(b)));
-  const n = opts.brolls.length;
-  type Trecho = { b: number; ini: number; dur: number; off: number };
-  const trechos: Trecho[] = [];
-  const comDeixa: { t: number; b: number }[] = [];
-  if (opts.cues.some(Boolean)) {
-    let depois = 0;
-    for (let b = 0; b < n; b++) {
-      const t = b === 0 ? 0 : opts.cues[b] ? tempoDaDeixa(opts.cues[b], opts.words, depois) : null;
-      if (t === null || t >= D) continue;
-      comDeixa.push({ t, b });
-      depois = t + 0.5;
-    }
-  }
-  if (comDeixa.length > 1) {
-    comDeixa.forEach((x, k) => trechos.push({ b: x.b, ini: x.t, dur: (comDeixa[k + 1]?.t ?? D) - x.t, off: 0 }));
-  } else {
-    const k = Math.max(n, Math.ceil(D / 3.5));
-    const len = D / k;
-    for (let j = 0; j < k; j++) {
-      const b = j % n;
-      const volta = Math.floor(j / n);
-      trechos.push({ b, ini: j * len, dur: len, off: durs[b] > len ? (volta * len) % Math.max(0.01, durs[b] - len) : 0 });
-    }
-  }
-  const args = ["-y", "-v", "error"];
-  for (const t of trechos) args.push("-stream_loop", "-1", "-i", opts.brolls[t.b]);
-  args.push("-i", opts.audio);
-  const filtros = trechos.map(
-    (t, i) =>
-      `[${i}:v]trim=start=${t.off.toFixed(3)}:duration=${t.dur.toFixed(3)},setpts=PTS-STARTPTS,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30,setsar=1[v${i}]`,
-  );
-  const grafo = `${filtros.join(";")};${trechos.map((_, i) => `[v${i}]`).join("")}concat=n=${trechos.length}:v=1:a=0[v]`;
-  args.push("-filter_complex", grafo, "-map", "[v]", "-map", `${trechos.length}:a`, "-t", D.toFixed(3));
-  args.push("-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", opts.out);
-  await mkdir(path.dirname(opts.out), { recursive: true });
-  await new Promise<void>((resolve, reject) => {
-    execFile(process.env.FFMPEG_BIN || "ffmpeg", args, { windowsHide: true, timeout: 20 * 60_000, maxBuffer: 10 * 1024 * 1024 }, (err, _o, stderr) =>
-      err ? reject(new Error(String(stderr || err.message).trim().split("\n").slice(-3).join(" "))) : resolve(),
-    );
-  });
-  return trechos.length;
 }
 
 // Roteiro da legenda: o pedido manda; sem ele, o texto da narração ou do roteiro que gerou cada vídeo do avatar no
@@ -245,8 +157,7 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
   // Nome no padrão do Sávio ("AD 01 - OFERTA-FORMATO-VOZ/IDIOMA-VARIAÇÃO"): vira o nome do arquivo e do anúncio.
   const nomeDado = String(req.name ?? "").trim().replace(/[^\w\- ]+/g, "_").replace(/\s+/g, " ").slice(0, 80);
   const name = nomeDado || "AD";
-  const copias: string[] = [];
-  const { fx, labels } = await cleanFx(req.fx, copias);
+  const { fx, labels, musica } = await cleanFx(req.fx);
   const formato = FORMATOS.includes(req.formato as (typeof FORMATOS)[number]) ? (req.formato as string) : "9:16";
   const resolucao = RESOLUCOES.includes(String(req.resolucao) as (typeof RESOLUCOES)[number]) ? String(req.resolucao) : "auto";
   const limiteMb = Math.min(500, Math.max(5, Number(req.limiteMb) || 30));
@@ -289,181 +200,54 @@ export async function runMontage(req: MontageRequest): Promise<Generation> {
     },
   });
 
-  await mkdir(LOG_DIR, { recursive: true });
-  const midia = await pastaDeMidia();
-  await mkdir(midia, { recursive: true });
-  const outName = `${randomUUID()}.mp4`;
-  const jobFile = path.join(LOG_DIR, `${gen.id}.json`);
-  const timelineFile = path.join(LOG_DIR, `${gen.id}.timeline.json`);
-  const entregaFile = path.join(LOG_DIR, `${gen.id}.entrega.json`);
-  const camadaFile = path.join(LOG_DIR, `${gen.id}.camada.json`);
-  // Em segundo plano: primeiro as palavras com tempo da fala ORIGINAL de cada vídeo do avatar (transcrição em cache ou
-  // Whisper local, um por vez, como no contexto do Sávio), depois o Python. Sem elas, o script transcreve sozinho.
-  running.add(gen.id);
-  void (async () => {
-    const falaIds = narracao ? [narracao.g.id] : avatarIds;
-    const avatarWords = await Promise.all(
-      falaIds.map(async (id) => {
-        const words = await palavrasDaFala(id);
-        return words.map((w) => [w.text, w.start, w.end] as const);
-      }),
-    ).catch((err) => {
-      console.warn(`[hub] montagem ${gen.id}: palavras indisponíveis (${err instanceof Error ? err.message : err}), o script transcreve`);
-      return null;
-    });
-    // Caminhos no disco para o Python (vídeo que está só no Drive vira uma cópia temporária, segura até o fim).
-    let avatarFiles = await Promise.all(avatars.map((a) => copiaSegura(a.file, copias)));
-    let brollFiles = await Promise.all(brolls.map((b) => copiaSegura(b.file, copias)));
-    let cuesDoJob = brollCues;
-    const workdir = path.join(DATA_DIR, "tmp", gen.id);
-    if (narracao) {
-      // A base fica na pasta de trabalho, que o script apaga no fim (e a faxina, se sobrar).
-      const base = path.join(workdir, "base-narracao.mp4");
-      const words = (avatarWords?.[0] ?? []).map(([text, start]) => ({ text, start }));
-      await montarBaseDaNarracao({ audio: await copiaSegura(narracao.file, copias), brolls: brollFiles, cues: brollCues, words, out: base });
-      avatarFiles = [base];
-      brollFiles = [];
-      cuesDoJob = [];
-    }
-
-    await writeFile(
-      jobFile,
-      JSON.stringify({
-        name,
-        ...(avatarWords ? { avatar_words: avatarWords } : {}),
-        avatar: avatarFiles[0],
-        avatars: avatarFiles,
-        brolls: brollFiles,
-        broll_cues: cuesDoJob,
-        lang,
-        fx,
-        roteiro,
-        formato,
-        resolucao,
-        limite_mb: limiteMb,
-        cta,
-        aviso,
-        // O Python entrega um mestre limpo de 1080 e os dados da camada visual; o Remotion desenha a camada (legenda,
-        // aviso, barra, setas e gráficos) e a entrega do Sávio (720/1080, até 30 MB) vem depois.
-        graficos_depois: true,
-        camada_out: camadaFile,
-        out: path.join(midia, outName),
-        workdir,
-        fontsdir: FONTS,
-        timeline_out: timelineFile,
-        entrega_out: entregaFile,
-      }),
-    );
-
-    launch(gen.id, SCRIPT, jobFile, outName, "Montagem", copias, async (line) => {
-      if (pedidos.length && !graphics.length) line(`gráficos animados ficaram de fora: eles são desenhados só para o 9:16 (este é ${formato})`);
-      // Camada visual pelo Remotion: legenda, aviso, barra, setas e os gráficos animados (opcionais) num desenho só.
-      try {
-        const camada = JSON.parse(await readFile(camadaFile, "utf8")) as CamadaDoVideo;
-        const elementos = await posicionarGraficos(graphics, timelineFile, line).catch((err) => {
-          line(`gráficos animados ficaram de fora (${err instanceof Error ? err.message.slice(0, 120) : "erro"})`);
-          return [];
-        });
-        await aplicarCamada({ video: path.join(midia, outName), camada: { ...camada, elementos }, workdir: path.join(DATA_DIR, "tmp", `${gen.id}-camada`), log: line });
-      } finally {
-        await rm(camadaFile, { force: true }).catch(() => undefined);
-      }
-      // Entrega no padrão do Sávio depois da camada (resolução e limite de 30 MB).
-      await entregarDepoisDosGraficos(jobFile, line);
-    });
-  })().catch(async (err) => {
-    running.delete(gen.id);
-    soltarCopias(copias);
-    await updateGeneration(gen.id, { status: "failed", error: `Montagem: ${err instanceof Error ? err.message : "erro"}` });
-  });
-
-  return gen;
-}
-
-// Entrega do Sávio (720/1080 de largura, até 30 MB) do vídeo que já recebeu os gráficos animados: roda
-// `montagem.py --finalizar` no mesmo arquivo. Se falhar, o mestre de 1080 fica como está e o registro explica.
-function entregarDepoisDosGraficos(jobFile: string, line: (m: string) => void): Promise<void> {
-  const python = process.env.PYTHON_BIN || "python";
-  const env = { ...process.env, PYTHONIOENCODING: "utf-8" };
-  return new Promise((resolve) => {
-    execFile(python, ["-W", "ignore", SCRIPT, "--finalizar", jobFile], { windowsHide: true, timeout: 30 * 60_000, maxBuffer: 10 * 1024 * 1024, env }, (err, stdout) => {
-      const saida = String(stdout ?? "");
-      for (const l of saida.split("\n").filter((x) => x.trim() && !x.includes("DONE"))) line(l.replace(/^\[[\d:]+\]\s*/, ""));
-      if (err) line(`a entrega final falhou (${(saida.match(/ERROR (.+)/)?.[1] ?? err.message).slice(0, 200)}); o vídeo fica em 1080`);
-      resolve();
-    });
-  });
-}
-
-// Roda um script Python da edição em segundo plano: o log fica em .data/montagem/<id>.log (na raiz) e o status da geração é
-// atualizado ao terminar. `after` roda depois de um DONE (ex.: gráficos animados), antes de marcar como pronta.
-// Pronto, o vídeo segue para o Google Drive (features/drive), também em segundo plano. As `copias` seguras são
-// soltas quando o processo termina, com sucesso ou com erro. Com erro, o que o script deixou pela metade na pasta de
-// mídia sai na hora (regra do dono: vídeo fora do Drive não fica).
-function launch(
-  id: string,
-  script: string,
-  jobFile: string,
-  outName: string,
-  label: string,
-  copias: string[],
-  after?: (line: (m: string) => void) => Promise<void>,
-) {
-  const log: string[] = [];
-  // O fim do processo grava na organização que pediu a edição (a mesma da geração), mesmo horas depois.
-  const org = organizacaoDoContexto();
-  const naOrganizacao = <T,>(fn: () => T): T => (org ? comOrganizacao(org, fn) : fn());
-  const python = process.env.PYTHON_BIN || "python";
-  const child = spawn(python, ["-W", "ignore", script, jobFile], { windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
-  child.stdin.end();
-  running.add(id);
-  const collect = (chunk: Buffer) => {
-    log.push(chunk.toString("utf8"));
-    writeFile(logPath(id), log.join("")).catch(() => {});
+  // Entradas do trabalho: cada vídeo e áudio do hub com um nome próprio (o arquivo vem do Drive ou da mídia na hora).
+  const arquivos: Record<string, string> = {};
+  const ref = (nome: string, file: string) => {
+    arquivos[nome] = file;
+    return entrada(nome);
   };
-  child.stdout.on("data", collect);
-  child.stderr.on("data", collect);
-  // Intermediários que o script e os gráficos gravam ao lado do vídeo (".gfx.mp4", ".tmp.mp4" da entrega).
-  const tirarIntermediarios = () => Promise.all([apagarDaMidia(`${outName}.gfx.mp4`), apagarDaMidia(`${outName}.tmp.mp4`)]);
-  const tirarSobras = () => Promise.all([apagarDaMidia(outName), tirarIntermediarios()]);
-  child.on("error", (err) => {
-    running.delete(id);
-    soltarCopias(copias);
-    void naOrganizacao(async () => {
-      await tirarSobras();
-      await updateGeneration(id, { status: "failed", error: `Não consegui rodar o Python (${err.message}). Defina PYTHON_BIN no .env.local.` });
-    });
+  const avatarRefs = avatars.map((a, i) => ref(nomeDaEntrada(`avatar${i}`, a.file), a.file));
+  const brollRefs = brolls.map((b, i) => ref(nomeDaEntrada(`broll${i}`, b.file), b.file));
+  if (musica) fx.musica = ref(nomeDaEntrada("musica", musica), musica);
+  const job = {
+    name,
+    avatar: avatarRefs[0] ?? null,
+    avatars: avatarRefs,
+    brolls: brollRefs,
+    broll_cues: brollCues,
+    lang,
+    fx,
+    roteiro,
+    formato,
+    resolucao,
+    limite_mb: limiteMb,
+    cta,
+    aviso,
+    // O Python entrega um mestre limpo de 1080 e os dados da camada visual; o Remotion desenha a camada (legenda,
+    // aviso, barra, setas e gráficos) e a entrega do Sávio (720/1080, até 30 MB) vem depois.
+    graficos_depois: true,
+    camada_out: pasta("camada.json"),
+    out: MARCA_DA_SAIDA,
+    workdir: pasta("trabalho"),
+    timeline_out: pasta("timeline.json"),
+    entrega_out: pasta("entrega.json"),
+  };
+  // Sem avatar, quem roda monta a base (b-rolls cobrindo a narração) antes do Python.
+  const narracaoDoJob = narracao ? { audio: ref(nomeDaEntrada("narracao", narracao.file), narracao.file), brolls: brollRefs, cues: brollCues } : null;
+  await iniciarEdicao({
+    id: gen.id,
+    rotulo: "Montagem",
+    outName: `${randomUUID()}.mp4`,
+    trabalho: {
+      tipo: "montagem",
+      dados: { job, narracao: narracaoDoJob, graficos: graphics, foraDoFormato: pedidos.length && !graphics.length ? formato : null },
+    },
+    arquivos,
+    // Primeiro as palavras com tempo da fala ORIGINAL de cada vídeo do avatar (transcrição em cache ou Whisper, como no
+    // contexto do Sávio). Sem elas, o script transcreve sozinho.
+    palavrasDe: narracao ? [narracao.g.id] : avatarIds,
   });
-  child.on("close", (code) => naOrganizacao(async () => {
-    // O Python já não lê as cópias (os gráficos do `after` usam só o vídeo novo).
-    soltarCopias(copias);
-    const text = log.join("");
-    if (code === 0 && text.includes("DONE")) {
-      if (after) {
-        try {
-          await after((m: string) => collect(Buffer.from(`[${new Date().toLocaleTimeString("pt-BR")}] ${m}\n`)));
-        } catch (err) {
-          // A camada visual (legenda) não saiu nem pela reserva: o vídeo não é entregue sem ela.
-          running.delete(id);
-          await tirarSobras();
-          await updateGeneration(id, { status: "failed", error: `${label}: a legenda não saiu (${err instanceof Error ? err.message.slice(0, 250) : "erro"})` });
-          return;
-        }
-      }
-      await tirarIntermediarios();
-      running.delete(id);
-      // Apagada durante a edição: o vídeo novo não tem dono e sai na hora.
-      await concluirComArquivo(id, { file: outName });
-    } else {
-      running.delete(id);
-      await tirarSobras();
-      const missing = /No module named '(torch|cv2)'/.exec(text)?.[1];
-      const err = missing
-        ? `falta instalar ${missing === "cv2" ? "o OpenCV" : "o PyTorch"} neste servidor (pip install torch opencv-python-headless); por enquanto isso roda no PC`
-        : (text.match(/ERROR (.+)/)?.[1] ?? text.trim().split("\n").slice(-2).join(" "));
-      await updateGeneration(id, { status: "failed", error: `${label}: ${err.slice(0, 300) || `saiu com código ${code}`}` });
-    }
-  }));
+  return gen;
 }
 
 // ---------- Edição na batida (scripts/batida.py) ----------
@@ -489,12 +273,11 @@ export async function runBeatEdit(req: BeatRequest): Promise<Generation> {
   const ids = [...new Set((req.clipIds ?? []).map(String).filter(Boolean))].slice(0, MAX_BEAT_CLIPS);
   if (!ids.length) throw new InputError("Escolha pelo menos um vídeo de cena.");
   const clips = await Promise.all(ids.map((id, i) => videoFile(id, `A cena ${i + 1}`)));
-  const copias: string[] = [];
   let song: string | null = null;
   if (req.songId) {
     const m = await getGeneration(String(req.songId));
     if (!m?.file || m.kind !== "audio") throw new InputError("A música precisa ser um áudio pronto do hub.");
-    song = await copiaSegura(m.file, copias);
+    song = m.file;
   }
   const cut = (s: unknown, n = 18) => String(s ?? "").replace(/[{}\\]/g, "").trim().slice(0, n);
   const clipIdx = (c: unknown) => (Number.isInteger(c) && (c as number) >= 0 && (c as number) < clips.length ? (c as number) : null);
@@ -524,48 +307,37 @@ export async function runBeatEdit(req: BeatRequest): Promise<Generation> {
     },
   });
 
-  await mkdir(LOG_DIR, { recursive: true });
-  const midia = await pastaDeMidia();
-  await mkdir(midia, { recursive: true });
-  const outName = `${randomUUID()}.mp4`;
-  const jobFile = path.join(LOG_DIR, `${gen.id}.json`);
-  const camadaFile = path.join(LOG_DIR, `${gen.id}.camada.json`);
-  // Em segundo plano: uma cena que está só no Google Drive é baixada antes, e o pedido não espera o download.
-  running.add(gen.id);
-  void (async () => {
-    const clipFiles = await Promise.all(clips.map((c) => copiaSegura(c.file, copias)));
-    await writeFile(
-      jobFile,
-      JSON.stringify({
-        name,
-        clips: clipFiles,
-        song,
-        song_start: Math.max(0, Number(req.songStart) || 0),
-        dur: duration,
-        bpm,
-        words,
-        cta,
-        cta_clip: clipIdx(req.cta?.clip),
-        accent,
-        out: path.join(midia, outName),
-        workdir: path.join(DATA_DIR, "tmp", gen.id),
-        fontsdir: FONTS,
-        camada_out: camadaFile,
-      }),
-    );
-    // As palavras gigantes saem pelo Remotion, por cima do vídeo já com os efeitos; até 30 MB (contexto do Sávio).
-    launch(gen.id, BEAT_SCRIPT, jobFile, outName, "Edição na batida", copias, async (line) => {
-      try {
-        const camada = JSON.parse(await readFile(camadaFile, "utf8")) as CamadaDoVideo;
-        await aplicarCamada({ video: path.join(midia, outName), camada, workdir: path.join(DATA_DIR, "tmp", `${gen.id}-camada`), log: line, limiteMb: 30 });
-      } finally {
-        await rm(camadaFile, { force: true }).catch(() => undefined);
-      }
-    });
-  })().catch(async (err) => {
-    running.delete(gen.id);
-    soltarCopias(copias);
-    await updateGeneration(gen.id, { status: "failed", error: `Edição na batida: ${err instanceof Error ? err.message : "erro"}` });
+  const arquivos: Record<string, string> = {};
+  const ref = (nome: string, file: string) => {
+    arquivos[nome] = file;
+    return entrada(nome);
+  };
+  await iniciarEdicao({
+    id: gen.id,
+    rotulo: "Edição na batida",
+    outName: `${randomUUID()}.mp4`,
+    trabalho: {
+      tipo: "batida",
+      dados: {
+        // As palavras gigantes saem pelo Remotion, por cima do vídeo já com os efeitos; até 30 MB (contexto do Sávio).
+        job: {
+          name,
+          clips: clips.map((c, i) => ref(nomeDaEntrada(`cena${i}`, c.file), c.file)),
+          song: song ? ref(nomeDaEntrada("musica", song), song) : null,
+          song_start: Math.max(0, Number(req.songStart) || 0),
+          dur: duration,
+          bpm,
+          words,
+          cta,
+          cta_clip: clipIdx(req.cta?.clip),
+          accent,
+          out: MARCA_DA_SAIDA,
+          workdir: pasta("trabalho"),
+          camada_out: pasta("camada.json"),
+        },
+      },
+    },
+    arquivos,
   });
   return gen;
 }
@@ -575,15 +347,6 @@ export async function runBeatEdit(req: BeatRequest): Promise<Generation> {
 // region: onde procurar (baixo, meio, topo, tudo). mode: "auto" (só as letras) ou "faixa" (a faixa inteira do texto).
 export const CAPTION_REGIONS = ["baixo", "meio", "topo", "tudo"] as const;
 export type CaptionRemovalRequest = { videoId: string; region?: (typeof CAPTION_REGIONS)[number]; mode?: "auto" | "faixa"; name?: string };
-
-// Duração do vídeo (para a previsão de tempo da barra de progresso); 0 se o ffprobe falhar.
-function seconds(file: string): Promise<number> {
-  return new Promise((resolve) => {
-    execFile("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file], { windowsHide: true }, (err, out) =>
-      resolve(err ? 0 : Number(String(out).trim()) || 0),
-    );
-  });
-}
 
 export async function runRemoveCaptions(req: CaptionRemovalRequest): Promise<Generation> {
   await exigirDriveParaVideo();
@@ -599,28 +362,18 @@ export async function runRemoveCaptions(req: CaptionRemovalRequest): Promise<Gen
     prompt: `Sem legenda: ${g.prompt}`.slice(0, 600),
     params: { formato: "sem-legenda", origem: g.id, regiao: region, modo: mode, duracao: Math.round(Number(g.params.duration) || 0) || null },
   });
-  await mkdir(LOG_DIR, { recursive: true });
-  const midia = await pastaDeMidia();
-  await mkdir(midia, { recursive: true });
-  const outName = `${randomUUID()}.mp4`;
-  const jobFile = path.join(LOG_DIR, `${gen.id}.json`);
-  // Em segundo plano: um vídeo que está só no Google Drive é baixado antes, e o pedido não espera o download.
-  running.add(gen.id);
-  const copias: string[] = [];
-  void (async () => {
-    const input = await copiaSegura(file, copias);
+  const nome = nomeDaEntrada("video", file);
+  await iniciarEdicao({
+    id: gen.id,
+    rotulo: "Remover legenda",
+    outName: `${randomUUID()}.mp4`,
+    trabalho: {
+      tipo: "sem-legenda",
+      dados: { job: { input: entrada(nome), out: MARCA_DA_SAIDA, workdir: pasta("trabalho"), region, mode } },
+    },
+    arquivos: { [nome]: file },
     // Duração medida no arquivo, para a previsão de tempo da barra de progresso.
-    const duracao = Math.round(await seconds(input)) || null;
-    if (duracao && duracao !== gen.params.duracao) await updateGeneration(gen.id, { params: { ...gen.params, duracao } });
-    await writeFile(
-      jobFile,
-      JSON.stringify({ input, out: path.join(midia, outName), workdir: path.join(DATA_DIR, "tmp", gen.id), model: LAMA_MODEL, region, mode }),
-    );
-    launch(gen.id, CAPTION_SCRIPT, jobFile, outName, "Remover legenda", copias);
-  })().catch(async (err) => {
-    running.delete(gen.id);
-    soltarCopias(copias);
-    await updateGeneration(gen.id, { status: "failed", error: `Remover legenda: ${err instanceof Error ? err.message : "erro"}` });
+    duracaoDe: nome,
   });
   return gen;
 }
@@ -629,9 +382,10 @@ export async function readLog(id: string): Promise<string> {
   return readFile(logPath(id), "utf8").catch(() => "");
 }
 
-// Status atual; se o servidor reiniciou no meio, a montagem morreu junto e é marcada como interrompida.
+// Status atual. Num reinício a edição continua sozinha (features/edicoes/servicos/rodar.ts, na subida); se mesmo
+// assim ela não está em andamento neste processo, morreu junto e é marcada como interrompida.
 export async function montageStatus(gen: Generation): Promise<Generation> {
-  if (gen.status === "running" && !running.has(gen.id)) {
+  if (gen.status === "running" && !edicaoRodando(gen.id)) {
     return (await updateGeneration(gen.id, { status: "failed", error: "Montagem interrompida (o servidor reiniciou). Rode de novo." })) ?? gen;
   }
   return gen;

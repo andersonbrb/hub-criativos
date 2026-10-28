@@ -30,6 +30,10 @@ O que mora onde:
 - Tem um volume, então cada publicação tem alguns segundos fora do ar: o Railway não deixa duas versões montarem o
   mesmo volume ao mesmo tempo.
 
+### `Hub Edições` (desde 28/10/2026)
+- Servidor de edições: a mesma imagem com `HUB_SERVIDOR=edicoes`. Roda as edições de vídeo e o Whisper fora do site.
+  Configuração, publicação e custo em [servidor-de-edicoes.md](servidor-de-edicoes.md).
+
 ### `Postgres`
 - Template oficial do Railway (imagem `postgres-ssl`, Postgres 18), com volume próprio.
 - Acesso interno (rede privada do projeto): é o que o `hub` usa, pela `DATABASE_URL`.

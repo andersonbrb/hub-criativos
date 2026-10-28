@@ -6,13 +6,15 @@ import os from "node:os";
 import path from "node:path";
 
 import { arquivoLocal } from "@/features/drive/servicos/videos";
+import { FalhaNoServidorDeEdicoes, servidorDeEdicoes, transcreverNoServidor } from "@/features/edicoes/servicos/remoto";
 import { InputError } from "@/lib/server/http";
 import { elevenlabsConnected, transcribeFull } from "@/lib/server/providers/elevenlabs";
 import { getGeneration } from "@/lib/server/store";
 
 // Transcrição de vídeo/áudio do hub + identificação do idioma (agente "Transcrição").
 // Motor padrão: Whisper local (faster-whisper "small", grátis), um por vez na fila única (contexto do Sávio, decisão
-// de 20/10/2026). Reserva: ElevenLabs Scribe pelo MCP, só se o Whisper falhar ou se pedirem.
+// de 20/10/2026), no servidor de edições quando ele existe (features/edicoes). Reserva: ElevenLabs Scribe pelo MCP,
+// só se o Whisper falhar ou se pedirem.
 
 const FFMPEG = process.env.FFMPEG_BIN || "ffmpeg";
 const SCRIPT = path.join(process.cwd(), "scripts", "transcrever.py");
@@ -100,9 +102,23 @@ async function scribe(file: string): Promise<Transcript> {
   };
 }
 
-async function whisper(file: string): Promise<Transcript> {
+// O Whisper roda no servidor de edições quando ele está configurado (o site não fica lento); se ele não responder,
+// roda aqui, como antes.
+async function saidaDoWhisper(file: string): Promise<string> {
+  if (servidorDeEdicoes()) {
+    try {
+      return await transcreverNoServidor(file);
+    } catch (err) {
+      if (err instanceof FalhaNoServidorDeEdicoes) throw err;
+      console.warn(`[hub] Whisper no servidor de edições indisponível (${err instanceof Error ? err.message : err}); rodando no site`);
+    }
+  }
   // Até 1 h: um VSL de 40 min no Whisper "small" em CPU passa fácil dos 15 min.
-  const out = await naFilaDeCpu(() => run(process.env.PYTHON_BIN || "python", ["-W", "ignore", SCRIPT, file], 3_600_000));
+  return naFilaDeCpu(() => run(process.env.PYTHON_BIN || "python", ["-W", "ignore", SCRIPT, file], 3_600_000));
+}
+
+async function whisper(file: string): Promise<Transcript> {
+  const out = await saidaDoWhisper(file);
   const data = JSON.parse(out.trim().split("\n").pop() ?? "{}") as {
     error?: string;
     language?: string;

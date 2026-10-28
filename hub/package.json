@@ -11,7 +11,8 @@
     "db:gerar": "drizzle-kit generate",
     "db:migrar": "node scripts/migrar.mjs",
     "criar-dono": "tsx --conditions=react-server scripts/criar-dono.ts",
-    "importar-memoria": "tsx --conditions=react-server scripts/importar-memoria.ts"
+    "importar-memoria": "tsx --conditions=react-server scripts/importar-memoria.ts",
+    "servidor-de-edicoes": "tsx --conditions=react-server scripts/servidor-de-edicoes.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

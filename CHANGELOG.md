@@ -30,6 +30,9 @@ aqui o que já foi validado em produção.
   pede as duas para liberar o login com Google.
 
 ### 🔄 Mudanças
+- **[🎬 Edição]** As edições de vídeo (edição final, batida, remover legenda, exportação do editor) e a transcrição
+  rodam num servidor só delas: o Hub não fica lento para todo mundo enquanto alguém edita. O resultado é o mesmo, e uma
+  edição em andamento não se perde se o Hub reiniciar.
 - **[🎬 Edição]** Decisões do Vinícius nos 4 pontos que o Sávio não define: pode ter criança nos vídeos COD; quem gerou
   o lote aprova; a legenda sai do jeito que foi falada (a opção "maiúsculas" saiu da Edição e do editor); upscale
   conta 1,5× a duração do vídeo nos orçamentos.

@@ -1,13 +1,13 @@
 import "server-only";
 
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { segurarTemp, soltarTemp } from "@/features/drive/servicos/arquivos";
-import { apagarDaMidia, arquivoLocal, concluirComArquivo, exigirDriveParaVideo } from "@/features/drive/servicos/videos";
+import { arquivoLocal, exigirDriveParaVideo } from "@/features/drive/servicos/videos";
+import { entrada } from "@/features/edicoes/contrato";
+import { iniciarEdicao } from "@/features/edicoes/servicos/rodar";
 import {
   DEFAULT_STYLE,
   newId,
@@ -21,17 +21,14 @@ import {
 } from "@/lib/editor";
 import type { Generation } from "@/lib/generations";
 import { InputError } from "@/lib/server/http";
-import { aplicarCamada, type CamadaDoVideo } from "@/lib/server/motion";
-import { pastaDeDados, pastaDeMidia } from "@/lib/server/pastas";
+import { pastaDeDados } from "@/lib/server/pastas";
 import { palavrasDaFala } from "@/lib/server/video";
-import { createGeneration, getGeneration, listGenerations, updateGeneration } from "@/lib/server/store";
-import type { Legenda, Palavra } from "@/remotion/Camada";
+import { createGeneration, getGeneration, listGenerations } from "@/lib/server/store";
 
-// Projetos do editor em editor/<id>.json, na pasta da organização (lib/server/pastas.ts); exportação com ffmpeg
-// (precisa estar instalado, ou FFMPEG_BIN).
+// Projetos do editor em editor/<id>.json, na pasta da organização (lib/server/pastas.ts). A exportação (ffmpeg e a
+// legenda pelo Remotion) roda no servidor de edições ou, sem ele, no site (features/edicoes/servicos/executar.ts).
 
 const pastaDosProjetos = async () => path.join(await pastaDeDados(), "editor");
-const FFMPEG = process.env.FFMPEG_BIN || "ffmpeg";
 const FFPROBE = process.env.FFPROBE_BIN || "ffprobe";
 
 const file = async (id: string) => path.join(await pastaDosProjetos(), `${id}.json`);
@@ -239,89 +236,6 @@ export async function autoCaptions(projectId: string, opts: { sourceId?: string;
 
 // ---------- Exportação ----------
 
-// Cor #RRGGBB → &HAABBGGRR do ASS (alpha 00 = opaco).
-const assColor = (hex: string, alpha = "00") => {
-  const h = /^#?([0-9a-f]{6})$/i.exec(hex)?.[1] ?? "FFFFFF";
-  return `&H${alpha}${h.slice(4, 6)}${h.slice(2, 4)}${h.slice(0, 2)}`.toUpperCase();
-};
-
-const assTime = (t: number) => {
-  const cs = Math.max(0, Math.round(t * 100));
-  const h = Math.floor(cs / 360000);
-  const m = Math.floor((cs % 360000) / 6000);
-  const s = Math.floor((cs % 6000) / 100);
-  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs % 100).padStart(2, "0")}`;
-};
-
-export function buildAss(project: EditorProject): string {
-  const { width: W, height: H, style } = project;
-  const scale = Math.min(W, H) / 1080;
-  const size = Math.round(style.size * scale);
-  const outline = Math.round(style.outline * scale);
-  const margin = Math.round(W * 0.08);
-  const base = assColor(style.color);
-  const hl = assColor(style.highlight);
-  const boxColor = assColor("#000000", "40");
-  const header = [
-    "[Script Info]",
-    "ScriptType: v4.00+",
-    `PlayResX: ${W}`,
-    `PlayResY: ${H}`,
-    "WrapStyle: 0",
-    "ScaledBorderAndShadow: yes",
-    "",
-    "[V4+ Styles]",
-    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: Default,${style.font},${size},${base},${base},${style.box ? boxColor : "&H00000000"},${style.box ? boxColor : "&H80000000"},-1,0,0,0,100,100,0,0,${style.box ? 3 : 1},${style.box ? Math.max(outline, Math.round(14 * scale)) : outline},0,5,${margin},${margin},0,1`,
-    "",
-    "[Events]",
-    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-  ];
-  const pos = `{\\an5\\pos(${Math.round(W / 2)},${Math.round((H * style.position) / 100)})${style.pop ? "\\fscx82\\fscy82\\t(0,140,\\fscx100\\fscy100)" : ""}}`;
-  const events = placeCaptions(project).map((c) => {
-    // Do jeito que foi falada, nunca toda em caixa alta (decisão do Vinícius, 20/10/2026): `uppercase` de projeto antigo é ignorado.
-    const raw = c.text;
-    const text = raw
-      .replace(/[{}\\]/g, "")
-      .replace(/\n/g, "\\N")
-      .replace(/\*([^*]+)\*/g, `{\\c${hl}}$1{\\c${base}}`);
-    return `Dialogue: 0,${assTime(c.start)},${assTime(c.end)},Default,,0,0,0,,${pos}${text}`;
-  });
-  return [...header, ...events, ""].join("\n");
-}
-
-// Legenda do editor no formato da camada do Remotion (remotion/Camada.tsx): *palavra* em destaque, \n quebra a linha.
-function legendaDoEditor(project: EditorProject): Legenda {
-  const { width: W, height: H, style } = project;
-  const scale = Math.min(W, H) / 1080;
-  const blocos = placeCaptions(project).map((c) => {
-    const palavras: Palavra[] = [];
-    const linhas = c.text.split("\n");
-    linhas.forEach((linha, li) => {
-      for (const parte of linha.split(/(\*[^*]+\*)/g).filter(Boolean)) {
-        const destaque = parte.startsWith("*") && parte.endsWith("*") && parte.length > 2;
-        for (const t of (destaque ? parte.slice(1, -1) : parte).split(/\s+/).filter(Boolean)) palavras.push({ t, s: c.start, ...(destaque ? { destaque } : {}) });
-      }
-      if (li < linhas.length - 1 && palavras.length) palavras[palavras.length - 1].quebra = true;
-    });
-    return { ini: c.start, fim: c.end, palavras };
-  });
-  return {
-    fonte: style.font,
-    tamanho: style.size * scale,
-    peso: 900,
-    y: (H * style.position) / 100,
-    cor: style.color,
-    destaque: style.highlight,
-    contorno: style.outline * scale,
-    caixa: style.box,
-    pop: style.pop ? "suave" : "nenhum",
-    modo: "bloco",
-    margem: W * 0.08,
-    blocos,
-  };
-}
-
 export async function renderProject(projectId: string): Promise<Generation> {
   // Regra do dono: o vídeo exportado vai só para o Drive. Sem Drive conectado, nem começa.
   await exigirDriveParaVideo();
@@ -340,90 +254,24 @@ export async function renderProject(projectId: string): Promise<Generation> {
   project.exports = [generation.id, ...project.exports];
   await write(project);
 
-  // Roda em segundo plano; a tela acompanha pela geração (status running → done/failed).
-  void encode(project, generation.id).catch(async (err) => {
-    await updateGeneration(generation.id, { status: "failed", error: err instanceof Error ? err.message.slice(0, 400) : "Falha no ffmpeg" });
+  // Cada vídeo da timeline vai junto com o trabalho (vídeo que está só no Google Drive é baixado na hora de rodar).
+  const arquivos: Record<string, string> = {};
+  const fontes: Record<string, string> = {};
+  for (const sourceId of new Set(clips.map((c) => c.sourceId))) {
+    const arquivo = path.basename(project.sources[sourceId].url);
+    const nome = `fonte${Object.keys(arquivos).length}${path.extname(arquivo).toLowerCase() || ".mp4"}`;
+    arquivos[nome] = arquivo;
+    fontes[sourceId] = entrada(nome);
+  }
+  // Roda em segundo plano (servidor de edições ou o próprio site); a tela acompanha pela geração (running → done/failed).
+  await iniciarEdicao({
+    id: generation.id,
+    rotulo: "",
+    outName: `${randomUUID()}.mp4`,
+    trabalho: { tipo: "editor", dados: { projeto: project, fontes } },
+    arquivos,
   });
   return generation;
-}
-
-async function encode(project: EditorProject, generationId: string) {
-  const { clips } = placeClips(project);
-  const { width: W, height: H, fps } = project;
-  const tmp = await mkdtemp(path.join(os.tmpdir(), "hub-render-"));
-  // Cópias temporárias das fontes, seguras enquanto o ffmpeg trabalha e soltas no fim (saem logo depois).
-  const seguras: string[] = [];
-  let outName: string | null = null;
-  try {
-    // Caminho no disco de cada fonte (vídeo que está só no Google Drive vira uma cópia temporária).
-    const entradas = new Map<string, string>();
-    for (const c of clips) {
-      if (entradas.has(c.sourceId)) continue;
-      const caminho = await arquivoLocal(path.basename(project.sources[c.sourceId].url));
-      segurarTemp(caminho, 6 * 60 * 60 * 1000);
-      seguras.push(caminho);
-      entradas.set(c.sourceId, caminho);
-    }
-    const args = ["-y", "-loglevel", "error"];
-    const filters: string[] = [];
-    const concatInputs: string[] = [];
-    let input = 0;
-    clips.forEach((c, i) => {
-      const src = project.sources[c.sourceId];
-      args.push("-ss", c.in.toFixed(3), "-t", c.duration.toFixed(3), "-i", entradas.get(c.sourceId)!);
-      const vi = input++;
-      filters.push(
-        `[${vi}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${fps},format=yuv420p,setpts=PTS-STARTPTS[v${i}]`,
-      );
-      if (src.hasAudio) {
-        filters.push(`[${vi}:a]aresample=48000,aformat=channel_layouts=stereo,asetpts=PTS-STARTPTS[a${i}]`);
-      } else {
-        args.push("-f", "lavfi", "-t", c.duration.toFixed(3), "-i", "anullsrc=r=48000:cl=stereo");
-        filters.push(`[${input++}:a]asetpts=PTS-STARTPTS[a${i}]`);
-      }
-      concatInputs.push(`[v${i}][a${i}]`);
-    });
-    filters.push(`${concatInputs.join("")}concat=n=${clips.length}:v=1:a=1[vc][ac]`);
-
-    // A legenda sai pelo Remotion depois do corte (regra do dono, 27/10/2026), como na prévia do editor.
-    const videoOut = "[vc]";
-    const comLegenda = project.captionsEnabled && placeCaptions(project).length > 0;
-
-    const midia = await pastaDeMidia();
-    await mkdir(midia, { recursive: true });
-    outName = `${randomUUID()}.mp4`;
-    args.push(
-      "-filter_complex", filters.join(";"),
-      "-map", videoOut, "-map", "[ac]",
-      "-c:v", "libx264", "-preset", "veryfast", "-crf", comLegenda ? "16" : "20",
-      // Áudio no padrão de entrega do Sávio: AAC 48 kHz estéreo 128k.
-      "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
-      "-movflags", "+faststart",
-      path.join(midia, outName),
-    );
-    await new Promise<void>((resolve, reject) => {
-      const child = spawn(FFMPEG, args, { cwd: tmp, windowsHide: true });
-      let stderr = "";
-      child.stderr.on("data", (d) => (stderr = (stderr + d).slice(-4000)));
-      child.on("error", (e) => reject((e as NodeJS.ErrnoException).code === "ENOENT" ? new Error("ffmpeg não encontrado. Instale o ffmpeg ou defina FFMPEG_BIN.") : e));
-      child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg: ${stderr.trim().split("\n").slice(-3).join(" ")}`))));
-    });
-    if (comLegenda) {
-      // Se o Remotion falhar, a legenda sai pelo ASS de antes (buildAss).
-      const camada: CamadaDoVideo = { duracao: placeClips(project).total, altura: H, largura: W, legenda: legendaDoEditor(project), ass: buildAss(project) };
-      await aplicarCamada({ video: path.join(midia, outName), camada, workdir: path.join(tmp, "camada"), log: (m) => console.log(`[editor] ${m}`), crf: 20 });
-    }
-    // Pronta, a exportação segue para o Google Drive em segundo plano (features/drive). Apagada durante a exportação,
-    // o vídeo novo não tem dono e sai na hora.
-    const pronto = outName;
-    outName = null;
-    await concluirComArquivo(generationId, { file: pronto });
-  } finally {
-    // Deu erro no meio: o vídeo pela metade sai da pasta de mídia.
-    if (outName) await apagarDaMidia(outName);
-    for (const caminho of seguras) soltarTemp(caminho);
-    await rm(tmp, { recursive: true, force: true });
-  }
 }
 
 // Vídeos do hub que podem entrar no editor: só os que estão no Google Drive (regra do dono).

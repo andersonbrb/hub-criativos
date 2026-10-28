@@ -36,4 +36,6 @@ ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000 HF_HOME=/app/.data/hf
 EXPOSE 3000
 # Aplica as migrações pendentes (db/migrations, copiadas junto com hub/) antes de o servidor subir.
 # Se a migração falhar, o servidor não sobe: melhor do que rodar com o banco pela metade.
-CMD ["sh", "-c", "npm run db:migrar && exec npm start"]
+# A mesma imagem serve ao servidor de edições (serviço "Hub Edições", com HUB_SERVIDOR=edicoes): ele roda só as edições
+# de vídeo e o Whisper (features/edicoes), sem banco e sem o site.
+CMD ["sh", "-c", "if [ \"$HUB_SERVIDOR\" = edicoes ]; then exec npm run servidor-de-edicoes; fi; npm run db:migrar && exec npm start"]
