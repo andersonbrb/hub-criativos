@@ -1,5 +1,6 @@
 import { mkdtempSync } from "node:fs";
 import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -99,6 +100,32 @@ async function arquivoDeEntrada(nome: string, conteudo: string) {
 
 const existe = (caminho: string) => access(caminho).then(() => true, () => false);
 
+// O "site velho" de um teste de reinício: manda as entradas e o trabalho direto ao servidor de edições e some (não
+// acompanha), como um site que reiniciou logo depois de começar a edição.
+async function comecarEDesaparecer(porta: number, id: string, trabalho: Trabalho, locais: Record<string, string>) {
+  const base = `http://127.0.0.1:${porta}/trabalhos/${id}`;
+  const authorization = `Bearer ${CHAVE}`;
+  for (const [nome, caminho] of Object.entries(locais)) {
+    const res = await fetch(`${base}/entradas/${nome}`, { method: "PUT", headers: { authorization }, body: await readFile(caminho) });
+    expect(res.status).toBe(200);
+  }
+  const res = await fetch(base, { method: "POST", headers: { authorization, "content-type": "application/json" }, body: JSON.stringify(trabalho) });
+  expect(res.status).toBe(200);
+}
+
+// Espera o trabalho estar rodando no servidor de edições (e não um tempo fixo: com a máquina ocupada, 100 ms podem não
+// bastar nem para os arquivos chegarem, e o teste simularia outra coisa).
+async function esperarRodando(porta: number, id: string, ms = 10_000) {
+  const ate = Date.now() + ms;
+  for (;;) {
+    const res = await fetch(`http://127.0.0.1:${porta}/trabalhos/${id}?desde=0`, { headers: { authorization: `Bearer ${CHAVE}` } }).catch(() => null);
+    const corpo = res?.ok ? ((await res.json()) as { situacao: string }) : null;
+    if (corpo?.situacao === "rodando") return;
+    if (Date.now() > ate) throw new Error(`o trabalho ${id} não começou a rodar`);
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
 async function esperarGeracao(id: string, ms = 10_000) {
   const ate = Date.now() + ms;
   for (;;) {
@@ -166,22 +193,54 @@ describe("servidor de edições", () => {
   });
 
   it("o site reiniciou no meio: volta a acompanhar o mesmo trabalho, sem rodar de novo", async () => {
-    const trabalho = trabalhoSimples({ esperarMs: 300 });
-    const primeira = rodarNoServidor("t4", trabalho, locais, { saida: path.join(DADOS, "saida-4a.mp4") }).catch(() => undefined);
-    await new Promise((r) => setTimeout(r, 100));
+    const trabalho = trabalhoSimples({ esperarMs: 1000 });
+    await comecarEDesaparecer(servidor.porta, "t4", trabalho, locais);
+    await esperarRodando(servidor.porta, "t4");
     // O "site novo" chega enquanto o trabalho roda e acompanha até o fim.
     await rodarNoServidor("t4", trabalho, locais, { saida: path.join(DADOS, "saida-4b.mp4") });
-    await primeira;
     expect(await readFile(path.join(DADOS, "saida-4b.mp4"), "utf8")).toBe("servidor:AAA+BBB");
     expect(servidor.vezes()).toBe(1);
   });
 
+  it("o trabalho começou lá entre a consulta e o envio dos arquivos: o site acompanha em vez de rodar de novo", async () => {
+    const trabalho = trabalhoSimples({ esperarMs: 500 });
+    await comecarEDesaparecer(servidor.porta, "t7", trabalho, locais);
+    // Intermediário que responde "não conheço" à primeira consulta (como se ela tivesse chegado antes do trabalho) e
+    // repassa o resto ao servidor de edições: o site manda os arquivos, recebe "já começou" e passa a acompanhar.
+    let consultas = 0;
+    const real = servidor.porta;
+    const intermediario = http.createServer((req, res) => {
+      if (req.method === "GET" && (req.url ?? "").startsWith("/trabalhos/t7?") && consultas++ === 0) {
+        res.writeHead(404, { "content-type": "application/json" }).end(JSON.stringify({ situacao: "desconhecido", log: "", fimDoLog: 0 }));
+        return;
+      }
+      const repasse = http.request({ host: "127.0.0.1", port: real, path: req.url, method: req.method, headers: req.headers }, (r) => {
+        res.writeHead(r.statusCode ?? 502, r.headers);
+        r.pipe(res);
+      });
+      req.pipe(repasse);
+    });
+    await new Promise<void>((resolve) => intermediario.listen(0, "127.0.0.1", resolve));
+    apontarPara((intermediario.address() as AddressInfo).port);
+    try {
+      await rodarNoServidor("t7", trabalho, locais, { saida: path.join(DADOS, "saida-7.mp4") });
+    } finally {
+      await new Promise<void>((resolve) => (intermediario.closeAllConnections(), intermediario.close(() => resolve())));
+      apontarPara(real);
+    }
+    expect(await readFile(path.join(DADOS, "saida-7.mp4"), "utf8")).toBe("servidor:AAA+BBB");
+    expect(servidor.vezes()).toBe(1);
+  });
+
   it("o servidor de edições reiniciou no meio: o site manda de novo e a edição sai", async () => {
-    const trabalho = trabalhoSimples({ esperarMs: 300 });
+    const trabalho = trabalhoSimples({ esperarMs: 1000 });
     let reenvios = 0;
     ajustesDoServidor.foraDoArMs = 3000;
+    // O primeiro pedido ao servidor novo pode cair numa conexão que era do servidor velho: com a espera curta dos
+    // outros testes (0,4 s, menor que o 1 s até a segunda tentativa), não haveria segunda tentativa. Na produção são 3 min.
+    ajustesDoServidor.paraAcordarMs = 5000;
     const fim = rodarNoServidor("t5", trabalho, locais, { saida: path.join(DADOS, "saida-5.mp4"), aoReenviar: () => reenvios++ });
-    await new Promise((r) => setTimeout(r, 100));
+    await esperarRodando(servidor.porta, "t5");
     // Publicação nova: o servidor velho sai (o trabalho morre junto) e um novo sobe na mesma porta.
     const porta = servidor.porta;
     await servidor.fechar();

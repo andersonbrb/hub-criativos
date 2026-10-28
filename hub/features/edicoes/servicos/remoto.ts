@@ -122,6 +122,10 @@ async function situacao(id: string, desde: number, prazoMs?: number): Promise<Si
   return lerJson<SituacaoDoTrabalho>(res);
 }
 
+// O servidor de edições recusou uma entrada porque o trabalho já começou lá (outro pedido do site chegou primeiro):
+// em vez de mandar de novo, acompanha o que já está rodando.
+class TrabalhoJaComecou extends Error {}
+
 async function enviarEntradas(id: string, locais: Record<string, string>) {
   for (const [nome, caminho] of Object.entries(locais)) {
     const { size } = await stat(caminho);
@@ -129,6 +133,10 @@ async function enviarEntradas(id: string, locais: Record<string, string>) {
       method: "PUT",
       corpo: () => ({ body: Readable.toWeb(createReadStream(caminho)) as unknown as BodyInit, tamanho: size }),
     });
+    if (res.status === 409) {
+      await res.body?.cancel().catch(() => undefined);
+      throw new TrabalhoJaComecou();
+    }
     if (!res.ok) throw new Error(`o servidor de edições não recebeu ${nome} (HTTP ${res.status}): ${(await res.text()).slice(0, 160)}`);
     const { bytes } = await lerJson<{ bytes: number }>(res);
     if (bytes !== size) throw new Error(`${nome} chegou incompleto ao servidor de edições (${bytes} de ${size} bytes)`);
@@ -195,8 +203,14 @@ export async function rodarNoServidor(
       if (++envios > MAXIMO_DE_ENVIOS) throw new FalhaNoServidorDeEdicoes("o servidor de edições reiniciou várias vezes no meio desta edição");
       if (envios > 1) opts.aoReenviar?.(envios);
       texto = "";
-      await enviarEntradas(id, locais);
-      s = await comecar(id, trabalho);
+      try {
+        await enviarEntradas(id, locais);
+        s = await comecar(id, trabalho);
+      } catch (err) {
+        if (!(err instanceof TrabalhoJaComecou)) throw err;
+        s = await situacao(id, 0);
+        continue;
+      }
     }
     if (s.log) {
       texto += s.log;
