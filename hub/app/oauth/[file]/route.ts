@@ -1,6 +1,6 @@
 import { callbackPath, clientMetadataUrl, isMcpService, PUBLIC_URL } from "@/lib/server/mcp-client";
 
-// Documento de metadados do hub como cliente OAuth (CIMD), público, para serviços sem registro dinâmico (ElevenLabs).
+// Documento de metadados do hub como cliente OAuth (CIMD), público, para serviços sem registro dinâmico (ElevenLabs e HeyGen).
 // O client_id é a própria URL deste documento. Lista os endereços de volta do hub no PC e na nuvem.
 export async function GET(_request: Request, { params }: { params: Promise<{ file: string }> }) {
   const { file } = await params;

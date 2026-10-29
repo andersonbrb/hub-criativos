@@ -39,7 +39,9 @@ export const MCP_SERVICES: Record<McpServiceId, ServiceConfig> = {
     label: "HeyGen",
     mcpUrl: "https://mcp.heygen.com/mcp/v1/",
     resource: "https://mcp.heygen.com/mcp/v1",
-    register: "https://api2.heygen.com/v1/oauth/register",
+    // Sem registro dinâmico: desde 10/2026 o registro do HeyGen devolve sempre o app genérico "HeyGen MCP Default", que
+    // recusa o endereço de volta do hub ("Invalid redirect_uri: not registered for this client"). O HeyGen aceita o
+    // documento de metadados do hub (CIMD, /oauth/heygen-client.json), como o ElevenLabs.
     authorize: "https://api2.heygen.com/v1/oauth/authorize",
     token: "https://api2.heygen.com/v1/oauth/token",
     userinfo: "https://api2.heygen.com/v1/oauth/userinfo",
