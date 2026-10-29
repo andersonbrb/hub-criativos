@@ -3,6 +3,8 @@
 @import "shadcn/tailwind.css";
 /* Cores, fontes e acabamentos do design do hub (estilo ElevenLabs, com o azul do logo). */
 @import "./designs.css";
+/* Os nomes de cor das telas do Instagram, ligados às cores do hub. */
+@import "./instagram.css";
 
 @custom-variant dark (&:is(.dark *));
 /* Tela baixa (celular deitado): barras mais baixas para sobrar espaço ao conteúdo. Os outros pontos de troca são os

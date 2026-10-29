@@ -201,6 +201,52 @@ function outputUrl(status: RunStatus): string | null {
   return urls[0]?.[1] ?? null;
 }
 
+// ---------- Dublagem de vídeo (Dubbing v2) ----------
+
+// Dubla o vídeo para o idioma (código ISO, ex.: "es") num flow novo: sobe o vídeo, liga a um nó de dublagem e baixa o
+// vídeo dublado. Usada pela linha de produção do Instagram (features/instagram), com a mesma conta do hub.
+export async function dublarVideo(video: Buffer, filename: string, idioma: string): Promise<{ body: ArrayBuffer; contentType: string; flowId: string }> {
+  const why = ctx(`dublar um reel para o idioma ${idioma}, mantendo a imagem`);
+  const flow = await el.callTool<{ flow_id?: string }>("creative_create_flow", { context: why, name: `Hub de Criativos · dublagem ${filename}` });
+  if (!flow.flow_id) throw new Error("ElevenLabs não criou o flow da dublagem.");
+
+  const up = await el.callTool<{ asset_id?: string; upload_url?: string; upload_headers?: Record<string, string> }>("creative_create_asset_upload", {
+    context: why,
+    name: filename,
+    mime_type: "video/mp4",
+    file_size: video.length,
+  });
+  if (!up.asset_id || !up.upload_url) throw new Error("ElevenLabs não devolveu o endereço de envio do vídeo.");
+  const put = await fetch(up.upload_url, { method: "PUT", headers: { ...up.upload_headers, "Content-Type": "video/mp4" }, body: new Uint8Array(video) });
+  if (!put.ok) throw new Error(`Falhou o envio do vídeo ao ElevenLabs (${put.status}).`);
+  const fin = await el.callTool<Record<string, unknown>>("creative_finalize_asset_upload", { context: why, asset_id: up.asset_id, flow_id: flow.flow_id });
+  const fonte = findKey(fin, "node_id");
+  if (typeof fonte !== "string") throw new Error("ElevenLabs não colocou o vídeo no flow da dublagem.");
+
+  const node = await el.callTool<Record<string, unknown>>("creative_add_flow_node", {
+    context: why,
+    flow_id: flow.flow_id,
+    node_type: "dubbing-video",
+    model_id: "dubbing_v2_video",
+    model_parameters: { target_language_code: idioma },
+    connect_from: [fonte],
+    label: `Dublagem (${idioma})`,
+  });
+  const nodeId = findKey(node, "node_id") ?? findKey(node, "id");
+  if (typeof nodeId !== "string") throw new Error("ElevenLabs não criou o nó da dublagem.");
+
+  // Nunca repetir creative_run_flow_nodes para "tentar de novo": cada chamada cobra uma dublagem nova.
+  const start = await el.callTool<Started>("creative_run_flow_nodes", { context: why, flow_id: flow.flow_id, node_ids: [nodeId] });
+  const status = await waitRun({ ...start, flow_id: start.flow_id ?? flow.flow_id }, "dublagem", 45 * 60_000);
+  const url = outputUrl(status);
+  if (!url) throw new Error("ElevenLabs terminou a dublagem, mas não devolveu o endereço do vídeo.");
+  const res = await el.download(url);
+  if (!res.ok) throw new Error(`Não consegui baixar o vídeo dublado do ElevenLabs (${res.status}).`);
+  const contentType = (res.headers.get("content-type") ?? "video/mp4").split(";")[0].trim();
+  if (contentType.includes("text/html")) throw new Error("O ElevenLabs devolveu uma página em vez do vídeo dublado.");
+  return { body: await res.arrayBuffer(), contentType, flowId: flow.flow_id };
+}
+
 // ---------- Texto para fala ----------
 
 export type TtsInput = {

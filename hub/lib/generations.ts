@@ -3,7 +3,9 @@
 // "upload" = arquivo anexado no chat (foto do produto, vídeo, áudio). "editor" = vídeo exportado pelo editor do hub.
 // "montagem" = montagem automática local do infoproduto (cortes de silêncio + legendas + b-rolls, scripts/montagem.py).
 // "heygen-traducao" = vídeo traduzido pelo HeyGen (pelo MCP, créditos do plano; lib/server/video-translation.ts).
-export type GenerationTool = "elevenlabs" | "heygen" | "heygen-traducao" | "higgsfield" | "flora" | "upload" | "editor" | "montagem";
+// "instagram" = mídia da linha de produção do Instagram (features/instagram): cópia do post de referência, vídeo sem
+// legenda, traduzido, editado e as imagens adaptadas. params.instagramChave é o nome do arquivo no Instagram.
+export type GenerationTool = "elevenlabs" | "heygen" | "heygen-traducao" | "higgsfield" | "flora" | "upload" | "editor" | "montagem" | "instagram";
 export type MediaKind = "audio" | "video" | "image";
 export type GenerationStatus = "pending" | "running" | "done" | "failed";
 

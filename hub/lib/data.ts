@@ -178,6 +178,18 @@ export const agents: Agent[] = [
     ],
   },
   {
+    id: "conteudo-instagram",
+    name: "Conteúdo Instagram",
+    short: "IG",
+    status: "idle",
+    role: "Adapta os posts da conta brasileira para os perfis de San Benito (espanhol) e Saint Benoît (francês).",
+    tools: ["Claude"],
+    chat: [{ from: "ai", text: "Mande o post da @santaespiritualidade: devolvo gancho, legenda e hashtags para o espanhol e o francês." }],
+    deliverables: [
+      { kind: "text", label: "Por mercado", text: "Gancho · legenda final · 3 a 10 hashtags · texto de cada slide", meta: "ES e FR" },
+    ],
+  },
+  {
     // Instruções reais em lib/agent-profiles.ts (este array só alimenta o menu lateral).
     id: "transcricao",
     name: "Transcrição",

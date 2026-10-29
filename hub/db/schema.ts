@@ -10,3 +10,4 @@ export * from "../features/integracoes/tabelas";
 export * from "../features/youtube/tabelas";
 export * from "../features/skala/tabelas";
 export * from "../features/api/tabelas";
+export * from "../features/instagram/tabelas";

@@ -1,0 +1,155 @@
+/* Telas do Instagram (features/instagram/tela, o antigo painel "San Benito Social"): os nomes de cor do painel de
+   origem ligados às cores do hub (fundo, cartões, texto e o azul do logo), para as telas ficarem no estilo do hub sem
+   reescrever cada uma. Os tons de status (fila, produção, agendado, publicado, falha) são os do painel de origem, com
+   a versão clara e a escura. */
+
+:root {
+  --ig-neutral: #6b7383;
+  --ig-neutral-soft: #eceee9;
+  --ig-neutral-ink: #3d4452;
+  --ig-progress: #6a55b8;
+  --ig-progress-soft: #ece8f8;
+  --ig-progress-ink: #47378a;
+  --ig-attention: #a07726;
+  --ig-attention-soft: #f6ecd6;
+  --ig-attention-ink: #634711;
+  --ig-warning: #c25e1c;
+  --ig-warning-soft: #fbe9dc;
+  --ig-warning-ink: #8a3d0c;
+  --ig-info: #2f6ea3;
+  --ig-info-soft: #e1edf7;
+  --ig-info-ink: #1d4c74;
+  --ig-scheduled: #18807c;
+  --ig-scheduled-soft: #dcf0ee;
+  --ig-scheduled-ink: #0e5653;
+  --ig-success: #2e7d4c;
+  --ig-success-soft: #def0e3;
+  --ig-success-ink: #1b5432;
+  --ig-danger: #b83a3a;
+  --ig-danger-soft: #f8e1df;
+  --ig-danger-ink: #852222;
+  --ig-brass: #8c6a2c;
+  --ig-brass-soft: #f3ead8;
+  --ig-brass-ink: #5e4517;
+}
+
+.dark {
+  --ig-neutral: #9099a8;
+  --ig-neutral-soft: #232934;
+  --ig-neutral-ink: #c8ced8;
+  --ig-progress: #a594e6;
+  --ig-progress-soft: #262140;
+  --ig-progress-ink: #cdc3f5;
+  --ig-attention: #d6ae5f;
+  --ig-attention-soft: #2f2715;
+  --ig-attention-ink: #eed39b;
+  --ig-warning: #e8955a;
+  --ig-warning-soft: #33221a;
+  --ig-warning-ink: #f3c19c;
+  --ig-info: #79aedb;
+  --ig-info-soft: #182a3b;
+  --ig-info-ink: #b6d5ef;
+  --ig-scheduled: #5cc3bd;
+  --ig-scheduled-soft: #133230;
+  --ig-scheduled-ink: #a6e2de;
+  --ig-success: #6cc08b;
+  --ig-success-soft: #16301f;
+  --ig-success-ink: #ade0bf;
+  --ig-danger: #ee7c76;
+  --ig-danger-soft: #3a1b1b;
+  --ig-danger-ink: #f6b9b5;
+  --ig-brass: #d3ae68;
+  --ig-brass-soft: #2e2716;
+  --ig-brass-ink: #e9cf9a;
+}
+
+@theme inline {
+  --color-bg: var(--background);
+  --color-surface: var(--card);
+  --color-surface-sunken: var(--muted);
+  --color-surface-raised: var(--popover);
+  --color-border-strong: color-mix(in oklab, var(--foreground) 22%, var(--border));
+  --color-ink: var(--foreground);
+  --color-ink-muted: var(--muted-foreground);
+  --color-ink-subtle: color-mix(in oklab, var(--muted-foreground) 72%, var(--background));
+  --color-primary-hover: color-mix(in oklab, var(--primary) 86%, var(--foreground));
+  --color-primary-ink: var(--primary-foreground);
+  --color-primary-soft: color-mix(in oklab, var(--primary) 14%, transparent);
+
+  --color-brass: var(--ig-brass);
+  --color-brass-soft: var(--ig-brass-soft);
+  --color-brass-ink: var(--ig-brass-ink);
+  --color-neutral: var(--ig-neutral);
+  --color-neutral-soft: var(--ig-neutral-soft);
+  --color-neutral-ink: var(--ig-neutral-ink);
+  --color-progress: var(--ig-progress);
+  --color-progress-soft: var(--ig-progress-soft);
+  --color-progress-ink: var(--ig-progress-ink);
+  --color-attention: var(--ig-attention);
+  --color-attention-soft: var(--ig-attention-soft);
+  --color-attention-ink: var(--ig-attention-ink);
+  --color-warning: var(--ig-warning);
+  --color-warning-soft: var(--ig-warning-soft);
+  --color-warning-ink: var(--ig-warning-ink);
+  --color-info: var(--ig-info);
+  --color-info-soft: var(--ig-info-soft);
+  --color-info-ink: var(--ig-info-ink);
+  --color-scheduled: var(--ig-scheduled);
+  --color-scheduled-soft: var(--ig-scheduled-soft);
+  --color-scheduled-ink: var(--ig-scheduled-ink);
+  --color-success: var(--ig-success);
+  --color-success-soft: var(--ig-success-soft);
+  --color-success-ink: var(--ig-success-ink);
+  --color-danger: var(--ig-danger);
+  --color-danger-soft: var(--ig-danger-soft);
+  --color-danger-ink: var(--ig-danger-ink);
+
+  /* Superfícies planas do hub: a sombra do cartão é a fina, a das janelas é a do hub. */
+  --shadow-card: var(--shadow-1);
+  --shadow-pop: var(--shadow-3);
+  --shadow-bar: 0 -8px 24px -12px rgb(0 0 0 / 0.25);
+
+  --animate-ig-fade-in: ig-fade-in 160ms ease-out;
+  --animate-ig-pop-in: ig-pop-in 180ms cubic-bezier(0.2, 0.9, 0.3, 1.1);
+  --animate-shimmer: ig-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes ig-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ig-pop-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes ig-shimmer {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* Títulos das telas do Instagram na fonte de títulos do hub. */
+@utility font-display {
+  font-family: var(--font-heading);
+  letter-spacing: -0.01em;
+}
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+}

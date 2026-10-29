@@ -19,6 +19,7 @@ const TOOL_LABEL: Record<GenerationTool, string> = {
   editor: "Editor",
   montagem: "Edição",
   "heygen-traducao": "Tradução",
+  instagram: "Instagram",
 };
 
 const FILTERS: { value: MediaKind | "all"; label: string }[] = [

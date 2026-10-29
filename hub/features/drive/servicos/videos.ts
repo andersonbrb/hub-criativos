@@ -112,6 +112,8 @@ export function pastaDaGeracao(g: Generation): PastaDoDrive | null {
       // Entregas do Claude Code (link de envio do conector) numa pasta; o que a equipe envia (chat, editor, Fluxo,
       // tradução, referências dos agentes) em outra.
       return g.params.origem === "conector" ? "entregas" : "enviados";
+    case "instagram":
+      return "instagram";
     default:
       return "outros";
   }

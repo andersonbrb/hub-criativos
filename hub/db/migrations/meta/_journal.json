@@ -57,6 +57,13 @@
       "when": 1793207190226,
       "tag": "0007_chaves_de_api",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793283118365,
+      "tag": "0008_instagram",
+      "breakpoints": true
     }
   ]
 }

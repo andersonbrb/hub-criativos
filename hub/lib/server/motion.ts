@@ -229,6 +229,51 @@ export async function aplicarCamada(opts: { video: string; camada: CamadaDoVideo
   }
 }
 
+// Outra composição do Remotion sobre o vídeo (substitui o arquivo), do mesmo jeito da camada: quadros em PNG
+// transparente, sobrepostos pelo ffmpeg do sistema com o áudio intacto. Usada pelo reel do Instagram
+// (remotion/ReelInstagram.tsx). Sem reserva: se o Remotion falhar, lança o erro.
+export async function sobreporComposicao(opts: { video: string; composicao: string; props: Record<string, unknown>; fps: number; workdir: string; log: (m: string) => void }) {
+  await mkdir(opts.workdir, { recursive: true });
+  const tmp = `${opts.video}.gfx.mp4`;
+  const root = process.cwd();
+  try {
+    const seq = path.join(opts.workdir, "camada");
+    const arquivoProps = path.join(opts.workdir, "camada.json");
+    await writeFile(arquivoProps, JSON.stringify(opts.props));
+    opts.log(`textos na tela pelo Remotion (${opts.composicao})`);
+    const cli = path.join(root, "node_modules", "@remotion", "cli", "remotion-cli.js");
+    await exec(
+      process.execPath,
+      [cli, "render", "remotion/index.ts", opts.composicao, seq, `--props=${arquivoProps}`, "--sequence", "--image-format=png", `--public-dir=${FONTS}`, "--log=error"],
+      root,
+      30 * 60_000,
+    );
+    const frames = (await readdir(seq)).filter((f) => f.endsWith(".png")).sort();
+    if (!frames.length) throw new Error("o Remotion não gerou quadros");
+    const digits = frames[0].match(/(\d+)\.png$/)?.[1].length ?? 3;
+    await exec(
+      FFMPEG,
+      [
+        "-y", "-v", "error",
+        "-i", opts.video,
+        "-framerate", String(opts.fps), "-i", path.join(seq, `element-%0${digits}d.png`),
+        "-filter_complex", "[0:v][1:v]overlay=0:0:eof_action=pass,format=yuv420p[v]",
+        "-map", "[v]", "-map", "0:a?",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", ...(await qualidade(opts.video)),
+        "-c:a", "copy", "-movflags", "+faststart",
+        tmp,
+      ],
+      root,
+      15 * 60_000,
+    );
+    await rename(tmp, opts.video);
+    opts.log("textos aplicados");
+  } finally {
+    await rm(tmp, { force: true }).catch(() => undefined);
+    await rm(opts.workdir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 // Reserva: a legenda (e a faixa do aviso) pelo filtro ass do ffmpeg, como antes do Remotion.
 async function queimarAss(video: string, destino: string, ass: string, props: CamadaProps, workdir: string, saida: string[]) {
   const pasta = path.join(workdir, "ass");

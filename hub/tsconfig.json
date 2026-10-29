@@ -19,7 +19,20 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@sbs/shared-kernel": ["./features/instagram/nucleo/shared-kernel/index.ts"],
+      "@sbs/shared-kernel/testing": ["./features/instagram/nucleo/shared-kernel/testing/index.ts"],
+      "@sbs/contracts": ["./features/instagram/nucleo/contracts/index.ts"],
+      "@sbs/markets": ["./features/instagram/nucleo/markets/index.ts"],
+      "@sbs/markets/testing": ["./features/instagram/nucleo/markets/testing/index.ts"],
+      "@sbs/reference": ["./features/instagram/nucleo/reference/index.ts"],
+      "@sbs/reference/testing": ["./features/instagram/nucleo/reference/testing/index.ts"],
+      "@sbs/studio": ["./features/instagram/nucleo/studio/index.ts"],
+      "@sbs/studio/testing": ["./features/instagram/nucleo/studio/testing/index.ts"],
+      "@sbs/governance": ["./features/instagram/nucleo/governance/index.ts"],
+      "@sbs/governance/testing": ["./features/instagram/nucleo/governance/testing/index.ts"],
+      "@sbs/publishing": ["./features/instagram/nucleo/publishing/index.ts"],
+      "@sbs/publishing/testing": ["./features/instagram/nucleo/publishing/testing/index.ts"]
     }
   },
   "include": [

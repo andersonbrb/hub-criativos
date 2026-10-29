@@ -13,6 +13,11 @@ const PEDIDOS: Partial<Record<NomeDaChave, (valor: string) => { url: string; hea
     headers: { "x-api-key": valor, "anthropic-version": "2023-06-01" },
     quem: "A Anthropic",
   }),
+  apify: (valor) => ({
+    url: `https://api.apify.com/v2/users/me?token=${encodeURIComponent(valor)}`,
+    headers: {},
+    quem: "O Apify",
+  }),
   venice: (valor) => ({
     url: "https://api.venice.ai/api/v1/api_keys/rate_limits",
     headers: { authorization: `Bearer ${valor}` },

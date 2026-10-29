@@ -4,6 +4,7 @@
 //   um envio que o reinício interrompeu continua de onde parou.
 // - Liga a faxina dos vídeos (regra do dono: vídeo só fica guardado no Google Drive): leva ao Drive o que ficou no
 //   disco, descarta o que passou do prazo e apaga as sobras (features/drive/servicos/faxina.ts).
+// - Liga a agenda do Instagram (publicações na hora marcada).
 // Uma falha aqui nunca impede o servidor de subir.
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
@@ -26,6 +27,13 @@ export async function register() {
     iniciarFaxinaDosVideos();
   } catch (err) {
     console.error("[hub] não deu para ligar a faxina dos vídeos:", err instanceof Error ? err.message : err);
+  }
+  // Instagram (migrado em 29/10/2026): publica na grade de horários de cada conta e retoma as peças que o reinício
+  // interrompeu (features/instagram/servicos/agenda.ts). Só com o banco: o Instagram mora nele.
+  if (process.env.DATABASE_URL?.trim()) {
+    void import("@/features/instagram/servicos/agenda")
+      .then(({ iniciarAgendaDoInstagram }) => iniciarAgendaDoInstagram())
+      .catch((err) => console.error("[instagram] não deu para ligar a agenda de publicações:", err instanceof Error ? err.message : err));
   }
   // Pedido do dono (28/10/2026): o login de administrador fica nas variáveis do servidor. A senha de
   // SENHA_DO_DONO_DA_PLATAFORMA passa a valer para o primeiro e-mail de DONOS_DA_PLATAFORMA (features/acesso/servicos/donos.ts).

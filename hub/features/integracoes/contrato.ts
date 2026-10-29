@@ -1,8 +1,8 @@
 // Contrato das chaves das integrações: o que se cola na tela Integrações em vez de virar variável do servidor.
 // Arquivo puro (sem código de servidor): a tela importa. Serviços em features/integracoes/servicos/chaves.ts.
 //
-// Ficam aqui as chaves de API (Claude, Venice), as credenciais do cliente do Google (Drive) e a escolha do modelo do
-// chat na nuvem. HeyGen, FLORA, ElevenLabs e Higgsfield não têm chave: entram pelo login da conta (MCP).
+// Ficam aqui as chaves de API (Claude, Venice, Apify, vMake), as credenciais do cliente do Google (Drive), o app da Meta
+// do Instagram e a escolha do modelo do chat na nuvem. HeyGen, FLORA, ElevenLabs e Higgsfield não têm chave: entram pelo login da conta (MCP).
 // Continuam como variáveis só as que o servidor precisa antes de abrir qualquer tela (banco, chave que cifra estes
 // segredos, endereço público, donos).
 
@@ -20,6 +20,13 @@ export const CHAVES = {
   // (o Google a expõe ao navegador), mas a tela mostra só o final, como as outras.
   "google-api-key": { rotulo: "Chave de API do Google", segredo: true, variavelAntiga: "GOOGLE_API_KEY" },
   "modelo-api": { rotulo: "Modelo do chat na nuvem", segredo: false, variavelAntiga: "HUB_API_MODEL" },
+  // Instagram (features/instagram): leitura dos posts das contas de referência, remoção de legendas dos reels e o
+  // app da Meta do login das contas. As variáveis antigas são as do projeto de origem (só ponto de partida).
+  apify: { rotulo: "Token da API do Apify", segredo: true, variavelAntiga: "APIFY_TOKEN" },
+  "vmake-access-key": { rotulo: "Access Key da vMake", segredo: false, variavelAntiga: "VMAKE_ACCESS_KEY" },
+  "vmake-secret-key": { rotulo: "Secret Key da vMake", segredo: true, variavelAntiga: "VMAKE_SECRET_KEY" },
+  "instagram-app-id": { rotulo: "ID do app do Instagram (Meta)", segredo: false, variavelAntiga: "INSTAGRAM_APP_ID" },
+  "instagram-app-secret": { rotulo: "Chave secreta do app do Instagram (Meta)", segredo: true, variavelAntiga: "INSTAGRAM_APP_SECRET" },
 } as const satisfies Record<string, { rotulo: string; segredo: boolean; variavelAntiga: string }>;
 
 export type NomeDaChave = keyof typeof CHAVES;

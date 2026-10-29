@@ -20,6 +20,7 @@ const TOOL_LABELS: Partial<Record<GenerationTool, string>> = {
   editor: "Editor",
   montagem: "Edição",
   "heygen-traducao": "Tradução",
+  instagram: "Instagram",
 };
 
 export const toolLabel = (tool: GenerationTool) => TOOL_LABELS[tool] ?? tool;

@@ -27,7 +27,8 @@ export const VARIAVEL_DA_CHAVE = "HUB_CHAVE_DAS_EDICOES";
 export const VARIAVEL_DO_PAPEL = "HUB_SERVIDOR";
 export const TAMANHO_MINIMO_DA_CHAVE = 32;
 
-export const TIPOS_DE_TRABALHO = ["montagem", "batida", "sem-legenda", "editor", "transcricao"] as const;
+// "instagram-reel": os textos do reel adaptado do Instagram (remotion/ReelInstagram.tsx) sobre o vídeo traduzido.
+export const TIPOS_DE_TRABALHO = ["montagem", "batida", "sem-legenda", "editor", "transcricao", "instagram-reel"] as const;
 export type TipoDeTrabalho = (typeof TIPOS_DE_TRABALHO)[number];
 
 // `dados` leva os caminhos como marcadores, trocados pelo caminho de verdade em quem roda (site ou servidor de edições):

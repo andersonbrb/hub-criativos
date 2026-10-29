@@ -14,6 +14,8 @@ export const CHAVES = [
   { chave: "biblioteca", rotulo: "Biblioteca", grupo: "Produção" },
   // Publica no canal da organização: fica fora do "marcar tudo" (o dono libera para quem pode falar pela empresa).
   { chave: "youtube", rotulo: "Enviar vídeos ao YouTube (publica no canal da organização)", grupo: "Produção", restrita: true },
+  // Adapta os posts da conta de referência e publica no Instagram de cada mercado: fora do "marcar tudo", como o YouTube.
+  { chave: "instagram", rotulo: "Instagram (adaptar posts, aprovar e publicar nas contas da organização)", grupo: "Produção", restrita: true },
   { chave: "estudios", rotulo: "Estúdios (gera no FLORA, ElevenLabs e HeyGen, gasta créditos)", grupo: "Estúdios" },
   { chave: "memoria", rotulo: "Memória (ler)", grupo: "Memória" },
   { chave: "memoria_editar", rotulo: "Memória (editar)", grupo: "Memória" },
@@ -119,6 +121,7 @@ export const TELAS: { href: string; chave: Chave }[] = [
   { href: "/criativo-automatico", chave: "criativo-automatico" },
   { href: "/biblioteca", chave: "biblioteca" },
   { href: "/editor", chave: "editor" },
+  { href: "/instagram", chave: "instagram" },
   { href: "/estudios/geracao", chave: "estudios" },
   { href: "/memoria", chave: "memoria" },
   { href: "/conector", chave: "conector_claude" },

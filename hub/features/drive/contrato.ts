@@ -25,6 +25,7 @@ export const PASTAS = {
   avatar: "Avatar (HeyGen)",
   entregas: "Entregas do Claude",
   enviados: "Enviados pela equipe",
+  instagram: "Instagram",
   outros: "Outros",
   // Vídeos que estavam soltos no disco do hub, sem registro (sobras de antes da regra do dono): vão para cá em vez de
   // serem apagados sem ninguém ver.

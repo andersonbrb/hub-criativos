@@ -1,4 +1,4 @@
-import { Clapperboard } from "lucide-react";
+import { Camera, Clapperboard, Eraser, Search } from "lucide-react";
 import Link from "next/link";
 import { connection } from "next/server";
 
@@ -176,6 +176,38 @@ export default async function IntegrationsPage({ searchParams }: PageProps<"/int
               </Button>
             }
           />
+        </CartaoDeIntegracao>
+
+        {/* Instagram (features/instagram): leitura das contas de referência, remoção de legendas e o app da Meta. */}
+        <CartaoDeIntegracao
+          logo={{ icone: Search }}
+          nome="Apify"
+          descricao="Instagram: lê os posts públicos das contas de referência (cobra por resultado)."
+          rodape={<LinkDoRodape href="https://console.apify.com/settings/integrations">Pegar o token</LinkDoRodape>}
+        >
+          <CampoDeChave nome="apify" titulo="Token da API" resumo={chaves.apify} exemplo="apify_api_..." />
+        </CartaoDeIntegracao>
+
+        <CartaoDeIntegracao
+          logo={{ icone: Eraser }}
+          nome="vMake"
+          descricao="Instagram: tira as legendas dos reels antes da tradução (gasta a cota da vMake)."
+          rodape={<LinkDoRodape href="https://vmake.ai/developers">Pegar as chaves</LinkDoRodape>}
+        >
+          <CampoDeChave nome="vmake-access-key" titulo="Access Key" resumo={chaves["vmake-access-key"]} />
+          <CampoDeChave nome="vmake-secret-key" titulo="Secret Key" resumo={chaves["vmake-secret-key"]} />
+        </CartaoDeIntegracao>
+
+        <CartaoDeIntegracao
+          logo={{ icone: Camera }}
+          nome="Instagram (app da Meta)"
+          descricao="O app do login das contas do Instagram. As contas de cada país se conectam em Instagram → Configurações."
+          rodape={
+            podeUsar(usuario, "instagram") ? <LinkDoRodape href="/instagram/configuracoes">Conectar as contas</LinkDoRodape> : undefined
+          }
+        >
+          <CampoDeChave nome="instagram-app-id" titulo="ID do app (Instagram App ID)" resumo={chaves["instagram-app-id"]} exemplo="990602627938098" />
+          <CampoDeChave nome="instagram-app-secret" titulo="Chave secreta do app" resumo={chaves["instagram-app-secret"]} />
         </CartaoDeIntegracao>
       </section>
     </main>

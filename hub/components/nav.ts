@@ -3,6 +3,7 @@ import {
   Bot,
   Building2,
   Cable,
+  Camera,
   Code,
   FileCode,
   Film,
@@ -69,6 +70,8 @@ export const BARRA: ItemDaBarra[] = [
   { href: "/biblioteca", label: "Biblioteca", icon: Library, chave: "biblioteca" },
   { href: "/estudios", label: "Estúdios", icon: Palette, chave: "estudios", telas: ESTUDIOS },
   { href: "/editor", label: "Editor", icon: Film, chave: "editor" },
+  // Pedido do dono (29/10/2026): o projeto do Instagram veio inteiro para o hub, com item próprio no menu.
+  { href: "/instagram", label: "Instagram", icon: Camera, chave: "instagram" },
   { href: "/memoria", label: "Memória", icon: BookOpen, chave: "memoria" },
 ];
 
@@ -88,7 +91,7 @@ const DA_ORGANIZACAO: ItemDaBarra[] = [
 ];
 
 // Telas que só existem com o banco (no PC sem banco ficam fora do menu).
-const SO_COM_BANCO = new Set<string>(["/memoria", "/conector", "/membros", "/plataforma", "/api-do-hub", "/documentacao-da-api", "/chaves-de-api"]);
+const SO_COM_BANCO = new Set<string>(["/memoria", "/conector", "/membros", "/plataforma", "/api-do-hub", "/documentacao-da-api", "/chaves-de-api", "/instagram"]);
 
 const podeAbrir = (usuario: Usuario, semBanco: boolean) => (i: ItemDoMenu) =>
   (i.soOperador ? usuario.operaPlataforma : podeUsar(usuario, i.chave) && (!i.soAdmin || ehAdmin(usuario))) && !(semBanco && SO_COM_BANCO.has(i.href));
@@ -130,6 +133,11 @@ export function caminhoDaPagina(pathname: string): { nome: string; grupo?: { hre
   }
   // Documento da Memória: no celular a barra do topo é o único lugar que diz em que tela a pessoa está.
   if (pathname.startsWith("/memoria/")) return { nome: "Documento", grupo: { href: "/memoria", label: "Memória" } };
+  // As abas da seção Instagram (o item do menu marca todas elas).
+  if (pathname.startsWith("/instagram/")) {
+    const abas: Record<string, string> = { producao: "Produção", conteudos: "Revisão", calendario: "Calendário", referencias: "Referências", mercados: "Mercados", configuracoes: "Configurações" };
+    return { nome: abas[pathname.split("/")[2]] ?? "Instagram", grupo: { href: "/instagram", label: "Instagram" } };
+  }
   for (const item of [...BARRA, ...RODAPE, ...DA_ORGANIZACAO]) {
     if (item.href === pathname) return { nome: item.label };
     const tela = item.telas?.find((t) => dentro(pathname, t.href));

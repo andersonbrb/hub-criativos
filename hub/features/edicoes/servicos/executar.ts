@@ -2,13 +2,13 @@ import "server-only";
 
 import { execFile, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import path from "node:path";
 
 import { MARCA_DA_ENTRADA, MARCA_DA_PASTA, MARCA_DA_SAIDA, NOME_VALIDO, type Trabalho } from "@/features/edicoes/contrato";
 import { placeCaptions, placeClips, type EditorProject } from "@/lib/editor";
-import { aplicarCamada, posicionarGraficos, type CamadaDoVideo, type GraphicRequest } from "@/lib/server/motion";
+import { aplicarCamada, posicionarGraficos, sobreporComposicao, type CamadaDoVideo, type GraphicRequest } from "@/lib/server/motion";
 import type { Legenda, Palavra } from "@/remotion/Camada";
 
 // O trabalho pesado das edições: Python (scripts/montagem.py, batida.py, remover_legenda.py, transcrever.py), ffmpeg e
@@ -67,6 +67,9 @@ export async function executarTrabalho(t: Trabalho, c: Caminhos, log: Registro):
       return {};
     case "editor":
       await editor(t.dados, c, log);
+      return {};
+    case "instagram-reel":
+      await reelInstagram(t.dados, c, log);
       return {};
     case "transcricao":
       return { resultado: await transcricao(t.dados, c) };
@@ -309,6 +312,22 @@ async function semLegenda(dados: Record<string, unknown>, c: Caminhos, log: Regi
     await tirarIntermediarios(d.job.out);
   } catch (err) {
     await tirarSobras(d.job.out);
+    throw err;
+  }
+}
+
+// ---------- Reel do Instagram (os textos do Padrão de Edição pelo Remotion) ----------
+
+// O vídeo traduzido sai com o gancho, a headline, as legendas e o CTA que o diretor de edição montou
+// (features/instagram/servidor/composition/production/editing-stage.ts).
+async function reelInstagram(dados: Record<string, unknown>, c: Caminhos, log: Registro) {
+  const d = resolverMarcadores(dados, c) as { video: string; props: Record<string, unknown> & { fps?: number } };
+  await mkdir(path.dirname(c.saida), { recursive: true });
+  try {
+    await copyFile(d.video, c.saida);
+    await sobreporComposicao({ video: c.saida, composicao: "ReelInstagram", props: d.props, fps: Number(d.props.fps) || 30, workdir: c.pasta("camada"), log: log.linha });
+  } catch (err) {
+    await tirarSobras(c.saida);
     throw err;
   }
 }
