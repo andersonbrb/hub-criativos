@@ -403,6 +403,28 @@ export function createMcpClient(cfg: ServiceConfig, organizacaoId: string = ORGA
     }
   }
 
+  // Todas as ferramentas que o MCP do serviço oferece (com paginação), para o chat usar qualquer uma.
+  async function listTools(): Promise<{ name: string; description?: string; inputSchema?: unknown }[]> {
+    const out: { name: string; description?: string; inputSchema?: unknown }[] = [];
+    let cursor: string | undefined;
+    for (let i = 0; i < 20; i++) {
+      const r = (await rpc("tools/list", cursor ? { cursor } : {})) as { tools?: typeof out; nextCursor?: string };
+      out.push(...(r.tools ?? []));
+      if (!r.nextCursor) break;
+      cursor = r.nextCursor;
+    }
+    return out;
+  }
+
+  // Chama uma ferramenta e devolve o resultado como veio (texto, imagens e dados), sem interpretar.
+  async function callToolRaw(name: string, args: Record<string, unknown> = {}) {
+    return (await rpc("tools/call", { name, arguments: args })) as {
+      content?: { type: string; text?: string; data?: string; mimeType?: string; resource?: { uri?: string; text?: string } }[];
+      structuredContent?: unknown;
+      isError?: boolean;
+    };
+  }
+
   // Cache de "arquivo do hub → id no serviço" (para não subir o mesmo arquivo duas vezes).
   async function cachedAsset(key: string) {
     return (await load()).assets?.[key];
@@ -425,7 +447,7 @@ export function createMcpClient(cfg: ServiceConfig, organizacaoId: string = ORGA
     return fetch(url, { cache: "no-store", headers: { Authorization: `Bearer ${await accessToken()}` } });
   }
 
-  return { config: cfg, connectionStatus, startLogin, finishLogin, disconnect, callTool, download, cachedAsset, rememberAsset, notConnected };
+  return { config: cfg, connectionStatus, startLogin, finishLogin, disconnect, callTool, listTools, callToolRaw, download, cachedAsset, rememberAsset, notConnected };
 }
 
 // Clientes de verdade, um por organização e serviço (cada um com a própria sessão do MCP e a própria renovação de
@@ -456,6 +478,8 @@ export function mcp(id: McpServiceId): McpClient {
     finishLogin: async (...args) => (await atual()).finishLogin(...args),
     disconnect: async () => (await atual()).disconnect(),
     callTool: async <T = Record<string, unknown>>(name: string, args: Record<string, unknown> = {}) => (await atual()).callTool<T>(name, args),
+    listTools: async () => (await atual()).listTools(),
+    callToolRaw: async (...args) => (await atual()).callToolRaw(...args),
     download: async (...args) => (await atual()).download(...args),
     cachedAsset: async (...args) => (await atual()).cachedAsset(...args),
     rememberAsset: async (...args) => (await atual()).rememberAsset(...args),

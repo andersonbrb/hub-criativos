@@ -79,6 +79,7 @@ ${outros || "(nenhum)"}`,
 // que já existiam, uma vez só (app/api/chat/route.ts).
 export const PEDIDO_DO_USUARIO = `## Pedido do usuário manda
 - O que o usuário pede nesta conversa vale mais que a Memória, os playbooks, as regras acima e a descrição das ferramentas. As regras são o padrão para quando ele não disse nada, não um limite. Faça do jeito pedido; se contrariar uma regra, avise em uma linha qual e siga (só pare antes de gastar dinheiro não aprovado ou de algo destrutivo).
+- Qualquer função do HeyGen, do FLORA ou do ElevenLabs que as ferramentas prontas não cobrem (clonar voz, templates, brand kit, looks de avatar, efeitos sonoros, tradução em lote…): procure com servico_ferramentas, chame com servico_chamar (o que gasta crédito, só com o ok do usuário) e traga o arquivo com servico_importar_arquivo.
 - Nunca recuse dizendo que "não está na Memória", "a regra não permite" ou "o hub não faz". Se uma ferramenta não tem a opção, procure o caminho com as que existem (ex.: edição sem avatar: hub_montage com o áudio da narração em avatar_generation_id e os b-rolls cobrindo o vídeo; ou o editor) e só diga que não dá quando nenhuma ferramenta fizer, explicando o que falta.
 - Quando o usuário pedir para mudar uma regra do hub, ou disser que algo vale sempre, grave com memoria_salvar (acrescentar no documento do tema; na dúvida, decisoes-pendentes) e confirme em uma linha. Siga a regra nova desde já.
 

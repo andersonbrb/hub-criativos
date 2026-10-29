@@ -41,12 +41,14 @@ import { listVoices as listElevenVoices } from "@/lib/server/providers/elevenlab
 import { createProject, getProject, listProjects } from "@/lib/server/providers/flora";
 import { createAvatar, listCreations, type AvatarMode } from "@/lib/server/heygen-avatars";
 import { listLooks, listVoices as listHeyVoices } from "@/lib/server/providers/heygen";
-import { getGeneration, listGenerations } from "@/lib/server/store";
+import { mcp } from "@/lib/server/mcp-client";
+import { saveMedia } from "@/lib/server/media";
+import { createGeneration, getGeneration, listGenerations } from "@/lib/server/store";
 // ---- Acesso (features/acesso) ----
 import { ehAdmin, podeUsar, SemPermissao, type Chave, type Usuario } from "@/features/acesso/contrato";
 import { comOrganizacao } from "@/features/acesso/servicos/organizacao-atual";
 // ---- Drive (features/drive) ----
-import { arquivoLocal } from "@/features/drive/servicos/videos";
+import { arquivoLocal, exigirDriveParaVideo, guardarNoDriveEmSegundoPlano, prazoNoHub } from "@/features/drive/servicos/videos";
 // ---- Memória (features/memoria) ----
 import { FRENTE_ROTULO, FRENTES, TIPO_ROTULO, TIPOS, type DocResumo, type Frente, type TipoDoc } from "@/features/memoria/contrato";
 import { DocNaoEncontrado } from "@/features/memoria/erros";
@@ -757,6 +759,47 @@ const definitions: Anthropic.Beta.BetaTool[] = [
         nota: { type: "string", description: "O que mudou, em uma linha (fica no histórico)." },
       },
       ["conteudo"],
+    ),
+  },
+  // ---- Qualquer função dos serviços (MCPs oficiais do HeyGen, FLORA e ElevenLabs), além das ferramentas prontas ----
+  {
+    name: "servico_ferramentas",
+    description:
+      "Lista TODAS as funções que o HeyGen, o FLORA ou o ElevenLabs oferecem pela conta conectada no hub (não só as das ferramentas prontas do hub). Sem nome: nome e resumo de cada função (filtre com busca). Com nome: a descrição completa e os parâmetros dessa função. Use quando o usuário pedir algo que as ferramentas prontas não fazem (ex.: clonar voz, template, brand kit, tradução em lote, foto avatar com looks, efeitos sonoros) e depois chame com servico_chamar.",
+    input_schema: objectSchema(
+      {
+        servico: { type: "string", enum: ["heygen", "flora", "elevenlabs"] },
+        busca: { type: "string", description: "Palavras do nome ou da descrição (ex.: voice, template, translate)." },
+        nome: { type: "string", description: "Nome exato de uma função: devolve os parâmetros dela." },
+      },
+      ["servico"],
+    ),
+  },
+  {
+    name: "servico_chamar",
+    description:
+      "Chama qualquer função do HeyGen, do FLORA ou do ElevenLabs pela conta conectada no hub, com os parâmetros que servico_ferramentas mostrou. Devolve o resultado como o serviço respondeu. Funções que geram ou gastam créditos: diga ao usuário o que vai fazer e o custo (se o serviço informar) e espere o ok antes. Funções que apagam algo na conta: só com o pedido explícito do usuário. Arquivo pronto (link de vídeo, imagem ou áudio): traga para a Biblioteca com servico_importar_arquivo.",
+    input_schema: objectSchema(
+      {
+        servico: { type: "string", enum: ["heygen", "flora", "elevenlabs"] },
+        funcao: { type: "string", description: "Nome exato da função (de servico_ferramentas)." },
+        argumentos: { type: "object", description: "Parâmetros da função, no formato que ela pede." },
+      },
+      ["servico", "funcao"],
+    ),
+  },
+  {
+    name: "servico_importar_arquivo",
+    description:
+      "Traz para a Biblioteca do hub um arquivo que o HeyGen, o FLORA ou o ElevenLabs gerou (link https devolvido por servico_chamar). Vídeo vai para o Google Drive, como todo vídeo do hub. Devolve a geração com id, para usar nas outras ferramentas (edição, lipsync etc.).",
+    input_schema: objectSchema(
+      {
+        servico: { type: "string", enum: ["heygen", "flora", "elevenlabs"] },
+        url: { type: "string" },
+        tipo: { type: "string", enum: ["video", "image", "audio"] },
+        descricao: { type: "string", description: "O que é o arquivo (vira o texto da geração)." },
+      },
+      ["servico", "url", "tipo"],
     ),
   },
 ];
@@ -1496,6 +1539,65 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
     return { content: json({ ...creation, proximo }), summary: `avatar "${cut(creation.name, 30)}" criado` };
   },
 
+  async servico_ferramentas(input) {
+    const servico = servicoLivre(input.servico);
+    const todas = await mcp(servico).listTools();
+    const nome = str(input.nome).trim();
+    if (nome) {
+      const t = todas.find((x) => x.name === nome);
+      if (!t) throw new InputError(`O ${servico} não tem a função "${nome}". Liste sem nome para ver as que existem.`);
+      return { content: json({ nome: t.name, descricao: t.description ?? "", parametros: t.inputSchema ?? {} }), summary: `${servico}: ${cut(t.name, 40)}` };
+    }
+    const q = str(input.busca).toLowerCase().split(/\s+/).filter(Boolean);
+    const achadas = todas.filter((t) => q.every((p) => `${t.name} ${t.description ?? ""}`.toLowerCase().includes(p)));
+    const itens = achadas.map((t) => ({ nome: t.name, resumo: cut((t.description ?? "").replace(/\s+/g, " "), 160) }));
+    return { content: json({ servico, total: todas.length, mostradas: itens.length, funcoes: itens }), summary: `${servico}: ${itens.length} funções` };
+  },
+
+  async servico_chamar(input) {
+    const servico = servicoLivre(input.servico);
+    const funcao = str(input.funcao).trim();
+    if (!funcao) throw new InputError("Diga a função (nome de servico_ferramentas).");
+    const args = (input.argumentos && typeof input.argumentos === "object" && !Array.isArray(input.argumentos) ? input.argumentos : {}) as Record<string, unknown>;
+    const r = await mcp(servico).callToolRaw(funcao, args);
+    const partes: ToolResultContent[] = [];
+    const textos = (r.content ?? []).map((c) => c.text ?? c.resource?.text ?? c.resource?.uri ?? "").filter(Boolean).join("\n").trim();
+    const dados = r.structuredContent ? json(r.structuredContent) : "";
+    const corpo = [textos, dados && dados !== textos ? dados : ""].filter(Boolean).join("\n\n") || "(sem resposta em texto)";
+    partes.push({ type: "text", text: `${r.isError ? "O serviço respondeu com erro:\n" : ""}${cut(corpo, 20_000)}` });
+    // Imagens que o serviço devolveu (ex.: prévia): entram como imagem para o agente ver.
+    for (const c of (r.content ?? []).filter((x) => x.type === "image" && x.data).slice(0, 4)) {
+      const ext = (c.mimeType ?? "image/png").split("/")[1]?.replace("jpeg", "jpg") || "png";
+      partes.push(imageRef(await saveMedia(Buffer.from(c.data!, "base64"), ext)));
+    }
+    if (r.isError) return { content: partes, summary: `${servico}: ${cut(funcao, 30)} deu erro` };
+    return { content: partes, summary: `${servico}: ${cut(funcao, 40)}` };
+  },
+
+  async servico_importar_arquivo(input) {
+    const servico = servicoLivre(input.servico);
+    const tipo = (["video", "image", "audio"].includes(str(input.tipo)) ? str(input.tipo) : "") as "video" | "image" | "audio";
+    if (!tipo) throw new InputError("Diga o tipo: video, image ou audio.");
+    const url = str(input.url).trim();
+    if (!/^https:\/\//i.test(url)) throw new InputError("O link precisa começar com https://.");
+    // Vídeo só com o Drive conectado (regra do dono): confere antes de baixar.
+    if (tipo === "video") await exigirDriveParaVideo();
+    const res = await mcp(servico).download(url);
+    if (!res.ok) throw new InputError(`Não consegui baixar o arquivo (${res.status}). O link pode ter vencido: peça o link de novo ao serviço.`);
+    const file = await saveMedia(Buffer.from(await res.arrayBuffer()), EXTENSAO[tipo]);
+    const generation = await createGeneration({
+      tool: servico,
+      kind: tipo,
+      status: "done",
+      prompt: str(input.descricao).trim().slice(0, 500) || `Importado do ${servico}`,
+      file,
+      remoteUrl: url,
+      params: { imported: true, viaChat: true, ...(tipo === "video" ? { prazoNoHub: prazoNoHub() } : {}) },
+    });
+    if (tipo === "video") guardarNoDriveEmSegundoPlano(generation);
+    return { content: json(brief(generation)), summary: `${tipo === "video" ? "vídeo" : tipo === "image" ? "imagem" : "áudio"} na Biblioteca`, generations: [generation] };
+  },
+
   async memoria_salvar(input, { usuario }) {
     if (!process.env.DATABASE_URL?.trim()) return MEMORIA_FORA;
     if (!usuario) throw new InputError("Só uma pessoa logada grava na Memória.");
@@ -1543,6 +1645,14 @@ const handlers: Record<string, (input: Input, ctx: Ctx) => Promise<ToolOutcome>>
   },
 };
 
+const SERVICOS_LIVRES = ["heygen", "flora", "elevenlabs"] as const;
+const servicoLivre = (v: unknown) => {
+  const s = str(v) as (typeof SERVICOS_LIVRES)[number];
+  if (!SERVICOS_LIVRES.includes(s)) throw new InputError(`Serviço inválido: use ${SERVICOS_LIVRES.join(", ")}.`);
+  return s;
+};
+const EXTENSAO: Record<"video" | "image" | "audio", string> = { video: "mp4", image: "png", audio: "mp3" };
+
 const MIME: Record<string, string> = {
   jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp",
   mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm", m4v: "video/mp4",
@@ -1585,6 +1695,9 @@ const CHAVE_DA_FERRAMENTA: Record<string, RegraDeAcesso> = {
   memoria_buscar: { chave: "memoria" },
   memoria_ler: { chave: "memoria" },
   memoria_salvar: { chave: "memoria_editar" },
+  // Qualquer função dos serviços: listar é livre; chamar pode gastar crédito, e importar traz arquivo (como os estúdios).
+  servico_chamar: { chave: "estudios" },
+  servico_importar_arquivo: { chave: "estudios" },
   // Estúdios: gera ou gasta crédito (FLORA, HeyGen, ElevenLabs; a transcrição usa o Scribe só de reserva do Whisper).
   elevenlabs_tts: { chave: "estudios" },
   heygen_create_video: { chave: "estudios" },

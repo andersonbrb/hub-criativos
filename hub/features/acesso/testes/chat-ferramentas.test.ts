@@ -164,13 +164,13 @@ describe("ferramentas do chat: chave de cada uma", () => {
 
   it("listagens e o que não gasta continuam livres para quem tem só o chat", () => {
     const lista = ferramentasDaPessoa(soChat);
-    for (const livre of ["hub_list_generations", "hub_check_generations", "elevenlabs_list_voices", "heygen_list_avatars", "heygen_list_voices", "flora_list_models", "flora_quote", "hub_remove_captions", "hub_list_chats", "hub_read_chat"]) {
+    for (const livre of ["servico_ferramentas", "hub_list_generations", "hub_check_generations", "elevenlabs_list_voices", "heygen_list_avatars", "heygen_list_voices", "flora_list_models", "flora_quote", "hub_remove_captions", "hub_list_chats", "hub_read_chat"]) {
       expect(lista).toContain(livre);
     }
     // As que exigem a chave só em parte das chamadas ficam na lista (a trava é na chamada).
     expect(lista).toContain("flora_projects");
     expect(lista).toContain("hub_view_video");
-    for (const fora of ["memoria_buscar", "memoria_ler", "memoria_salvar", "flora_generate", "elevenlabs_tts", "heygen_create_video", "heygen_translate_video", "hub_montage", "hub_beat_edit", "hub_transcribe", "hub_transcript_read", "pipeline_get", "pipeline_save_card", "editor_open", "editor_render", "editor_join"]) {
+    for (const fora of ["memoria_buscar", "memoria_ler", "memoria_salvar", "servico_chamar", "servico_importar_arquivo", "flora_generate", "elevenlabs_tts", "heygen_create_video", "heygen_translate_video", "hub_montage", "hub_beat_edit", "hub_transcribe", "hub_transcript_read", "pipeline_get", "pipeline_save_card", "editor_open", "editor_render", "editor_join"]) {
       expect(lista).not.toContain(fora);
     }
     // Só filtra: a ordem das definições não muda (prefixo cacheado).

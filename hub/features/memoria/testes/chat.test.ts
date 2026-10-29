@@ -60,7 +60,7 @@ describe("memória no chat interno", () => {
   }));
 
   it("memoria_buscar e memoria_ler respondem para o agente", () => naPadrao(async () => {
-    expect(TOOL_NAMES.slice(-4)).toEqual(["memoria_buscar", "memoria_ler", "heygen_create_avatar", "memoria_salvar"]);
+    expect(TOOL_NAMES.slice(-7)).toEqual(["memoria_buscar", "memoria_ler", "heygen_create_avatar", "memoria_salvar", "servico_ferramentas", "servico_chamar", "servico_importar_arquivo"]);
     await salvar({ slug: "05-traducao", conteudo: "# Tradução de criativos\n\nComo traduzir um AD.", versaoEsperada: null, tipo: "fluxo" }, ana);
     await salvar({ slug: "longo", conteudo: `# Longo\n\n${"x".repeat(45_000)}`, versaoEsperada: null, tipo: "fato" }, ana);
 

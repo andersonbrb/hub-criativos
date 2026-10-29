@@ -95,7 +95,7 @@ export const POST = route(async (request: Request) => {
     // Conversa de antes de 27/10/2026: recebe as regras e as ferramentas novas (pedido do dono). Só acrescenta, no fim.
     if (!chat.system.includes(MARCA_ATUALIZACAO) && !chat.system.includes(PEDIDO_DO_USUARIO)) chat.system += ATUALIZACAO_DAS_CONVERSAS;
     if (chat.toolNames) {
-      const novas = ferramentasDaPessoa(usuario, ["heygen_create_avatar", "memoria_salvar"]).filter((n) => !chat!.toolNames!.includes(n));
+      const novas = ferramentasDaPessoa(usuario, ["heygen_create_avatar", "memoria_salvar", "servico_ferramentas", "servico_chamar", "servico_importar_arquivo"]).filter((n) => !chat!.toolNames!.includes(n));
       if (novas.length) chat.toolNames = [...chat.toolNames, ...novas];
     }
   }
