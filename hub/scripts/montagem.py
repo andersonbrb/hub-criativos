@@ -67,6 +67,8 @@ BR_MAX = 4.0
 BR_AVATAR_MIN = 10.0  # sem deixa: b-roll a cada ~10–15 s de avatar
 BR_AVATAR_MAX = 15.0
 FADE_DUR = 0.25  # dissolve de entrada e saída (só nas transições dissolve/zoom)
+BROLLS_POR_PASSADA = 6  # b-rolls abertos ao mesmo tempo pelo ffmpeg (mais que isso estoura as threads do servidor)
+THREADS_POR_ENTRADA = 2  # threads de decodificação de cada vídeo aberto
 MAX_CHARS = 16   # legenda: blocos de até 3 palavras/16 caracteres
 MAX_WORDS = 3
 WHISPER_MODEL = "small"  # NUNCA "tiny" (causa desync)
@@ -963,29 +965,47 @@ def process(job):
     cues = job.get("broll_cues") or []
     plan = plan_brolls(len(brolls), cues, ws2, jd, cuts, [duration(b) for b in brolls])
     vs = os.path.join(w, "vs.mov")
-    inputs = ["-i", jc]
     if fx["zoom_cortes"]:
         starts = sentence_starts(ws2, jd)
-        flt = f"[0:v]{vf},{rhythm_zoom(starts, jd, h)}[base];"
+        base_vf = f"{vf},{rhythm_zoom(starts, jd, h)}"
         log(f"troca de plano: {len(starts)} enquadramentos (1,00/{ZOOM_FECHADO:.2f}, a cada {PLANO_MIN}–{PLANO_MAX:.0f}s)")
     else:
-        flt = f"[0:v]{vf}[base];"
-    prev = "[base]"
+        base_vf = vf
     trans = fx["transicao"] if fx["transicao"] in ("corte", "dissolve", "zoom", "slide") else "corte"
-    for k, (i, t, d) in enumerate(plan):
-        inputs += ["-i", brolls[i]]
-        zoom = f",scale=w='trunc(1080*(1+0.15*max(0,1-t/0.4))/2)*2':h=-2:eval=frame,crop=1080:{h}" if trans == "zoom" else ""
-        fade_in = f"fade=t=in:st=0:d={FADE_DUR}:alpha=1," if trans in ("dissolve", "zoom") else ""
-        fade_out = f"fade=t=out:st={d - FADE_DUR:.3f}:d={FADE_DUR}:alpha=1," if trans in ("dissolve", "zoom") else ""
-        flt += (f"[{k + 1}:v]trim=0:{d:.3f},setpts=PTS-STARTPTS,{vf}{zoom},format=yuva420p,"
-                f"{fade_in}{fade_out}"
-                f"setpts=PTS+{t}/TB[br{k}];")
-        x = f"'if(lt(t-{t},0.22),W*(1-(t-{t})/0.22),0)'" if trans == "slide" else "0"
-        flt += f"{prev}[br{k}]overlay=x={x}:y=0:eof_action=pass[v{k}];"
-        prev = f"[v{k}]"
     grade = GRADES.get(fx["cor"])
-    flt += f"{prev}{grade}[vout]" if grade else f"{prev}null[vout]"
-    run(["ffmpeg", "-y", "-v", "error", *inputs, "-filter_complex", flt, "-map", "[vout]", "-an", *ENC, vs], "b-roll")
+    # Os b-rolls entram em lotes de BROLLS_POR_PASSADA: com 20+ b-rolls numa passada só, o ffmpeg abre um decodificador
+    # (com uma thread por núcleo da máquina) para cada um ao mesmo tempo, estoura o limite de threads do servidor e falha
+    # em "Failed to configure output pad on Parsed_scale" (defeito de 30/10/2026, AD 169 com 24 b-rolls).
+    plano = sorted(plan, key=lambda p: p[1])
+    lotes = [plano[a:a + BROLLS_POR_PASSADA] for a in range(0, len(plano), BROLLS_POR_PASSADA)] or [[]]
+    fonte = jc
+    for n, lote in enumerate(lotes):
+        ultimo = n == len(lotes) - 1
+        inputs = ["-threads", str(THREADS_POR_ENTRADA), "-i", fonte]
+        flt = f"[0:v]{base_vf if n == 0 else 'null'}[base];"
+        prev = "[base]"
+        for k, (i, t, d) in enumerate(lote):
+            inputs += ["-threads", str(THREADS_POR_ENTRADA), "-i", brolls[i]]
+            zoom = f",scale=w='trunc(1080*(1+0.15*max(0,1-t/0.4))/2)*2':h=-2:eval=frame,crop=1080:{h}" if trans == "zoom" else ""
+            fade_in = f"fade=t=in:st=0:d={FADE_DUR}:alpha=1," if trans in ("dissolve", "zoom") else ""
+            fade_out = f"fade=t=out:st={d - FADE_DUR:.3f}:d={FADE_DUR}:alpha=1," if trans in ("dissolve", "zoom") else ""
+            flt += (f"[{k + 1}:v]trim=0:{d:.3f},setpts=PTS-STARTPTS,{vf}{zoom},format=yuva420p,"
+                    f"{fade_in}{fade_out}"
+                    f"setpts=PTS+{t}/TB[br{k}];")
+            x = f"'if(lt(t-{t},0.22),W*(1-(t-{t})/0.22),0)'" if trans == "slide" else "0"
+            flt += f"{prev}[br{k}]overlay=x={x}:y=0:eof_action=pass[v{k}];"
+            prev = f"[v{k}]"
+        flt += f"{prev}{grade}[vout]" if grade and ultimo else f"{prev}null[vout]"
+        # Passadas do meio saem quase sem perda (crf 10): a última, com o ENC de sempre.
+        enc = ENC if ultimo else [*ENC[:-1], "10"]
+        saida = vs if ultimo else os.path.join(w, f"vs{n}.mov")
+        run(["ffmpeg", "-y", "-v", "error", "-filter_threads", "2", *inputs, "-filter_complex", flt, "-map", "[vout]", "-an",
+             *enc, "-threads", "4", saida], "b-roll")
+        if fonte != jc:
+            os.remove(fonte)
+        fonte = saida
+    if len(lotes) > 1:
+        log(f"b-rolls em {len(lotes)} passadas de até {BROLLS_POR_PASSADA}")
     if len(brolls) > len(plan):
         log(f"{len(brolls) - len(plan)} b-roll(s) não couberam no tempo do vídeo")
     log(f"b-rolls aplicados: {len(plan)} em {', '.join(f'{t}s ({d}s)' for _, t, d in sorted(plan, key=lambda p: p[1])) or '-'}")
